@@ -613,3 +613,11 @@ Other generated mcu8 inputs:
 Also out of scope:
 - The pad tie-off values follow the gpiov2 mode table. Verify them against
   the IO datasheet before a tapeout.
+
+## License
+
+SiPath is licensed under the [Apache License 2.0](LICENSE). Third-party files keep their own terms:
+- `sipath/pdks/sky130/sky130_stdcell.lvs` derives from OpenROAD-flow-scripts (BSD 3-Clause);
+- `sipath/klayout/stream.py` follows ORFS `def2stream.py` (BSD 3-Clause);
+- the ChipFoundry IP views under `sipath/examples/inputs/chipfoundry/` keep their vendors'
+  licenses, as listed in `SOURCES.txt`.
