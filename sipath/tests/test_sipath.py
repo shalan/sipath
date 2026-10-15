@@ -2346,9 +2346,11 @@ class LiveSoftMacro(unittest.TestCase):
     def test_ecos(self):
         f = self.flow
         head = f.steps["signoff"].selected  # the head of the chain: signoff follows extract
-        # resize a multiplier array cell: it grows and its row re-abuts
+        # resize a multiplier array cell: it grows and its row re-abuts. Upsizing adds input
+        # capacitance on its driver: this test checks the mechanics (re-abut, patch route), so it
+        # allows that small setup loss (0.064 ns since the rows carry tap slots) explicitly
         e1 = f.eco("eco_resize", head, [{"op": "resize", "inst": "u_mul.add_1_1", "master": "sky130_fd_sc_hd__fa_2"}],
-                   max_patch_nets=60)
+                   max_patch_nets=60, max_slack_loss=0.1)
         a1 = e1.selected
         self.assertEqual(a1.outputs["reabut"]["mult"]["moved"], 4)  # pp_1_2 add_1_2 pp_1_3 add_1_3
         self.assertEqual(a1.metrics["drc"], 0)

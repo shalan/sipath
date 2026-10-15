@@ -69,7 +69,8 @@ constraints:
 # setup/hold: ns of slack to keep; slew/cap: % below the limits for repair_design
 # (estimated parasitics read low against the extracted SPEF: mcu8 signoff saw
 # 0.78 ns slews after repair against a 0.75 ns limit)
-repair_margins: {setup: 0.025, hold_place: 0.1, hold_route: 0.05, slew: 10, cap: 10}
+# (2026-10-15: 0.76 ns on mcu8 once its multiplier rows carried tap slots: slew margin 10 -> 15)
+repair_margins: {setup: 0.025, hold_place: 0.1, hold_route: 0.05, slew: 15, cap: 10}
 
 pdn:
   rail_layer: met1
