@@ -300,7 +300,7 @@ No parameters.
 
 ## Run configuration
 
-Design file `config:`, a `--config` file, or `FLOW_<KEY>` environment variables (sipath.config).
+Design file `config:`, a `--config` file, or `SIPATH_<KEY>` environment variables (sipath.config).
 
 | key | type | description |
 |---|---|---|

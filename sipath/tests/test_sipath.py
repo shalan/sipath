@@ -1786,36 +1786,36 @@ class LiveSoftMacro(unittest.TestCase):
             {"density": 0.6, "seed": 3, "congestion_margin": 0.95}], parallel=3)
 
     def test_routability_check_rejects_congested_variant(self):
-        att = {a.index: a for a in self.sipath.steps["place"].attempts}
+        att = {a.index: a for a in self.flow.steps["place"].attempts}
         self.assertEqual(len(att), 3)
         stressed = att[2]
         self.assertEqual(stressed.status, "rejected")  # by score: it ran fine and was measured
         self.assertGreater(stressed.metrics["grt_overflow"], 0)
         self.assertGreater(stressed.metrics["grt_congested_gcells"], 0)
         self.assertTrue(os.path.getsize(stressed.outputs["reports"]["place_congestion"]) > 0)
-        sel = self.sipath.steps["place"].selected
+        sel = self.flow.steps["place"].selected
         self.assertEqual(sel.metrics["grt_overflow"], 0)
         self.assertEqual(att[1].status in ("selected", "rejected"), True)  # routability-driven gpl ran
         self.assertEqual(att[1].params["routability_driven"], True)
         self.assertEqual(sel.metrics["datapaths_intact"], 2)
 
     def test_routed_def_and_spef_exist(self):
-        ex = self.sipath.steps["extract"].selected
-        _check_outputs(self, ex, "dp8", self.sipath.design.analog_nets)
-        self.assertEqual(self.sipath.steps["route_digital"].selected.metrics["drc"], 0)
+        ex = self.flow.steps["extract"].selected
+        _check_outputs(self, ex, "dp8", self.flow.design.analog_nets)
+        self.assertEqual(self.flow.steps["route_digital"].selected.metrics["drc"], 0)
         self.assertEqual(ex.metrics["parasitics"], "rcx")
 
     def test_concurrent_attempts_overlap(self):
         """Two route attempts ran as two OpenROAD processes at the same time."""
         from sipath.scheduler import overlap_seconds
-        a, b = self.sipath.steps["route_digital"].attempts
+        a, b = self.flow.steps["route_digital"].attempts
         self.assertNotEqual(a.process, b.process)
         self.assertTrue(a.process.startswith("sipath-") and b.process.startswith("sipath-"))
         self.assertGreater(overlap_seconds(a, b), 2.0, (a.started_at, a.finished_at, b.started_at, b.finished_at))
         self.assertEqual({a.status, b.status}, {"selected", "rejected"})
         self.assertNotEqual(a.checkpoint, b.checkpoint)
         # the cap is respected: never more than `parallel` attempts alive at once
-        place = self.sipath.steps["place"].attempts
+        place = self.flow.steps["place"].attempts
         self.assertEqual(len(place), 3)
 
     def test_phase1_signoff(self):
@@ -1842,7 +1842,7 @@ class LiveSoftMacro(unittest.TestCase):
         self.assertLessEqual(f.steps["place"].selected.metrics["tie_max_fanout"], 1)
 
     def test_power_checks_without_pads(self):
-        pg = self.sipath.steps["extract"].selected.outputs["power_grid"]
+        pg = self.flow.steps["extract"].selected.outputs["power_grid"]
         self.assertTrue(pg["VDD"]["connected"] and pg["VSS"]["connected"])
         self.assertIsNotNone(pg["VDD"]["ir_worst_mV"])  # straps as sources (no supply terminals)
 
@@ -1850,7 +1850,7 @@ class LiveSoftMacro(unittest.TestCase):
         """With the clock tightened, post-route repair runs on the extracted
         parasitics, re-routes what it changed, and keeps DRC at zero."""
         import copy
-        d = copy.deepcopy(self.sipath.design)
+        d = copy.deepcopy(self.flow.design)
         wd = _workdir("tight")
         if not KEEP:
             self.addCleanup(_rmtree, wd)
@@ -1859,9 +1859,9 @@ class LiveSoftMacro(unittest.TestCase):
             out.write(fh.read().replace("-period 10.0", "-period 6.5"))
         d.sdc = sdc
         RUNNER.mount(wd)
-        f = Flow(d, self.sipath.pdk, wd, lambda w: OpenRoadSession(w, RUNNER), runner_prefixes=RUNNER.runner_prefixes())
+        f = Flow(d, self.flow.pdk, wd, lambda w: OpenRoadSession(w, RUNNER), runner_prefixes=RUNNER.runner_prefixes())
         from sipath import steps as st
-        rd = f.step("route_digital", st.route_digital, parent=self.sipath.steps["route_analog"].selected,
+        rd = f.step("route_digital", st.route_digital, parent=self.flow.steps["route_analog"].selected,
                     score="drc_then_slack")
         r = f.step("route_repair", st.route_repair, parent=rd.selected, score="drc_then_slack")
         a = r.selected
@@ -1872,15 +1872,15 @@ class LiveSoftMacro(unittest.TestCase):
         self.assertEqual(a.metrics.get("drc", 0), 0)
 
     def test_analog_nets_extracted_and_route_scored_on_rcx(self):
-        ex = self.sipath.steps["extract"].selected
+        ex = self.flow.steps["extract"].selected
         self.assertEqual(ex.metrics["analog_nets_in_spef"], 2)
-        self.assertEqual(set(ex.outputs["analog_restored"]), set(self.sipath.design.analog_nets))
-        for a in self.sipath.steps["route_digital"].attempts:
+        self.assertEqual(set(ex.outputs["analog_restored"]), set(self.flow.design.analog_nets))
+        for a in self.flow.steps["route_digital"].attempts:
             self.assertEqual(a.metrics["parasitics"], "rcx")
             self.assertIn("timing_met", a.metrics)
 
     def test_signoff_physical_and_timing(self):
-        so = self.sipath.steps["signoff"].selected
+        so = self.flow.steps["signoff"].selected
         s = _read_json(so.outputs["signoff"])
         self.assertTrue(s["pass"], s["failures"])
         self.assertEqual(s["drc"]["count"], 0)  # KLayout, the PDK's sky130A_mr deck
@@ -1896,7 +1896,7 @@ class LiveSoftMacro(unittest.TestCase):
         # routing kept through extraction: the router's patches are in the final DEF
         with open(so.outputs["def_"]) as fh:
             self.assertGreater(fh.read().count(") RECT ("), 0)
-        self.assertGreater(self.sipath.steps["extract"].selected.metrics["rcx_restored_nets"], 0)
+        self.assertGreater(self.flow.steps["extract"].selected.metrics["rcx_restored_nets"], 0)
 
     def test_timing_breakdown_and_provenance(self):
         f = self.flow
@@ -1981,9 +1981,9 @@ class LiveMcuDie(unittest.TestCase):
         cls.flow = mcu8.run(cls.wd, RUNNER, seeds=(1, 2, 3))
 
     def test_routed_def_and_spef_exist(self):
-        ex = self.sipath.steps["extract"].selected
-        _check_outputs(self, ex, "mcu8", self.sipath.design.analog_nets, rings=True)  # the die asks for a ring
-        self.assertEqual(self.sipath.steps["route_digital"].selected.metrics["drc"], 0)
+        ex = self.flow.steps["extract"].selected
+        _check_outputs(self, ex, "mcu8", self.flow.design.analog_nets, rings=True)  # the die asks for a ring
+        self.assertEqual(self.flow.steps["route_digital"].selected.metrics["drc"], 0)
 
     def test_pads_and_macros(self):
         f = self.flow
@@ -2011,10 +2011,10 @@ class LiveMcuDie(unittest.TestCase):
         self.assertTrue(re.search(r"- u_dac sky130_ef_ip__rdac3v_8bit \+ (FIRM|PLACED|FIXED)", text))
 
     def test_pad_ring_is_closed(self):
-        ring = self.sipath.steps["floorplan"].selected.outputs["pad_ring"]
+        ring = self.flow.steps["floorplan"].selected.outputs["pad_ring"]
         self.assertEqual(ring["ring_supplies"], 12)  # VCCD VSSD VDDIO ... each one continuous net
         self.assertGreater(ring["ring_cells"], 150)
-        with open(self.sipath.steps["extract"].selected.outputs["def_"]) as fh:
+        with open(self.flow.steps["extract"].selected.outputs["def_"]) as fh:
             text = fh.read()
         for corner in ("SOUTH_WEST", "SOUTH_EAST", "NORTH_WEST", "NORTH_EAST"):
             self.assertIn(f"IO_CORNER_{corner}_INST", text)
@@ -2022,7 +2022,7 @@ class LiveMcuDie(unittest.TestCase):
 
     def test_pictures_from_library(self):
         from sipath import viz
-        ck = self.sipath.steps["extract"].selected.checkpoint
+        ck = self.flow.steps["extract"].selected.checkpoint
         out = os.path.join(self.wd, "pics")
         os.makedirs(out, exist_ok=True)
         d = viz.draw(ck, os.path.join(out, "ring.svg"), RUNNER, ring_only=True)
@@ -2041,7 +2041,7 @@ class LiveMcuDie(unittest.TestCase):
         from sipath.examples import mcu8
         from sipath.pdk import load as load_pdk
         pdk = sky130hd(RUNNER.platform_root())
-        d = copy.deepcopy(self.sipath.design)
+        d = copy.deepcopy(self.flow.design)
         d.pad_masters.update({"corner_site": (211, 211), "row_depth_ns": 211, "row_depth_ew": 211,
                               "rotation_corner": "R0"})
         wd = _workdir("ring_bad")
@@ -2055,7 +2055,7 @@ class LiveMcuDie(unittest.TestCase):
 
     def test_seed_sweep_respects_parallel_cap(self):
         from sipath.scheduler import peak_concurrency
-        mc = self.sipath.steps["macros"].attempts
+        mc = self.flow.steps["macros"].attempts
         self.assertEqual(len(mc), 5)
         self.assertEqual(peak_concurrency(mc), 2)  # 5 real processes, cap 2: two at once, never three
         self.assertEqual(len({a.process for a in mc}), 5)
@@ -2064,7 +2064,7 @@ class LiveMcuDie(unittest.TestCase):
         """random (3 seeds) vs random + orientation search vs rtl_macro_placer, one
         sweep, one score; every autoplaced macro passes the channel / pin-side /
         analog-guard rules; analog-net length measured and in the cost."""
-        mc = self.sipath.steps["macros"]
+        mc = self.flow.steps["macros"]
         methods = {(a.params.get("method"), bool(a.params.get("orients"))) for a in mc.attempts if a.status != "failed"}
         self.assertEqual(methods, {("random", False), ("random", True), ("mpl", False)})
         for a in mc.attempts:
@@ -2105,7 +2105,7 @@ class LiveMcuDie(unittest.TestCase):
 
     def test_macro_score_ignores_unplaced_cells(self):
         from sipath import chip
-        a = self.sipath.steps["macros"].selected
+        a = self.flow.steps["macros"].selected
         self.assertGreater(a.metrics["macro_hpwl_unplaced_terms"], 0)
         wd = _workdir("mscore")
         if not KEEP:
@@ -2121,7 +2121,7 @@ class LiveMcuDie(unittest.TestCase):
         self.assertAlmostEqual(float(before), a.metrics["macro_hpwl_um"], places=2)
 
     def test_analog_nets_in_spef(self):
-        self.assertEqual(self.sipath.steps["extract"].selected.metrics["analog_nets_in_spef"], 4)
+        self.assertEqual(self.flow.steps["extract"].selected.metrics["analog_nets_in_spef"], 4)
 
     def test_phase1_on_die(self):
         f = self.flow
@@ -2139,7 +2139,7 @@ class LiveMcuDie(unittest.TestCase):
                                                                      "PAD_OUTPUT", "PAD"})
 
     def test_signoff_on_die(self):
-        so = self.sipath.steps["signoff"].selected
+        so = self.flow.steps["signoff"].selected
         s = _read_json(so.outputs["signoff"])
         self.assertTrue(s["pass"], s["failures"])
         # the ChipFoundry macros are signed off as LEF abstracts: DRC sees the chip around them
@@ -2150,7 +2150,7 @@ class LiveMcuDie(unittest.TestCase):
         self.assertTrue(s["lvs"]["match"], s["lvs"].get("first_errors"))
         self.assertTrue({"u_adc", "u_dac", "u_sram"} <= set(s["lvs"]["blackboxed"]))
         self.assertTrue(any(k.startswith("sky130_ef_io__") for k in s["lvs"]["blackboxed"]))
-        phys = self.sipath.steps["physical"].selected.metrics
+        phys = self.flow.steps["physical"].selected.metrics
         self.assertEqual((phys["special_shorts"], phys["rows_without_tap"]), (0, 0))
         self.assertEqual(s["antenna"]["violations"], 0)
         t = s["timing"]
@@ -2160,15 +2160,15 @@ class LiveMcuDie(unittest.TestCase):
 
     def test_macro_supply_report(self):
         # after the analog-supply route every macro supply pin touches its net's wiring
-        rep = self.sipath.steps["route_analog"].selected.outputs["macro_supply_pins"]
+        rep = self.flow.steps["route_analog"].selected.outputs["macro_supply_pins"]
         for inst, pins in rep.items():
             self.assertEqual(pins["unconnected"], [], inst)
         self.assertEqual(len(rep["u_adc"]["connected"]) + len(rep["u_dac"]["connected"]), 8)
-        straps = self.sipath.steps["physical"].selected.outputs["power_connections"]
+        straps = self.flow.steps["physical"].selected.outputs["power_connections"]
         self.assertTrue(straps and all(r["ok"] for r in straps))
 
     def test_power_grid_signoff(self):
-        ex = self.sipath.steps["extract"].selected
+        ex = self.flow.steps["extract"].selected
         pg = ex.outputs["power_grid"]
         for net in ("VDD", "VSS", "VDDA", "VSSA"):
             self.assertTrue(pg[net]["connected"], (net, pg[net]))

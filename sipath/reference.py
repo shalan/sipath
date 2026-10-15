@@ -19,7 +19,7 @@ wrong types, values not allowed and missing required keys are errors.
 
 def text() -> str:
     cfg = ["## Run configuration", "",
-           "Design file `config:`, a `--config` file, or `FLOW_<KEY>` environment variables (sipath.config).", "",
+           "Design file `config:`, a `--config` file, or `SIPATH_<KEY>` environment variables (sipath.config).", "",
            "| key | type | description |", "|---|---|---|"]
     cfg += [f"| `{k}` | {f.type} | {f.doc} |" for k, f in schema.CONFIG.items()]
     pdk = ["## PDK description keys", "",

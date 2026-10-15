@@ -376,6 +376,12 @@ def reference_cdl(top_text: str, lib_texts: list[str], tie_shorts: dict, supply_
 
 
 def lvs(ctx, gds: str) -> dict:
+    """LVS end to end (prepare in the session, then compare)."""
+    prep = lvs_prepare(ctx, gds)
+    return lvs_compare(ctx, prep["_compare"]) if "_compare" in prep else prep
+
+
+def lvs_prepare(ctx, gds: str) -> dict:
     """LVS of ``gds`` against the reference netlist. Black-box macros
     (``lvs: blackbox``) are compared as their pins only: the layout side is
     re-streamed with their LEF abstracts and the reference gets pin-only
@@ -437,6 +443,14 @@ def lvs(ctx, gds: str) -> dict:
         fh.write(text)
     if info["missing"]:
         return {"match": False, "reason": f"no subcircuit for {info['missing']}", "cdl": cdl, "blackboxed": bb, **info}
+    return {"_compare": dict(gds=gds, cdl=cdl, bb=bb, joins=joins, abstract_shorts=abstract_shorts, info=info)}
+
+
+def lvs_compare(ctx, prep: dict) -> dict:
+    """The KLayout comparison of a prepared LVS (no OpenROAD session needed)."""
+    so, d = _cfg(ctx), ctx.design
+    gds, cdl, bb, joins = prep["gds"], prep["cdl"], prep["bb"], prep["joins"]
+    abstract_shorts, info = prep["abstract_shorts"], prep["info"]
     rpt = ctx.path("lvs.lvsdb")
     out = run_tool(ctx, ["klayout", "-b", "-rd", f"in_gds={gds}", "-rd", f"cdl_file={cdl}", "-rd", f"report_file={rpt}",
                          "-rd", f"target_netlist={ctx.path(d.top + '.extracted.cir')}",
@@ -635,38 +649,68 @@ def run(ctx) -> dict:
                 failures.append(f"{c}: not checkable, cells without layout {g['empty'][:8]} orphan {g['orphan'][:4]}")
                 summary[c] = {"run": False, "reason": f"cells without layout: {g['empty']}"}
                 phys.remove(c)
+    # DRC, the LVS comparison and STA are separate processes: run them at once.
+    # What needs this OpenROAD session (LVS reference netlist, antennas) runs here.
+    jobs = {}
     if "drc" in phys:
+        def run_drc():
+            drc_gds, drc_stream = summary["gds"]["file"], g
+            abstract = sorted({lef_macro(m.lef)[0] for m in d.macros if m.abstract})
+            if abstract:  # DRC sees these macros as their LEF abstracts
+                drc_gds = ctx.path(f"{d.top}.drc.gds")
+                drc_stream = stream_gds(ctx, final_def, drc_gds, abstract=tuple(abstract))
+            out = drc(ctx, drc_gds, cell_owners(ctx, drc_stream))
+            out.update(gds=drc_gds, abstract_macros=[m.inst for m in d.macros if m.abstract])
+            return out
+        jobs["drc"] = run_drc
+    lvs_prep = None
+    if "lvs" in phys:
         t = time.time()
-        drc_gds, drc_stream = summary["gds"]["file"], g
-        abstract = sorted({lef_macro(m.lef)[0] for m in d.macros if m.abstract})
-        if abstract:  # DRC sees these macros as their LEF abstracts
-            drc_gds = ctx.path(f"{d.top}.drc.gds")
-            drc_stream = stream_gds(ctx, final_def, drc_gds, abstract=tuple(abstract))
-        summary["drc"] = drc(ctx, drc_gds, cell_owners(ctx, drc_stream))
-        summary["drc"].update(gds=drc_gds, abstract_macros=[m.inst for m in d.macros if m.abstract])
-        timings["drc"] = round(time.time() - t, 1)
+        lvs_prep = lvs_prepare(ctx, summary["gds"]["file"])
+        timings["lvs_prepare"] = round(time.time() - t, 1)
+        if "_compare" in lvs_prep:
+            jobs["lvs"] = lambda: lvs_compare(ctx, lvs_prep["_compare"])
+        else:
+            summary["lvs"] = lvs_prep
+    tchecks = [c for c in ("setup", "hold", "drv", "annotation", "unconstrained") if c in checks]
+    if tchecks:
+        spefs = ctx.ancestor_output("spef_corners")
+        jobs["sta"] = lambda: timing(ctx, final_v, spefs)
+    results, errors = {}, {}
+
+    def timed(name, fn):
+        t = time.time()
+        try:
+            results[name] = fn()
+        except Exception as e:  # re-raised below, after every job has finished
+            errors[name] = e
+        timings[name] = round(time.time() - t, 1)
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=max(1, len(jobs))) as ex:
+        futs = [ex.submit(timed, k, f) for k, f in jobs.items()]
+        if "antenna" in checks:  # needs this session: runs here while the others run
+            from .steps import check_antennas
+            n = check_antennas(ctx)
+            summary["antenna"] = {"violations": n}
+        for fu in futs:
+            fu.result()
+    if errors:
+        name, e = next(iter(errors.items()))
+        raise e
+    if "drc" in results:
+        summary["drc"] = results["drc"]
         if summary["drc"]["count"]:
             failures.append(f"drc: {summary['drc']['count']} violations {summary['drc']['by_rule']} "
                             f"(by owner {summary['drc'].get('by_owner')})")
-    if "lvs" in phys:
-        t = time.time()
-        summary["lvs"] = lvs(ctx, summary["gds"]["file"])
-        timings["lvs"] = round(time.time() - t, 1)
-        if not summary["lvs"]["match"]:
-            failures.append(f"lvs: netlists do not match ({summary['lvs'].get('reason') or summary['lvs']['errors']} "
-                            f"errors, e.g. {summary['lvs'].get('first_errors', [])[:3]})")
-    if "antenna" in checks:
-        from .steps import check_antennas
-        n = check_antennas(ctx)
-        summary["antenna"] = {"violations": n}
-        if n:
-            failures.append(f"antenna: {n} violations")
-    tchecks = [c for c in ("setup", "hold", "drv", "annotation", "unconstrained") if c in checks]
-    if tchecks:
-        t = time.time()
-        spefs = ctx.ancestor_output("spef_corners")
-        st = timing(ctx, final_v, spefs)
-        timings["sta"] = round(time.time() - t, 1)
+    if "lvs" in results:
+        summary["lvs"] = results["lvs"]
+    if "lvs" in summary and not summary["lvs"].get("match"):
+        failures.append(f"lvs: netlists do not match ({summary['lvs'].get('reason') or summary['lvs'].get('errors')} "
+                        f"errors, e.g. {summary['lvs'].get('first_errors', [])[:3]})")
+    if summary.get("antenna", {}).get("violations"):
+        failures.append(f"antenna: {summary['antenna']['violations']} violations")
+    if "sta" in results:
+        st = results["sta"]
         summary["timing"] = st
         wns = [v["wns"] for v in st["corners"].values() if v["wns"] is not None]
         whs = [v["whs"] for v in st["corners"].values() if v["whs"] is not None]
@@ -680,6 +724,7 @@ def run(ctx) -> dict:
             failures.append(f"annotation: loaded nets without parasitics at {st['unannotated_loaded'][:8]}")
         if "unconstrained" in checks and st["unconstrained"]:
             failures.append(f"unconstrained: {len(st['unconstrained'])} endpoints, e.g. {st['unconstrained'][:5]}")
+    timings["wall"] = round(time.time() - t0, 1)
     summary["failures"] = failures
     failed_required = [f for f in failures if f.split(":")[0] in required]
     summary["pass"] = not failed_required

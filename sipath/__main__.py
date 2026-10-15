@@ -118,7 +118,7 @@ def main(argv) -> int:
         fcfg = designfile.file_config(path)
         flow = designfile.run(path, wd, config=Config.load(cfg_file, **fcfg) if (cfg_file or fcfg) else cfg,
                               resume=resume)
-        last = list(sipath.steps.values())[-1].selected
+        last = list(flow.steps.values())[-1].selected
         for k in ("def_", "spef"):
             if k in last.outputs:
                 print(f"{k.rstrip('_').upper():4}:", last.outputs[k])

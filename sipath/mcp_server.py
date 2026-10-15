@@ -236,8 +236,8 @@ class Server:
             raise ToolError(str(e)) from e
         self.runs[run_id] = {"flow": flow, "design": name, "job": None}
         return {"run_id": run_id, "workdir": workdir, "openroad": f"{runner.kind} {runner.version()}",
-                "pdk": sipath.pdk.name, "steps": [s for s in STEPS if d.macros or s != "macros"],
-                "recorded_steps": {k: v.selected.id for k, v in sipath.steps.items() if v.selected}}
+                "pdk": flow.pdk.name, "steps": [s for s in STEPS if d.macros or s != "macros"],
+                "recorded_steps": {k: v.selected.id for k, v in flow.steps.items() if v.selected}}
 
     def run_step(self, run_id, step, parent=None, variants=None, score=None, parallel=1, background=False):
         flow = self._run(run_id)["flow"]
@@ -287,7 +287,7 @@ class Server:
 
         def body():
             try:
-                r = sipath.eco(name, p, ops, max_patch_nets=max_patch_nets)
+                r = flow.eco(name, p, ops, max_patch_nets=max_patch_nets)
             except EcoRefused as e:
                 raise ToolError(f"refused: {e}") from e
             except StepCancelled:
@@ -426,7 +426,7 @@ class Server:
     def list_attempts(self, run_id, step=None):
         flow = self._run(run_id)["flow"]
         return {"attempts": [self._summary(a) for a in flow.attempts if step is None or a.step == step],
-                "steps": {k: v.selected.id if v.selected else None for k, v in sipath.steps.items()}}
+                "steps": {k: v.selected.id if v.selected else None for k, v in flow.steps.items()}}
 
     def get_outputs(self, run_id, attempt):
         a = self._attempt(self._run(run_id)["flow"], attempt)
@@ -473,7 +473,7 @@ class Server:
         qdir = os.path.join(flow.workdir, "_queries", uuid.uuid4().hex[:8])
         with OpenRoadSession(qdir, self._runner(), timeout=300) as s:
             s.run(tcl.HELPERS)
-            s.run(tcl.load_checkpoint(sipath.pdk, sipath.design, a.checkpoint))
+            s.run(tcl.load_checkpoint(flow.pdk, flow.design, a.checkpoint))
             # read-only: after loading, remove every command that writes files or
             # reaches the host, so the query cannot alter checkpoints or run programs
             s.run("foreach c {" + " ".join(QUERY_BLOCKED) + "} { if {[llength [info commands $c]]} { rename $c {} } }")
