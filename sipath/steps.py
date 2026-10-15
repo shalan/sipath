@@ -970,7 +970,7 @@ def route_repair(ctx):
     if ctx.metrics["antenna_violations"] > p.get("max_antenna", 0):
         raise RuntimeError(f"{ctx.metrics['antenna_violations']} antenna violations after post-route repair")
     min_area_repair(ctx, "repair")
-    s.run(tcl.filler(ctx.pdk))
+    s.run(tcl.filler(ctx.pdk, p.get("fillers")))
     check_placement(ctx)
     _timing_gate(ctx)
     reports(ctx, "repair")

@@ -471,8 +471,9 @@ def cts(pdk: Pdk, clk_nets: list[str]) -> str:
             "repair_timing -setup -hold -repair_tns 100" + margins(pdk, "hold_place"))
 
 
-def filler(pdk: Pdk) -> str:
-    return f"filler_placement {qlist(pdk.fill_cells)}"
+def filler(pdk: Pdk, cells: list[str] | None = None) -> str:
+    """Fill the empty sites: ``cells`` (default the PDK's list, decaps first)."""
+    return f"filler_placement {qlist(cells or pdk.fill_cells)}"
 
 
 def routing_layers(d: Design, pdk: Pdk | None = None, margin: float = 0.0) -> str:

@@ -153,6 +153,8 @@ STEP_PARAMS: dict[str, list[Param]] = {
               "instead of patched", min=0),
         Param("antenna_rounds", "int", 3, "antenna repair rounds", min=0),
         Param("max_antenna", "int", 0, "antenna violations allowed", min=0),
+        Param("fillers", "list[str]", None, "cells for the empty sites (default: the PDK's fill list, decaps "
+              "first); e.g. fill cells only where most rows are empty and decaps would only add LVS devices"),
         Param("iters", "int", 64, _ITERS, min=1),
         Param("max_drc", "int", 0, "routing DRC violations allowed", min=0),
         Param("fail_on_violation", "bool", False, _FAIL),

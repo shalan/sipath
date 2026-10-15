@@ -31,6 +31,8 @@ flow:
 - step: route_analog
 - step: route_digital
 - step: route_repair
+  variants: [{fillers: [sky130_fd_sc_hd__fill_2, sky130_fd_sc_hd__fill_1]}]   # the strip is mostly empty rows:
+                                      # decaps there (~70k) would only add LVS devices
 - step: extract
 - step: signoff
 - step: integrate             # the wrapper in the OpenFrame chip (Magic), checked against the frame

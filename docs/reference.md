@@ -280,6 +280,7 @@ No parameters.
 | `max_patch_nets` | int | 40 | 0.. | nets changed by repair above which the design is routed again instead of patched |
 | `antenna_rounds` | int | 3 | 0.. | antenna repair rounds |
 | `max_antenna` | int | 0 | 0.. | antenna violations allowed |
+| `fillers` | list[str] | – |  | cells for the empty sites (default: the PDK's fill list, decaps first); e.g. fill cells only where most rows are empty and decaps would only add LVS devices |
 | `iters` | int | 64 | 1.. | detailed-router iterations |
 | `max_drc` | int | 0 | 0.. | routing DRC violations allowed |
 | `fail_on_violation` | bool | false |  | fail the attempt when setup or hold is not met after the step |

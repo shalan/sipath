@@ -1186,6 +1186,19 @@ class Templates(unittest.TestCase):
         with self.assertRaises(FileExistsError):
             templates.get("openframe").render(self.tmp, {"name": "demo"})
 
+    def test_example_and_template_flows_use_declared_parameters(self):
+        import glob
+        from sipath import designfile, steps, templates
+        templates.get("openframe").render(self.tmp, {})
+        files = sorted(glob.glob(os.path.join(os.path.dirname(__file__), "..", "examples", "*.yaml")))
+        for path in files + [os.path.join(self.tmp, "design.yaml")]:
+            try:
+                _, flow = designfile.load(path, generate=False)
+            except FileNotFoundError:
+                continue  # a parent of a macro not hardened here
+            for item in flow:
+                steps.check_params(item.get("fn", item["step"]), item.get("variants"))
+
     def test_template_parameters_are_checked(self):
         from sipath import templates
         t = templates.get("openframe")
