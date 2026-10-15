@@ -5,11 +5,17 @@
   </picture>
 </p>
 
-# SiPath — a Python physical-design flow on a live OpenROAD
+# SiPath — the path to silicon, steered by AI
 
-Takes a flattened gate-level Verilog netlist to a **routed DEF and a SPEF**,
-and a signed-off GDS where the PDK has signoff decks, by driving a real
-OpenROAD process with Tcl. PDKs and designs are
+SiPath is a Python physical-design flow that drives live OpenROAD sessions,
+from RTL (Yosys synthesis) or a gate-level netlist to a **routed DEF, SPEF
+and a signed-off GDS**. It is built to be steered by an AI agent:
+- its MCP server lets an agent open runs, launch sweeps of variants, read
+  metrics and reports, run ECOs and query checkpoints;
+- the attempt graph keeps every path tried and selects the best by score;
+- signoff (DRC, LVS, STA) is the judge of what counts.
+
+A person can drive the same steps from the CLI or Python. PDKs and designs are
 data: `sipath/pdks/sky130hd.yaml` and `sipath/pdks/ihp-sg13g2.yaml` describe the
 PDKs, and a design file (YAML/JSON) describes a design and its steps.
 

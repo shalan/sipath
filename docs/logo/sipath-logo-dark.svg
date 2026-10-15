@@ -26,5 +26,5 @@
         letter-spacing="-1"><tspan font-weight="800" fill="#F7A65A">Si</tspan><tspan font-weight="700"
         fill="#EAF1F8">Path</tspan></text>
   <text x="160" y="116" font-family="Inter, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="17"
-        fill="#9DB4CC" letter-spacing="0.5">physical design on a live OpenROAD</text>
+        fill="#9DB4CC" letter-spacing="0.5">The path to silicon, steered by AI.</text>
 </svg>
