@@ -20,5 +20,6 @@ flow:
 - step: route_analog
 - step: route_digital
 - step: route_repair
+- step: fill                 # metal fill (PDK fill rules); signoff checks density
 - step: extract
 - step: signoff

@@ -73,5 +73,6 @@ flow:
   score: drc_then_slack
   parallel: 2
 - step: route_repair
+- step: fill                 # metal fill (PDK fill rules); signoff checks density
 - step: extract
 - step: signoff

@@ -79,8 +79,11 @@ class Param:
         return out
 
 
-SIGNOFF_CHECKS = ("drc", "lvs", "antenna", "setup", "hold", "drv", "annotation", "unconstrained")
-SIGNOFF_REQUIRED = ("drc", "lvs", "antenna", "setup", "hold", "drv", "annotation")
+SIGNOFF_CHECKS = ("drc", "density", "lvs", "antenna", "setup", "hold", "drv", "annotation", "unconstrained",
+                  "harness")
+SIGNOFF_REQUIRED = ("drc", "density", "lvs", "antenna", "setup", "hold", "drv", "annotation", "harness")
+# opt-in (need the Magic image, config magic_image): a second DRC engine and the stream-out XOR
+SIGNOFF_OPTIONAL = ("magic_drc", "xor")
 
 _ITERS = "detailed-router iterations"
 _FAIL = "fail the attempt when setup or hold is not met after the step"
@@ -94,6 +97,8 @@ STEP_PARAMS: dict[str, list[Param]] = {
         Param("lint", "bool", True, "lint the RTL first (implicit nets, hierarchy, undriven / multiply driven "
               "nets, combinational loops are errors)"),
         Param("lint_strict", "bool", False, "fail on any lint warning"),
+        Param("port_buffers", "bool", True, "buffer assignments between ports (off: a port-to-port assignment "
+              "stays one net with two pins, e.g. a wrapper output tied to a frame loopback input)"),
     ],
     "floorplan": [],
     "macros": [
@@ -120,6 +125,8 @@ STEP_PARAMS: dict[str, list[Param]] = {
         Param("density", "float", 0.55, "global placement target density", min=0.05, max=1.0),
         Param("seed", "int", None, "global placement random seed; default: the tool's"),
         Param("routability_driven", "bool", False, "routability-driven global placement"),
+        Param("timing_driven", "bool", True, "timing-driven global placement (off for designs whose pins are far "
+              "from the cells, e.g. a mostly empty harness wrapper: repair_design then buffers the long wires)"),
         Param("repair_tie_fanout", "bool", True, "one tie cell per load, placed next to it"),
         Param("remove_buffers", "bool", False, "remove the netlist's buffers before placement"),
         Param("max_util", "float", None, "utilization limit for repair_design / repair_timing", min=0.01, max=1.0),
@@ -150,15 +157,26 @@ STEP_PARAMS: dict[str, list[Param]] = {
         Param("max_drc", "int", 0, "routing DRC violations allowed", min=0),
         Param("fail_on_violation", "bool", False, _FAIL),
     ],
+    "fill": [
+        Param("layers", "list[str]", None, "layers to fill (default: the fill rules' layers up to the "
+              "design's top routing layer)"),
+        Param("area", "list[float]", None, "fill only inside [x0, y0, x1, y1] (default: the die)", unit="um"),
+    ],
+    "views": [
+        Param("corners", "list[str]", None, "analysis corners to write a timing Liberty for (default: all)"),
+        Param("bloat_occupied_layers", "bool", True, "abstract LEF: layers the design uses are blocked whole "
+              "(a parent routes over the macro only on layers it leaves free)"),
+    ],
     "extract": [
         Param("require_grid_connected", "bool", False, "fail when check_power_grid finds a supply net not "
               "connected to its terminals"),
         Param("fail_on_violation", "bool", False, _FAIL),
     ],
     "signoff": [
-        Param("checks", "list[str]", SIGNOFF_CHECKS, "checks to run", choices=SIGNOFF_CHECKS),
-        Param("require", "list[str]", SIGNOFF_REQUIRED, "checks whose failure fails signoff (of those run)",
-              choices=SIGNOFF_CHECKS),
+        Param("checks", "list[str]", SIGNOFF_CHECKS, "checks to run (magic_drc and xor are opt-in: they need "
+              "the Magic image)", choices=SIGNOFF_CHECKS + SIGNOFF_OPTIONAL),
+        Param("require", "list[str]", SIGNOFF_REQUIRED + SIGNOFF_OPTIONAL, "checks whose failure fails signoff "
+              "(of those run)", choices=SIGNOFF_CHECKS + SIGNOFF_OPTIONAL),
         Param("fail_on_violation", "bool", True, "fail the attempt when a required check fails (signoff.json "
               "is written either way)"),
     ],

@@ -3,12 +3,13 @@ attempt's OpenROAD session. Nothing here fabricates a number: metrics are
 read from the session or from files that this process wrote."""
 from __future__ import annotations
 
+import json
 import os
 import re
 
 from . import analog, datapath, params, tcl
 from .session import TclError
-from .tcl import q, qe, qlist, tcl_words  # noqa: F401
+from .tcl import q, qe, qlist, tcl_parse, tcl_words  # noqa: F401
 
 
 # --------------------------------------------------------------------- helpers
@@ -58,7 +59,7 @@ def macro_supply_pins(session, inst) -> dict:
 
 
 def grid_nets(d) -> set[str]:
-    return {"VDD", "VSS"}  # the voltage domain pdn() builds
+    return {d.net("VDD"), d.net("VSS")}  # the voltage domain pdn() builds
 
 
 def _via_array(ctx) -> dict:
@@ -277,10 +278,16 @@ expr {{double([lindex $xs end] - [lindex $xs 0] + [lindex $ys end] - [lindex $ys
     return float(v)
 
 
+def _dp_tap(ctx):
+    """(well-tap master, tap distance um) for datapath tap slots, or None."""
+    p = ctx.pdk
+    return (p.tap_cell, p.tap_distance) if p.tap_cell and p.tap_distance else None
+
+
 def reabut_all(ctx) -> dict:
     out = {}
     for dp in ctx.design.datapaths:
-        out[dp.name] = datapath.reabut(ctx.session, dp)
+        out[dp.name] = datapath.reabut(ctx.session, dp, _dp_tap(ctx))
     return out
 
 
@@ -290,7 +297,7 @@ def datapath_check(ctx, when: str = "") -> int:
     each resize + legalize; a broken structure fails the attempt."""
     bad = {}
     for dp in ctx.design.datapaths:
-        problems = datapath.check_structure(ctx.session, dp)
+        problems = datapath.check_structure(ctx.session, dp, _dp_tap(ctx))
         if problems:
             bad[dp.name] = problems[:10]
     if bad:
@@ -319,6 +326,12 @@ def floorplan(ctx):
     d, s = ctx.design, ctx.session
     if d.mode == "macro" and d.floorplan_def:
         s.run(tcl.floorplan_from_def(ctx.pdk, d.floorplan_def))
+        if d.harness:  # the frame's user-supply pins (the netlist has no power ports)
+            from . import harness
+            h = harness.get(d.harness, d.harness_options)
+            s.run(h.create_power_pins_tcl())
+            ctx.metrics["harness_pins_clipped"] = int(s.value(h.clip_pins_tcl()))  # restored at signoff
+            ctx.outputs["harness"] = d.harness
     elif d.mode == "macro":  # die box or utilization; pins at random until placement places them
         s.run(tcl.floorplan_die(ctx.pdk, d))
         s.run(tcl.place_pins(ctx.pdk, random=True))
@@ -394,8 +407,8 @@ def physical(ctx):
     """Datapath structures, hierarchy groups, endcaps + taps, PDN."""
     d, s = ctx.design, ctx.session
     for dp in d.datapaths:
-        pl = datapath.place_datapath(s, dp)
-        ctx.outputs.setdefault("datapaths", {})[dp.name] = len(pl)
+        pl = datapath.place_datapath(s, dp, _dp_tap(ctx))
+        ctx.outputs.setdefault("datapaths", {})[dp.name] = len([p for p in pl if not p.tap])
     for g in d.groups:
         if g.kind == "fence":
             box = _snap_box(s, g.box)
@@ -419,6 +432,9 @@ set hit""")
         else:
             raise ValueError(f"unknown group kind {g.kind}")
     s.run(tcl.endcaps_and_taps(ctx.pdk))
+    if d.datapaths:  # a tap in each structure's tap slots; grid taps under a structure moved past it
+        ctx.outputs["datapath_taps"] = reabut_all(ctx)
+        datapath_check(ctx, "after tap insertion")
     untapped = rows_without_tap(ctx)
     ctx.metrics["rows_without_tap"] = len(untapped)
     if untapped:
@@ -426,6 +442,20 @@ set hit""")
                            f"{untapped[:5]}; cut rows that short (macroplace.row_min_width)")
     s.run(tcl.pdn(d, ctx.pdk, fit_straps(ctx)))
     connect_supplies(ctx)
+    if d.harness:  # the frame's user-supply pins to the grid
+        from . import powerconnect
+        die = tuple(map(int, tcl_words(s.value("set b [[ord::get_db_block] getDieArea]; "
+                                               "list [$b xMin] [$b yMin] [$b xMax] [$b yMax]"))))
+        recs = powerconnect.connect_bterms(s, sorted(grid_nets(d)), list(ctx.pdk.layers), die, **_via_array(ctx))
+        ctx.outputs["harness_supply_straps"] = recs
+        # the frame feeds every supply pin; the grid needs each supply reached once
+        reached = {r["net"] for r in recs if r["ok"]}
+        missing = sorted(grid_nets(d) - reached)
+        ctx.outputs["harness_supply_pins_unreached"] = [r["pin"] for r in recs if not r["ok"]]
+        ctx.metrics["harness_supply_straps"] = sum(1 for r in recs if r["ok"])
+        if missing:
+            raise RuntimeError(f"harness supplies {missing} reach the grid through none of their pins: "
+                               f"{[(r['pin'], r.get('why')) for r in recs if r['net'] in missing][:4]}")
     ctx.metrics["taps"] = int(s.value(
         f"set n 0; foreach i [[ord::get_db_block] getInsts] {{ if {{[[$i getMaster] getName] eq {qe(ctx.pdk.tap_cell)}}} {{ incr n }} }}; set n"))
     ctx.metrics["endcaps"] = int(s.value(
@@ -457,8 +487,8 @@ def place(ctx):
         # pins placed by the flow: a placement ignoring them, pins by the cells, then the real one
         s.run(tcl.global_place(p.get("density", 0.55), p.get("seed"), timing_driven=False) + " -skip_io")
         s.run(tcl.place_pins(ctx.pdk))
-    s.run(tcl.global_place(p.get("density", 0.55), p.get("seed"), keep_resize=not fence_groups,
-                           routability_driven=p.get("routability_driven", False)))
+    s.run(tcl.global_place(p.get("density", 0.55), p.get("seed"), timing_driven=p.get("timing_driven", True),
+                           keep_resize=not fence_groups, routability_driven=p.get("routability_driven", False)))
     clusters = [g for g in d.groups if g.kind == "cluster"]
     for g in clusters:
         # spread right after gpl (cells still overlap) vs after packing + legalization
@@ -947,6 +977,135 @@ def route_repair(ctx):
     reconnect_supplies(ctx)  # cells added by this step on the supply nets
 
 
+def fill(ctx):
+    """Metal fill: OpenROAD density_fill with the PDK's fill rules
+    (signoff.fill_rules), squares on each routing layer kept apart from the
+    design's shapes; the signoff density check measures the result. Fill is
+    floating metal in the DEF FILLS section, streamed to the PDK's fill
+    datatypes. params: layers (default: those in the rules up to the design's
+    top routing layer), area (um; default: the die)."""
+    s, p = ctx.session, ctx.params
+    rules = (ctx.pdk.signoff or {}).get("fill_rules")
+    if not rules:
+        raise ValueError(f"PDK {ctx.pdk.name} has no signoff.fill_rules: no metal fill")
+    with open(rules) as f:
+        data = json.load(f)
+    if p.get("layers"):
+        unknown = sorted(set(p["layers"]) - set(data["layers"]))
+        if unknown:
+            raise ValueError(f"fill.layers {unknown} not in the fill rules ({sorted(data['layers'])})")
+        keep = set(p["layers"])
+    else:  # up to the design's top routing layer: an embedded macro leaves the layers above to its parent
+        stack = list(ctx.pdk.layers)
+        top = ctx.design.max_route_layer
+        keep = {ly for ly in data["layers"] if ly not in stack or top not in stack
+                or stack.index(ly) <= stack.index(top)}
+    if keep != set(data["layers"]):
+        data["layers"] = {k: v for k, v in data["layers"].items() if k in keep}
+        rules = ctx.path("fill_rules.json")
+        with open(rules, "w") as f:
+            json.dump(data, f, indent=1)
+    area = f" -area {{{' '.join(f'{v:g}' for v in p['area'])}}}" if p.get("area") else ""
+    s.run(f"density_fill -rules {q(rules)}{area}")
+    per = tcl_parse(s.value("set c [dict create]; foreach f [[ord::get_db_block] getFills] "
+                            "{ dict incr c [[$f getTechLayer] getName] }; set c"))
+    counts = {per[i]: int(per[i + 1]) for i in range(0, len(per), 2)}
+    ctx.outputs["fill"] = counts
+    ctx.metrics["fill_shapes"] = sum(counts.values())
+    if not counts:
+        raise RuntimeError("density_fill inserted no fill")
+
+
+def views(ctx):
+    """Hardened-macro views of the signed-off design, in views/ (P2.1): the
+    abstract LEF (write_abstract_lef), one timing Liberty per analysis corner
+    from the extracted parasitics (write_timing_model), the GDS and the LVS
+    subcircuit from signoff, the SPEF per corner, the netlist with and without
+    supply pins, and macro.yaml: the entry a parent design lists under
+    ``macros`` (inst and location left to fill in). Each view is checked
+    against the design's ports before the step passes. params: corners
+    (default: all analysis corners), bloat_occupied_layers (True)."""
+    import shutil
+    d, s, p = ctx.design, ctx.session, ctx.params
+    so = ctx.parent_outputs("signoff")
+    if not (so.get("gds") and os.path.isfile(so["gds"])):
+        raise RuntimeError("views need a signed-off GDS (the parent signoff wrote none)")
+    out = ctx.path("views")
+    os.makedirs(out, exist_ok=True)
+    top = d.top
+    lef = os.path.join(out, f"{top}.lef")
+    s.run(f"write_abstract_lef{' -bloat_occupied_layers' if p.get('bloat_occupied_layers', True) else ''} {q(lef)}")
+    v, pv = os.path.join(out, f"{top}.v"), os.path.join(out, f"{top}.pwr.v")
+    s.run(f"write_verilog {q(v)}\nwrite_verilog -include_pwr_gnd {q(pv)}")
+    spefs = ctx.ancestor_output("spef_corners") or {}
+    names = [c.name for c in ctx.pdk.analysis_corners()]
+    corners = list(p.get("corners") or names)
+    unknown = sorted(set(corners) - set(names))
+    if unknown:
+        raise ValueError(f"views.corners {unknown}: not analysis corners ({names})")
+    missing = [c for c in corners if not spefs.get(c)]
+    if missing:
+        raise RuntimeError(f"no extracted SPEF for corners {missing}: the timing views need extract's parasitics")
+    libs = {}
+    multi = len(names) > 1
+    for c in corners:
+        s.run(f"read_spef{f' -corner {c}' if multi else ''} {q(spefs[c])}")
+        libs[c] = os.path.join(out, f"{top}__{c}.lib")
+        s.run(f"write_timing_model{f' -scene {c}' if multi else ''} -library_name {q(top + '__' + c)} "
+              f"-cell_name {q(top)} {q(libs[c])}")
+    gds = os.path.join(out, f"{top}.gds")
+    shutil.copyfile(so["gds"], gds)
+    spef_out = {}
+    for c in corners:
+        spef_out[c] = os.path.join(out, f"{top}__{c}.spef")
+        shutil.copyfile(spefs[c], spef_out[c])
+    cdl = None
+    ref = os.path.join(os.path.dirname(so["signoff"]), f"{top}.cdl")
+    if os.path.isfile(ref):  # the top subcircuit of signoff's LVS reference (cells come from the PDK)
+        with open(ref) as f:
+            text = f.read()
+        m = re.search(r"^\.SUBCKT\s+" + re.escape(top) + r"\b.*?^\.ENDS\b.*?$", text, re.S | re.M | re.I)
+        if m:
+            cdl = os.path.join(out, f"{top}.cdl")
+            with open(cdl, "w") as f:
+                f.write(m.group(0) + "\n")
+    # checks: every signal port in the LEF and in each Liberty; supply pins in the LEF
+    ports = set(tcl_words(s.value("set o {}; foreach b [[ord::get_db_block] getBTerms] "
+                                  "{ if {![[$b getNet] isSpecial]} { lappend o [$b getName] } }; set o")))
+    with open(lef) as f:
+        lef_text = f.read()
+    lef_pins = set(re.findall(r"^\s*PIN\s+(\S+)", lef_text, re.M))
+    # supply pins: the abstract makes them from the grid's special wires (USE POWER / GROUND)
+    supplies = {m.group(1) for m in re.finditer(r"^\s*PIN\s+(\S+)\s*\n(?:(?!\s*END\b).*\n)*?\s*USE\s+(?:POWER|GROUND)\b",
+                                                 lef_text, re.M)}
+    bad = {"lef_missing_ports": sorted(ports - lef_pins)[:20],
+           "lef_missing_supplies": sorted(grid_nets(d) - supplies)}
+    for c, f in libs.items():
+        with open(f) as fh:
+            lib_pins = set(re.findall(r"^\s*pin\s*\(\s*\"?([^\")]+)\"?\s*\)", fh.read(), re.M))
+        # a bus pin is written as a bus with its bits inside; plain names otherwise
+        gone = sorted(x for x in ports - lib_pins if re.sub(r"\[\d+\]$", "", x) not in lib_pins
+                      and x.replace("[", "\\[").replace("]", "\\]") not in lib_pins)
+        if gone:
+            bad[f"lib_{c}_missing_ports"] = gone[:20]
+    bad = {k: x for k, x in bad.items() if x}
+    if bad:
+        raise RuntimeError(f"hardened views incomplete: {bad}")
+    sup_map = {f"^{re.escape(n)}$": n for n in sorted(supplies)}
+    rel = os.path.basename  # paths relative to macro.yaml: the directory can be copied as a whole
+    entry = {"inst": "<instance name>", "lef": rel(lef), "gds": rel(gds), "lib": {c: rel(f) for c, f in libs.items()},
+             "location": None, "supplies": sup_map, **({"cdl": rel(cdl)} if cdl else {"lvs": "blackbox"})}
+    import json as _json
+    with open(os.path.join(out, "macro.yaml"), "w") as f:
+        f.write(f"# {top} hardened by SiPath ({ctx.dir}); a parent design lists it with\n"
+                f"#   macros: [{{inst: <name>, views: <this directory>, location: [x, y]}}]\n")
+        f.write(_json.dumps({"macros": [entry]}, indent=1) + "\n")  # JSON is YAML
+    ctx.outputs["views"] = {"dir": out, "lef": lef, "gds": gds, "lib": libs, "spef": spef_out, "verilog": v,
+                            "verilog_pwr": pv, "cdl": cdl, "macro_yaml": os.path.join(out, "macro.yaml"),
+                            "supplies": sorted(supplies), "ports": len(ports)}
+    ctx.metrics["view_corners"] = len(libs)
+
+
 def antenna_loop(ctx, max_rounds: int = 3, tag: str = "antenna") -> int:
     """Repair antennas on the detailed routes and re-route, until clean or
     ``max_rounds``. Updates metrics (drc, antenna_violations, antenna_diodes)."""
@@ -1089,7 +1248,7 @@ from .synth import synth  # noqa: E402  (tool step: Yosys, no OpenROAD process)
 
 STEPS = {
     "synth": synth, "floorplan": floorplan, "macros": macros, "physical": physical, "place": place, "cts": cts,
-    "route_analog": route_analog, "route_digital": route_digital, "route_repair": route_repair, "extract": extract,
+    "route_analog": route_analog, "route_digital": route_digital, "route_repair": route_repair, "fill": fill, "extract": extract, "views": views,
     "signoff": signoff,
 }
 

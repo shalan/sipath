@@ -65,7 +65,7 @@ def lint_script(pdk, d) -> str:
     return "\n".join(lines) + "\n"
 
 
-def synth_script(pdk, d, out: str, period_ps: float | None, abc: str) -> str:
+def synth_script(pdk, d, out: str, period_ps: float | None, abc: str, port_buffers: bool = True) -> str:
     std, others = _libs(pdk, d)
     du = " ".join(f"-dont_use {p}" for p in dont_use(pdk, d))
     lines = [f"read_liberty -lib -overwrite -setattr liberty_cell {f}" for f in [std, *others]]
@@ -86,7 +86,7 @@ def synth_script(pdk, d, out: str, period_ps: float | None, abc: str) -> str:
         ties.append(f"-locell {pdk.tie_lo[0]} {pdk.tie_lo[1]}")
     if ties:
         lines.append(f"hilomap -singleton {' '.join(ties)}")
-    if pdk.synth_buffer:
+    if pdk.synth_buffer and port_buffers:
         lines.append(f"insbuf -buf {' '.join(pdk.synth_buffer)}")
     lines += ["opt_clean -purge", "check", f"tee -o {out}.stat stat -liberty {std}",
               f"write_verilog -noattr -noexpr -nohex -nodec {out}"]
@@ -142,7 +142,7 @@ def synth(ctx):
     out = ctx.path(f"{d.top}.synth.v")
     script = ctx.path("synth.ys")
     with open(script, "w") as f:
-        f.write(synth_script(pdk, d, out, period, p.get("abc", "delay")))
+        f.write(synth_script(pdk, d, out, period, p.get("abc", "delay"), p.get("port_buffers", True)))
     log = ctx.path("synth.log")
     run_tool(ctx, ["yosys", "-q", "-l", log, "-s", script], ctx.path("synth.out"))
     if not os.path.isfile(out) or os.path.getsize(out) == 0:

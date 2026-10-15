@@ -1,0 +1,32 @@
+# ChipFoundry OpenFrame: a bare pad frame (44 GPIOs, no management SoC).
+# Die 3588 x 5188 um; the user area is the wrapper, 3166.63 x 4766.63 um at (210.685, 210.685).
+# Sources: sources/openframe (github.com/chipfoundry/caravel, see sources/SOURCES.txt).
+name: openframe
+description: ChipFoundry OpenFrame (44 GPIOs); wrapper openframe_project_wrapper, 3166.63 x 4766.63 um
+pdks: [sky130A, sky130B]
+wrapper: openframe_project_wrapper
+template_def: sources/openframe/openframe_project_wrapper.def
+wrapper_verilog: sources/openframe/__openframe_project_wrapper.v
+defines: {OPENFRAME_IO_PADS: 44}
+site_width: 0.46
+row_height: 2.72
+core_margin: 40.0
+is_core: true
+max_route_layer: met4          # signals; met5 carries the PDN
+supplies: {VDD: vccd1, VSS: vssd1}   # user area 1 supplies (template pins on met3, east edge)
+power_pins: [vccd, vccd1, vccd2, vdda, vdda1, vdda2, vddio, vssa, vssa1, vssa2, vssd, vssd1, vssd2, vssio]  # all wrapper supply ports
+pdn:
+  rings: true
+  ring_layers: [met4, met5]
+  ring_width: 5.0
+  ring_spacing: 2.0
+  ring_core_offset: 4.0
+  straps: [{layer: met4, width: 3.1, pitch: 180.0, offset: 30.0},
+           {layer: met5, width: 3.1, pitch: 180.0, offset: 30.0}]
+  connects: [[met1, met4], [met4, met5]]
+frame:
+  die: [3588.0, 5188.0]
+  wrapper_origin: [210.685, 210.685]
+  magic: {file: sources/openframe/caravel_openframe.mag, top: caravel_openframe, wrapper_cell: openframe_project_wrapper}
+  netlist: sources/openframe/chip_io_openframe.v
+  seal_ring: sources/openframe/advSeal_6um_gen.gds.gz

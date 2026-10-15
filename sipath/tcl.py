@@ -276,6 +276,12 @@ def _timing_setup(pdk: Pdk, d: Design) -> str:
                "{ set_dont_use $c; incr ::flow_no_master } }")
     for n in d.analog_nets:
         out.append(f"set_dont_touch [get_nets {q(n)}]")
+    # port-to-port feedthroughs (no cell pin, e.g. a harness's loopback ties)
+    # stay plain wires: buffering them would place the buffers in the rows,
+    # far from the boundary pins they join
+    out.append("set ::flow_feedthroughs 0\n"
+               "foreach __n [[ord::get_db_block] getNets] { if {![$__n isSpecial] && [llength [$__n getITerms]] == 0 "
+               "&& [llength [$__n getBTerms]] >= 2} { $__n setDoNotTouch 1; incr ::flow_feedthroughs } }")
     return "\n".join(out)
 
 
@@ -296,12 +302,15 @@ def floorplan_die(pdk: Pdk, d: Design) -> str:
 
 
 def place_pins(pdk: Pdk, random: bool = False) -> str:
-    """Pins on the die edges (PDK pin layers): random at floorplan, then by
-    the placed cells."""
+    """Pins on the die edges (PDK pin layers): provisional at floorplan
+    (``random``: cells not placed yet; this OpenROAD build dropped
+    ``-random``, so the pins are spread by the placer's default), then again
+    by the placed cells. Steps before placement (the macros step's
+    congestion estimate) need pins with geometry."""
     if len(pdk.pin_layers) != 2:
         raise ValueError(f"PDK {pdk.name} has no route.pin_layers (horizontal, vertical) for automatic pins")
     h, v = pdk.pin_layers
-    return f"place_pins -hor_layers {h} -ver_layers {v}" + (" -random" if random else "")
+    return f"place_pins -hor_layers {h} -ver_layers {v}"
 
 
 def endcaps_and_taps(pdk: Pdk) -> str:
@@ -319,9 +328,10 @@ def global_connect(d: Design, pdk: Pdk) -> str:
     out = []
     for gp in pdk.power_pins:
         kind = {"power": " -power", "ground": " -ground"}.get(gp.get("kind", ""), "")
-        out.append(f"add_global_connection -net {gp['net']} -inst_pattern {{.*}} -pin_pattern {q(gp['pin'])}{kind}")
+        out.append(f"add_global_connection -net {d.net(gp['net'])} -inst_pattern {{.*}} -pin_pattern {q(gp['pin'])}{kind}")
     for m in d.macros:
         for pat, net in m.supplies.items():
+            net = d.net(net)
             kind = "-ground" if net.upper().startswith("VSS") or net.upper().startswith("GND") else "-power"
             out.append(f"add_global_connection -net {net} -inst_pattern {q('^' + m.inst + '$')} "
                        f"-pin_pattern {q(pat)} {kind}")
@@ -334,7 +344,7 @@ def pdn(d: Design, pdk: Pdk, straps: list | None = None) -> str:
     design's (e.g. PDK defaults scaled to a small core)."""
     p = d.pdn
     out = [global_connect(d, pdk),
-           "set_voltage_domain -name CORE -power VDD -ground VSS",
+           f"set_voltage_domain -name CORE -power {d.net('VDD')} -ground {d.net('VSS')}",
            "define_pdn_grid -name grid -voltage_domains CORE",
            f"add_pdn_stripe -grid grid -layer {p.rail_layer} -width {p.rail_width} -followpins"]
     if p.rings:
@@ -452,8 +462,9 @@ def cts(pdk: Pdk, clk_nets: list[str]) -> str:
     lib = ("[expr {[info exists ::flow_cts_library] ? "
            "\"-library $::flow_cts_library -dont_use_dummy_load\" : {}}]")
     ndr = f" -apply_ndr {pdk.cts_apply_ndr}" if getattr(pdk, "cts_apply_ndr", "") else ""
+    # -clk_nets is split on spaces: names go space-joined, not list-quoted ({gpio_in[0]})
     return (f"clock_tree_synthesis -root_buf {pdk.cts_root_buffer} -buf_list {qlist(pdk.cts_buffers)} "
-            f"-clk_nets {qlist(clk_nets)} -sink_clustering_enable{ndr} {{*}}{lib}\n"
+            f"-clk_nets [join {qlist(clk_nets)} {{ }}] -sink_clustering_enable{ndr} {{*}}{lib}\n"
             "set_propagated_clock [all_clocks]\n"
             "::flow_set_flag flow_post_cts\n"
             "estimate_parasitics -placement\n"

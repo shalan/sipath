@@ -1,7 +1,10 @@
 // gcd8: greatest common divisor of two 8-bit numbers (subtract and swap).
 // start loads a and b; done rises with result when the loop ends.
-// Written for flow's RTL example (synthesis -> signoff on sky130A).
+// Written for SiPath's RTL example (synthesis -> signoff on sky130A).
+// The width is GCD_W (default 8; a design file may set it in rtl_defines).
+`ifndef GCD_W
 `define GCD_W 8
+`endif
 
 module gcd8 (
   input  wire                clk,

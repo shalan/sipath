@@ -14,6 +14,7 @@ import os
 import random
 import re
 import shutil
+import sys
 import tempfile
 import types
 import unittest
@@ -178,6 +179,29 @@ class Packing(unittest.TestCase):
         datapath.check_internal(pl2)
         moved = {p.inst for p, q in zip(pl, pl2) if p.x != q.x}
         self.assertEqual(moved, {"pp1", "add1"})
+
+    def test_tap_slots_keep_every_cell_within_the_tap_distance(self):
+        self.assertEqual(datapath._with_slots([4, 4, 4, 4], (1, 9)), ([1, 5, 10, 14], [0, 9], 18))
+        self.assertEqual(datapath._with_slots([4, 4], None), ([0, 4], [], 8))
+        pitch, tap_w = 13000, 460
+        cells = [[f"c{r}_{k}" for k in range(9)] for r in range(3)]
+        sizes = {c: (2760, 2720) for row in cells for c in row}  # 9 x 2.76 um = 24.8 um per row
+        pl = datapath.pack_array(cells, (0, 0), self.rows(), sizes, (tap_w, pitch))
+        datapath.check_internal(pl)
+        for y in {p.y for p in pl}:
+            slots = sorted(p.x for p in pl if p.y == y and p.tap)
+            self.assertEqual(len(slots), 3)  # left end, then whenever 13 um would be exceeded
+            for p in (p for p in pl if p.y == y and not p.tap):
+                left = max(s for s in slots if s < p.x)
+                self.assertLessEqual(p.x + p.w - (left + tap_w), pitch)  # the cell's far edge to its tap
+        slices = [[f"s{b}_{k}" for k in range(6)] for b in range(4)]
+        sizes = {c: (3680, 2720) for row in slices for c in row}
+        pl = datapath.pack_slices(slices, (0, 0), self.rows(), sizes, slot=(tap_w, pitch))
+        datapath.check_internal(pl)
+        by_row = {}
+        for p in pl:
+            by_row.setdefault(p.y, []).append((p.x, p.tap))
+        self.assertEqual(len({tuple(sorted(v)) for v in by_row.values()}), 1)  # slot columns and stages aligned
 
     def test_block_respects_cut_rows_and_avoid_boxes(self):
         sizes = {f"c{i}": (7360, 2720) for i in range(8)}
@@ -688,7 +712,7 @@ class TypedConfig(unittest.TestCase):
                              ("place", {"seed": True}, "got a bool"),
                              ("place", {"desnity": 0.6}, "unknown parameter"),
                              ("macros", {"method": "annealing"}, "not one of"),
-                             ("signoff", {"checks": ["drc", "xor"]}, "'xor' is not one of"),
+                             ("signoff", {"checks": ["drc", "nosuch"]}, "'nosuch' is not one of"),
                              ("signoff", {"checks": "drc"}, r"expected list\[str\]"),
                              ("nosuch", {}, "unknown step")]:
             with self.assertRaisesRegex(ValueError, msg):
@@ -889,6 +913,19 @@ class Plugins(unittest.TestCase):
         from sipath import registry
         registry.load_plugins(["sipath.examples.plugin_example"])
 
+    @classmethod
+    def tearDownClass(cls):  # the registry is global: later tests see the built-ins only
+        from sipath import params, registry, scores, steps
+        steps.STEPS.pop("cell_census", None)
+        params.STEP_PARAMS.pop("cell_census", None)
+        params.DECLARED.pop("cell_census", None)
+        scores.SCORES.pop("fewest_cells", None)
+        registry.CHECKS.pop("cell_budget", None)
+        registry.EXTENSIONS.pop("example", None)
+        registry._LOADED.discard("sipath.examples.plugin_example")
+        sys.modules.pop("sipath.examples.plugin_example", None)  # a later load registers again
+        registry._refresh_signoff_params()
+
     def test_registered_things_join_the_builtins(self):
         from sipath import params, registry, scores, steps
         from sipath.mcp_server import Server, tools
@@ -941,6 +978,174 @@ class Plugins(unittest.TestCase):
         self.assertEqual((res["pass"], res["cells"]), (False, 150))
         ctx.design.extensions = {}
         self.assertTrue(fn(ctx, {})["pass"])
+
+
+class Harnesses(unittest.TestCase):
+    """Frames (sipath.harness) on the shipped OpenFrame template, without OpenROAD."""
+
+    def setUp(self):
+        from sipath import harness
+        self.h = harness.get("openframe")
+        self.tpl = self.h.path("template_def")
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def test_template_pins(self):
+        from sipath.harness import parse_def_pins
+        die, dbu, pins = parse_def_pins(self.tpl)
+        self.assertEqual((die, dbu), ((0, 0, 3166630, 4766630), 1000))
+        self.assertEqual(len(pins), 917)
+        self.assertEqual(len({p["name"] for p in pins}), 887)
+        vccd = [p for p in self.h.power_pins() if p["net"] == "vccd1"]
+        self.assertTrue(vccd and all(p["layer"] == "met3" for p in vccd))
+        self.assertTrue(any(p["rect"][2] > die[2] for p in pins))  # pins overhang the boundary
+
+    def test_rows_only_in_the_core_region(self):
+        from sipath.harness import floorplan_def
+        out = floorplan_def(self.tpl, os.path.join(self.tmp, "fp.def"), "unithd", 0.46, 2.72, 40,
+                            region=(1400, 1950, 1800, 2350))
+        with open(out) as f:
+            rows = re.findall(r"ROW ROW_(\d+) unithd (\d+) (\d+) (N|FS) DO (\d+)", f.read())
+        self.assertEqual(len(rows), int(400 / 2.72))
+        self.assertEqual([r[3] for r in rows[:3]], ["N", "FS", "N"])
+        self.assertTrue(all(int(r[1]) % 460 == 0 and int(r[1]) >= 1400000 for r in rows))
+        with self.assertRaisesRegex(ValueError, "empty or outside"):
+            floorplan_def(self.tpl, os.path.join(self.tmp, "x.def"), "unithd", 0.46, 2.72, 40,
+                          region=(0, 0, 30, 30))
+
+    def test_apply_makes_the_design_the_wrapper(self):
+        pdk = types.SimpleNamespace(name="sky130A", site="unithd")
+        d = Design("t", "openframe_project_wrapper", None, "s.sdc", "macro")
+        info = self.h.apply(d, pdk, self.tmp)
+        self.assertTrue(os.path.exists(d.floorplan_def) and d.die is None and d.is_core)
+        self.assertEqual((d.max_route_layer, d.net("VDD"), d.net("VSS"), d.net("clk")),
+                         ("met4", "vccd1", "vssd1", "clk"))
+        self.assertEqual(d.pdn.ring_layers, ("met4", "met5"))
+        self.assertEqual(info["supplies"], {"VDD": "vccd1", "VSS": "vssd1"})
+        from sipath import steps
+        self.assertEqual(steps.grid_nets(d), {"vccd1", "vssd1"})
+        with self.assertRaisesRegex(ValueError, "top must be openframe_project_wrapper"):
+            self.h.apply(Design("t", "other", None, "s.sdc", "macro"), pdk, self.tmp)
+
+    def test_conformance(self):
+        with open(self.tpl) as f:
+            text = f.read()
+        same = os.path.join(self.tmp, "same.def")
+        with open(same, "w") as f:
+            f.write(text)
+        self.assertTrue(self.h.conformance(same)["pass"])
+        moved = os.path.join(self.tmp, "moved.def")  # gpio_in[15] shifted by 1 nm
+        with open(moved, "w") as f:
+            f.write(re.sub(r"(- gpio_in\[15\] .*?PLACED \( )(\d+)", lambda m: m.group(1) + str(int(m.group(2)) + 1),
+                           text, count=1, flags=re.S))
+        r = self.h.conformance(moved)
+        self.assertFalse(r["pass"])
+        self.assertEqual((r["missing_count"], r["extra_count"]), (1, 1))
+        self.assertIn("gpio_in[15]", r["missing"][0])
+
+    def test_pin_clip_and_restore_scripts(self):
+        tcl_restore = self.h.restore_pins_tcl()
+        from sipath.harness import parse_def_pins
+        p = next(p for p in parse_def_pins(self.tpl)[2] if p["name"] == "gpio_in[15]")
+        self.assertIn("findBTerm {gpio_in[15]}", tcl_restore)
+        self.assertIn(f"findLayer {p['layer']}] {' '.join(map(str, p['rect']))}", tcl_restore)
+        self.assertNotIn("findBTerm {vccd1}", tcl_restore)  # supply pins keep their own shapes
+        self.assertIn("isSpecial", self.h.clip_pins_tcl())
+
+    def test_every_frame_supply_is_one_pin_with_all_its_shapes(self):
+        tcl_pins = self.h.create_power_pins_tcl()
+        self.assertEqual(tcl_pins.count("odb::dbBTerm_create"), 14)  # vccd ... vssio, used or not
+        self.assertEqual(tcl_pins.count("odb::dbBPin_create"), len(self.h.power_pins()))
+        self.assertNotIn("vccd1.1", tcl_pins)
+        self.assertIn("setSigType GROUND", tcl_pins.split("findNet vssio]")[1].split("findNet")[0])
+
+    def test_zero_extension_corners_get_squared(self):
+        from sipath.signoff import fix_zero_ext_corners
+        path = os.path.join(self.tmp, "w.def")
+        nets = ("NETS 2 ;\n"
+                "    - a ( PIN a ) ( u1 X ) + USE SIGNAL\n"
+                "      + ROUTED li1 ( 100 200 ) L1M1_PR ( 300 * ) M1M2_PR ( * 900 0 ) ( 500 * ) ( * 1200 )\n"
+                "      NEW met2 ( 700 100 0 ) ( * 400 ) ( 900 * 0 ) ;\n"  # path ends: kept
+                "    - b ( u1 A ) ( u2 Y ) + USE SIGNAL\n"
+                "      + ROUTED met2 ( 10 10 ) ( * 50 0 ) ( * 90 ) ( 20 * 0 ) M2M3_PR ( * 120 ) ;\n"  # straight / via: kept
+                "END NETS\n")
+        with open(path, "w") as f:
+            f.write("VERSION 5.8 ;\n" + nets + "END DESIGN\n")
+        self.assertEqual(fix_zero_ext_corners(path), [{"net": "a", "at": (300, 900)}])
+        with open(path) as f:
+            text = f.read()
+        self.assertIn("M1M2_PR ( * 900 ) ( 500 * )", text)
+        self.assertIn("( 700 100 0 ) ( * 400 ) ( 900 * 0 )", text)
+        self.assertIn("( * 50 0 ) ( * 90 ) ( 20 * 0 ) M2M3_PR", text)
+        self.assertEqual(fix_zero_ext_corners(path), [])  # idempotent
+
+    def test_harness_excludes_a_floorplan(self):
+        from sipath import schema
+        with self.assertRaisesRegex(ValueError, "die: not allowed with harness"):
+            schema.validate({"name": "t", "top": "openframe_project_wrapper", "mode": "macro", "pdk": "sky130A",
+                             "rtl": ["a.v"], "sdc": "s.sdc", "harness": "openframe", "die": [0, 0, 1, 1]})
+
+    def test_bus_assigns_with_slices_and_concatenations(self):
+        m = parse_verilog("""module t (a, b, y);
+  input [3:0] a; input b; output [5:0] y;
+  wire [1:0] w;
+  assign w = a[3:2];
+  assign y = {w, b, a[1:0], b};
+endmodule""")
+        self.assertEqual(m.assigns, [("w[1]", "a[3]"), ("w[0]", "a[2]"), ("y[5]", "w[1]"), ("y[4]", "w[0]"),
+                                     ("y[3]", "b"), ("y[2]", "a[1]"), ("y[1]", "a[0]"), ("y[0]", "b")])
+        with self.assertRaisesRegex(ValueError, "constant"):
+            parse_verilog("module t (y); output y; assign y = 1'b0; endmodule")
+
+
+class HardenedViewsAndFill(unittest.TestCase):
+    """P2.1 views directories, P0.2 fill/density and P1.5 opt-in checks, without OpenROAD."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def test_macro_from_a_views_directory(self):
+        from sipath import designfile
+        v = os.path.join(self.tmp, "views", "blk")
+        os.makedirs(v)
+        with open(os.path.join(v, "macro.yaml"), "w") as f:
+            f.write("# hardened\n" + json.dumps({"macros": [{"inst": "<instance name>", "lef": "blk.lef",
+                    "gds": "blk.gds", "lib": {"tt_nom": "blk__tt_nom.lib"}, "location": None,
+                    "supplies": {"^VDD$": "VDD", "^VSS$": "VSS"}, "cdl": "blk.cdl"}]}))
+        base = {"name": "t", "top": "t", "mode": "macro", "pdk": "sky130A", "netlist": "n.v", "sdc": "s.sdc",
+                "floorplan_def": "f.def"}
+        d = designfile.design_from_dict(dict(base, macros=[{"inst": "u0", "views": "views/blk", "location": [1, 2]},
+                                                          {"inst": "u1", "views": "views/blk", "gds": "mine.gds"}]),
+                                        self.tmp)
+        m0, m1 = d.macros
+        self.assertEqual((m0.lef, m0.cdl, m0.lib), (os.path.join(v, "blk.lef"), os.path.join(v, "blk.cdl"),
+                                                     {"tt_nom": os.path.join(v, "blk__tt_nom.lib")}))
+        self.assertEqual((m0.location, m0.supplies), ((1, 2), {"^VDD$": "VDD", "^VSS$": "VSS"}))
+        self.assertEqual(m1.gds, os.path.join(self.tmp, "mine.gds"))  # given in the entry: relative to the design file
+        with self.assertRaisesRegex(ValueError, r"macros\[0\]: lef or views is required"):
+            designfile.design_from_dict(dict(base, macros=[{"inst": "u0"}]), self.tmp)
+        with self.assertRaisesRegex(FileNotFoundError, "harden the macro first"):
+            designfile.design_from_dict(dict(base, macros=[{"inst": "u0", "views": "nowhere"}]), self.tmp)
+
+    def test_signoff_checks_magic_ones_opt_in(self):
+        from sipath import params
+        r = params.resolve("signoff", {})
+        self.assertIn("density", r["checks"])
+        self.assertNotIn("magic_drc", r["checks"])  # needs the Magic image: asked for, not default
+        params.check("signoff", {"checks": ["drc", "magic_drc", "xor"]})
+        self.assertIn("xor", r["require"])  # when run, they gate signoff
+
+    def test_pdk_fill_rules_and_signoff_keys(self):
+        from sipath.pdk import load
+        p = load("sky130A")
+        with open(p.signoff["fill_rules"]) as f:
+            rules = json.load(f)
+        self.assertEqual(set(rules["layers"]), set(p.signoff["fill_gds"]))
+        for name, layer in rules["layers"].items():  # fill on the PDK's fill datatype
+            self.assertEqual([layer["layer"], layer["datatype"]], p.signoff["fill_gds"][name])
+        for k in ("density_deck", "fill_rules", "magic_rc"):
+            self.assertIn(p.signoff[k], p.files())  # mounted for the tools
 
 
 class SignoffUnits(unittest.TestCase):
@@ -1760,7 +1965,7 @@ class McpProtocol(unittest.TestCase):
         self.assertEqual(c.rpc("resources/list")["result"], {"resources": []})
         err, out, _ = c.call("list_designs")
         self.assertFalse(err)
-        self.assertEqual(set(out["designs"]), {"dp8", "dp8_hs", "mcu8", "ihp_add8", "gcd8"})
+        self.assertEqual(set(out["designs"]), {"dp8", "dp8_hs", "mcu8", "ihp_add8", "gcd8", "openframe_gcd8", "gcd8_pair"})
         self.assertTrue(c.call("run_step", run_id="nope", step="floorplan")[0])
         self.assertTrue(c.call("no_such_tool")[0])
         self.assertEqual(c.rpc("no/such/method")["error"]["code"], -32601)

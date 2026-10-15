@@ -85,13 +85,15 @@ def score(fn: Callable):
 # ---------------------------------------------------------------------- checks
 def _refresh_signoff_params():
     """The signoff ``checks`` / ``require`` parameters accept the registered checks."""
-    allowed = tuple(_params.SIGNOFF_CHECKS) + tuple(CHECKS)
+    allowed = tuple(_params.SIGNOFF_CHECKS) + tuple(_params.SIGNOFF_OPTIONAL) + tuple(CHECKS)
     new = []
     for p in _params.STEP_PARAMS["signoff"]:
         if p.name == "checks":
-            p = _params.Param("checks", "list[str]", allowed, p.doc, choices=allowed)
+            p = _params.Param("checks", "list[str]", tuple(_params.SIGNOFF_CHECKS) + tuple(CHECKS), p.doc,
+                              choices=allowed)
         elif p.name == "require":
-            req = tuple(_params.SIGNOFF_REQUIRED) + tuple(k for k, f in CHECKS.items() if getattr(f, "required", False))
+            req = (tuple(_params.SIGNOFF_REQUIRED) + tuple(_params.SIGNOFF_OPTIONAL)
+                   + tuple(k for k, f in CHECKS.items() if getattr(f, "required", False)))
             p = _params.Param("require", "list[str]", req, p.doc, choices=allowed)
         new.append(p)
     _params.STEP_PARAMS["signoff"] = new
@@ -101,7 +103,7 @@ def _refresh_signoff_params():
 def register_check(name: str, fn: Callable, required: bool = False, replace: bool = False):
     """A signoff check run after the built-in ones (by default with them all;
     ``required``: its failure fails signoff unless ``require`` says otherwise)."""
-    if (name in CHECKS or name in _params.SIGNOFF_CHECKS) and not replace:
+    if (name in CHECKS or name in _params.SIGNOFF_CHECKS + _params.SIGNOFF_OPTIONAL) and not replace:
         raise RegistryError(f"signoff check {name!r} is already registered")
     fn.required = bool(required)
     CHECKS[name] = fn
@@ -178,6 +180,6 @@ def loaded() -> dict:
     """What plugins added (for provenance and the MCP server)."""
     from . import steps
     builtin = {"synth", "floorplan", "macros", "physical", "place", "cts", "route_analog", "route_digital",
-               "route_repair", "extract", "signoff"}
+               "route_repair", "fill", "extract", "signoff", "views"}
     return {"plugins": sorted(_LOADED), "steps": sorted(set(steps.STEPS) - builtin),
             "checks": sorted(CHECKS), "harnesses": sorted(HARNESSES), "extensions": sorted(EXTENSIONS)}

@@ -450,6 +450,46 @@ Synthesis and lint:
 Not done (next): RTL-vs-netlist formal equivalence (`eqy` is in the image); Verilator
 lint (not in the image); SystemVerilog beyond Yosys's `read_verilog -sv`.
 
+## Harnesses, fill, hardened views, second DRC engine, ORFS benchmark — 2026-10-15
+
+- **P2.3 plugin registry** (done, pushed): steps, scores, signoff checks, harnesses
+  and design-file extensions registered from a design file's `plugins:` or the
+  `sipath.plugins` entry points.
+- **H1 harnesses** (OpenFrame, Caravel; data in `sipath/harnesses/*.yaml`, frame
+  files fetched from pinned ChipFoundry commits, see `sources/SOURCES.txt`):
+  the design becomes the frame's wrapper (template die and pins, every frame
+  supply pin, user supplies strapped to the ring, PDN, routing limits); the
+  `harness` signoff check compares the routed wrapper with the template. Found
+  by running it: pin-to-pin loopback nets were buffered into far rows (now plain
+  wires), template pins overhang the die (clipped for routing, restored at
+  signoff), the template lists four pins twice, CTS could not take bracketed
+  clock names, and the router leaves zero-extension corners (squared at
+  signoff). `examples/openframe_gcd8.yaml`: a 4-bit gcd on the east-edge pads.
+- **P0.2 fill and density**: `fill` step (OpenROAD `density_fill`, sky130 rules
+  in `sipath/pdks/sky130/fill.json`, up to the design's top routing layer), fill
+  streamed to the PDK's fill datatypes, `density` signoff check (the PDK's
+  deck; gating for top-level layouts, informational for embedded macros).
+  gcd8: 1,413 fill shapes, DRC 0, density 0, LVS match.
+- **P2.1 hardened views**: `views` step and `python3 -m sipath harden`; a macro
+  entry `views: <dir>`. `examples/gcd8_pair.yaml` (two hardened gcd8 + glue)
+  signs off: DRC 0, density 0, LVS match, timing met. Found: the GDS writer
+  renamed the macro's copies of library cells, so LVS flattened the macro;
+  copies identical to the library cell (per-layer XOR) are now the library's.
+- **P1.5 second DRC engine**: opt-in `magic_drc` and `xor` checks (Magic from
+  `docker/magic`, `config.magic_image`). gcd8: Magic DRC 0 (a planted 0.05 um
+  met1 shape is caught as met1.1), XOR empty on 27 layers. dp8: Magic found 560
+  latch-up violations (LU.2/LU.3) the KLayout deck does not check: the datapath
+  packer moved the well taps out of abutted rows. Datapath structures now
+  reserve tap slots (at most the PDK tap distance apart; whole columns in
+  bit-slice structures) filled with well taps. dp8 XOR: two sub-0.1 um2
+  differences at M2M3_PR vias next to wire ends (Magic builds vias from its
+  contact rules) — open.
+- **P1.4 ORFS benchmark**: `bench/orfs_compare.py` runs ORFS's sky130hd reference
+  designs through both flows from the same RTL/SDC/utilization and measures
+  both results with the same code. Found while doing it: a second global route
+  in one OpenROAD process fails (post-route repair now re-routes once per
+  process); ORFS's equivalence check binary dies under Rosetta (LEC_CHECK=0).
+
 ## Backlog by priority (2026-10-15)
 
 Replaces the immediate list and Phase 7. Size: S ≈ hours to a day, M ≈ days, L ≈ a
@@ -460,7 +500,7 @@ week or more. "Owner" marks items that need a decision or approval first.
 | # | Item | Size | Done when |
 |---|------|------|-----------|
 | ~~P0.1~~ | **DONE 2026-10-15.** Version control: renamed SiPath (`sipath`), git repo, pushed to github.com/shalan/sipath (public, Apache-2.0), commits as shalan. | S | done |
-| P0.2 | Metal fill and density: a `finish` step (OpenROAD `density_fill` or KLayout fill, PDK fill rules), density checks in signoff DRC, fill in the written GDS. | M | dp8, gcd8 and mcu8 signoff with fill: DRC 0 including density |
+| P0.2 | Metal fill and density: a `finish` step (OpenROAD `density_fill` or KLayout fill, PDK fill rules), density checks in signoff DRC, fill in the written GDS. (Done 2026-10-15 for gcd8 and gcd8_pair; dp8/mcu8 runs pending, see above.) | M | dp8, gcd8 and mcu8 signoff with fill: DRC 0 including density |
 | P0.3 | RTL vs netlist equivalence: `eqy` (in the image) on the synth step's netlist against the RTL, with the PDK Liberty cell functions. | M | gcd8 proven; a deliberately wrong netlist is refused |
 | P0.4 | Full-device LVS: the PDK-maintained KLayout LVS deck (or Magic extraction + Netgen) with hv devices, MIM caps and poly resistors, beside the standard-cell deck. | M-L | dp8 still matches; a macro-level LVS of the ADC against its schematic runs |
 
@@ -472,7 +512,7 @@ week or more. "Owner" marks items that need a decision or approval first.
 | P1.2 | Parallel signoff: DRC, LVS and STA in separate processes at once. | S | signoff wall time ≈ the longest check |
 | P1.3 | Regression with metric limits: a limits file per design (WNS, DRC, wirelength, area, runtime) and one checker. Split `test_sipath.py` (now ~2,100 lines, 120 tests, ~55 min) into unit and live modules; slow tests marked and run in parallel. | M | `unit` < 1 min; live suite parallel; limits checked |
 | P1.4 | Benchmark against ORFS (old I4): 2–3 sky130 reference designs from the same RTL through both flows; compare WNS/TNS, wirelength, DRC and runtime. | M | table in README |
-| P1.5 | Second DRC engine: Magic DRC plus a Magic-vs-KLayout GDS XOR (as in ChipFoundry/Efabless precheck). Magic is not in the image. | M | dp8 clean in both; XOR empty |
+| P1.5 | Second DRC engine: Magic DRC plus a Magic-vs-KLayout GDS XOR (as in ChipFoundry/Efabless precheck). (Checks done 2026-10-15; gcd8 clean in both; dp8 latch-up fixed, two XOR slivers open.) | M | dp8 clean in both; XOR empty |
 | P1.6 | Reproducibility: image digest pinned by default (old I3), `pyproject.toml` with generated inputs outside the package (old I10), tool versions locked. | S | `pip install -e .`; a run with an unpinned image is refused by default |
 | P1.7 | CI: unit tests on every change, live tests nightly on the pinned image (needs P0.1). | M | green pipeline |
 
@@ -480,8 +520,8 @@ week or more. "Owner" marks items that need a decision or approval first.
 
 | # | Item | Size | Done when |
 |---|------|------|-----------|
-| P2.1 | Macro hardening views (old I8): abstract LEF, timing Liberty, GDS, powered netlist and SPEF from a finished soft macro. | M | dp8/gcd8 views load into a parent design and sign off there |
-| P2.2 | OpenFrame harness (old I9, owner's choice): wrapper, pads, seal ring, project integration (after P0.2 and P2.1). | L | a design in the OpenFrame wrapper, routed, signed off |
+| P2.1 | Macro hardening views (old I8): abstract LEF, timing Liberty, GDS, powered netlist and SPEF from a finished soft macro. (Done 2026-10-15: gcd8 views, gcd8_pair signs off.) | M | dp8/gcd8 views load into a parent design and sign off there |
+| P2.2 | OpenFrame harness (old I9, owner's choice): wrapper, pads, seal ring, project integration (after P0.2 and P2.1). (H1 wrapper flow done 2026-10-15; H2 integration next: needs the frame's extra Caravel cells, download pending the owner's OK.) | L | a design in the OpenFrame wrapper, routed, signed off |
 | P2.3 | Pluggable, finer steps: split `steps.py` (1,100 lines); checks as their own steps; user steps from an import path in the design file. | M | a custom step added without editing the package |
 | P2.4 | Run report: one HTML/Markdown page per run (metrics per step, failures with report links, pictures). | S-M | report written by every run |
 | P2.5 | Real pad timing (old I7): gpiov2 Liberty instead of the black-box pad Liberty in mcu8. | S-M | mcu8 timing paths through pad delays |

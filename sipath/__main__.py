@@ -5,6 +5,9 @@
     python3 -m sipath run <design.yaml|dp8|mcu8|ihp_add8> [workdir] [--resume] [--config file] [-v]
                                       real OpenROAD run -> routed DEF + SPEF; --resume continues the
                                       attempt graph in workdir (finished steps are not run again)
+    python3 -m sipath harden <design.yaml|example> <outdir> [workdir] [--resume] [-v]
+                                      run through signoff + views; copy the hardened macro views
+                                      (LEF, Liberty per corner, GDS, CDL, macro.yaml) to outdir
     python3 -m sipath pdks              PDK descriptions available (sipath/pdks)
     python3 -m sipath plugins [module ...]   what plugins (entry points and the given modules) register
     python3 -m sipath docs [out.md]     reference: design-file keys, step parameters, config, PDK keys
@@ -34,7 +37,11 @@ def validate() -> int:
     examples = os.path.join(os.path.dirname(os.path.abspath(__file__)), "examples")
     pdk = None
     for path in sorted(glob.glob(os.path.join(examples, "*.yaml"))):
-        d, _ = designfile.load(path)
+        try:
+            d, _ = designfile.load(path)
+        except FileNotFoundError as e:  # e.g. a parent of a macro not hardened yet
+            print(f"skipped: {os.path.basename(path)}: {e}")
+            continue
         pdk = load_pdk(d.pdk, runner) if runner else load_pdk(d.pdk, platforms=ORFS_PLATFORMS)
         d.validate(pdk, runner_prefixes=prefixes)
         print(f"inputs ok: {d.name} ({d.mode}, {pdk.name}, corners {pdk.corner_source}) {len(d.input_files())} files")
@@ -124,6 +131,22 @@ def main(argv) -> int:
             if k in last.outputs:
                 print(f"{k.rstrip('_').upper():4}:", last.outputs[k])
         print("graph:", os.path.join(wd, "graph.json"))
+        return 0
+    if cmd == "harden":
+        import logging
+        from . import designfile
+        resume, verbose = "--resume" in argv, "-v" in argv
+        args = [a for a in argv[1:] if not a.startswith("-")]
+        if len(args) < 2:
+            print("usage: python3 -m sipath harden <design.yaml|example> <outdir> [workdir] [--resume] [-v]")
+            return 2
+        logging.basicConfig(level="INFO" if verbose else "WARNING",
+                            format="%(asctime)s %(name)s %(levelname)s %(message)s")
+        path = args[0]
+        if not os.path.isfile(path):
+            path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "examples", path + ".yaml")
+        out = designfile.harden(path, os.path.abspath(args[1]), args[2] if len(args) > 2 else None, resume=resume)
+        print("views:", out)
         return 0
     if cmd == "pdks":
         from .pdk import PDK_DIR

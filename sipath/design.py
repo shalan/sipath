@@ -154,6 +154,11 @@ class Design:
     allow_excluded: list = field(default_factory=list)  # PDK-excluded cells this design uses on purpose (waivers)
     step_defaults: dict = field(default_factory=dict)  # {step: {param: value}} (sipath.params), over the PDK's
     auto_blackbox: bool = False  # macros without lib get a black-box Liberty model from their LEF (opt-in)
+    # PDK core supply net -> its name in this design (e.g. a harness's {VDD: vccd1, VSS: vssd1});
+    # applies to the standard-cell supplies, the PDN, macro and pad supply maps and signoff
+    supply_names: dict = field(default_factory=dict)
+    harness: str | None = None  # a frame (sipath.harness): the design is its wrapper
+    harness_options: dict = field(default_factory=dict)  # e.g. {core_region: [x0, y0, x1, y1]} (um): rows only there
     plugins: list = field(default_factory=list)  # modules imported before the design file is checked (sipath.registry)
     extensions: dict = field(default_factory=dict)  # plugin namespace -> its settings (checked by the plugin's schema)
     # RTL input (instead of netlist): the synth step writes the netlist
@@ -225,6 +230,10 @@ class Design:
             files += [f for f in (m.gds, m.cdl) if f]
         return files
 
+    def net(self, name: str) -> str:
+        """A supply net's name in this design (supply_names applied)."""
+        return self.supply_names.get(name, name)
+
     def excluded_in(self, netlist: str, pdk) -> list[str]:
         """Cells of ``netlist`` the PDK or the design excludes (waivers left out)."""
         if not (pdk.exclude or self.dont_use):
@@ -247,7 +256,7 @@ class Design:
                 problems.append(f"macro {m.inst}: lvs must be 'blackbox' or absent, not {m.lvs!r}")
         if self.mode not in ("macro", "die"):
             problems.append(f"unknown mode {self.mode!r}")
-        if self.mode == "macro" and not (self.floorplan_def or self.die or self.core_utilization):
+        if self.mode == "macro" and not (self.floorplan_def or self.die or self.core_utilization or self.harness):
             problems.append("macro mode needs floorplan_def, die or core_utilization")
         if not self.netlist and not self.rtl:
             problems.append("needs netlist (gate level) or rtl (synthesized by the synth step)")

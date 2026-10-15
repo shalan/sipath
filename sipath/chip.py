@@ -71,6 +71,7 @@ def pad_ring(ctx) -> dict:
     plan = padplan.check(d.pads, ctx.pdk.io_roles, d.pad_kinds, d.pad_rules) if ctx.pdk.io_roles else {}
     # IO-cell supply pins onto their nets before abutment (pad ring bus = core supply)
     for pat, net in d.pad_supplies.items():
+        net = d.net(net)
         kind = "-ground" if net.upper().startswith(("VSS", "GND")) else "-power"
         s.run(f"add_global_connection -net {net} -inst_pattern {{.*}} -pin_pattern {q(pat)} {kind}")
     if d.pad_supplies:
@@ -203,7 +204,7 @@ def supply_pads(ctx):
         pin = role.upper()
         for pat, net in ctx.design.pad_supplies.items():
             if _re.fullmatch(pat.strip("^$"), pin) or _re.search(pat, pin):
-                out.append((p.inst, pin, net))
+                out.append((p.inst, pin, ctx.design.net(net)))
                 break
     return out
 

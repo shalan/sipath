@@ -255,13 +255,20 @@ def post_route_repair(ctx, max_iter: int = 2, max_patch: int = 40) -> dict:
     no pin swap, gate cloning or buffer removal, so the structural equivalence
     check applies), legalize, check equivalence, re-route the changed and moved
     instances' nets (``patch_route``), extract again. Stops when timing is met,
-    nothing changes, or after ``max_iter`` rounds."""
+    nothing changes, after ``max_iter`` rounds, or after one re-route (this
+    OpenROAD build's global router cannot route twice in one process)."""
     s, d, pdk = ctx.session, ctx.design, ctx.pdk
     history = []
+    rerouted = False
     for it in range(1, max_iter + 1):
         wns, whs = _slacks(s)
         history.append({"wns": wns, "whs": whs})
         if (wns is None or wns >= 0) and (whs is None or whs >= 0):
+            break
+        if rerouted:
+            # this global router keeps the previous global_route's edge usage:
+            # a second one in the same process fails (GRT-0229, usage 65535)
+            history[-1]["note"] = "stopped: one re-route per process (run route_repair again for more)"
             break
         pre_v, post_v = ctx.path(f"pre_repair{it}.v"), ctx.path(f"post_repair{it}.v")
         s.run(f"write_verilog {q(pre_v)}")
@@ -295,6 +302,7 @@ def post_route_repair(ctx, max_iter: int = 2, max_patch: int = 40) -> dict:
         _equivalent(s, pre_v, post_v)
         touched = (_inst_nets(s, changed | moved)) - set(d.analog_nets)
         r = patch_route(ctx, touched, sig0, analog_before, max_patch, tag=f"_repair{it}")
+        rerouted = True
         history[-1].update({"resized_or_added": len(changed), "moved": len(moved), "touched_nets": len(touched),
                             "route_mode": r["route_mode"]})
         steps.run_rcx(ctx, ctx.path("route_rcx.spef"), tag=f"repair{it}_rcx")

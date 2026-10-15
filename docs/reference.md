@@ -59,6 +59,9 @@ YAML or JSON; relative paths are relative to the file. Keys not listed are error
 | `allow_excluded` | list[str] |  | PDK-excluded cells used on purpose (waivers) |
 | `step_defaults` | dict |  | {step: {param: value}}: parameter defaults over the PDK's |
 | `auto_blackbox` | bool |  | macros without lib get a black-box Liberty model written from their LEF (off by default; a macro's own auto_blackbox overrides) |
+| `harness` | str |  | a frame (sipath/harnesses: openframe, caravel; or a plugin's): the design becomes its wrapper (template die and pins, user supplies, PDN); mode, floorplan and die come from it |
+| `harness_options` | dict |  | harness settings, e.g. {core_region: [x0, y0, x1, y1]} (um): standard-cell rows only there (a wrapper is mostly empty) |
+| `supply_names` | dict |  | PDK core supply net -> its name in this design, e.g. {VDD: vccd1, VSS: vssd1} (standard-cell supplies, PDN, macro and pad supply maps, signoff) |
 | `plugins` | list[str] |  | Python modules imported before this file is checked; they register steps, scores, signoff checks, harnesses and extension keys (sipath.registry) |
 | `extensions` | dict |  | plugin namespace -> its settings, checked against the keys the plugin registered |
 | `config` | object |  | run configuration (also SIPATH_* environment, --config) |
@@ -90,7 +93,8 @@ YAML or JSON; relative paths are relative to the file. Keys not listed are error
 | key | type | required | description |
 |---|---|---|---|
 | `inst` | str | yes | instance name in the netlist |
-| `lef` | path | yes | abstract LEF |
+| `lef` | path |  | abstract LEF (required unless views gives it) |
+| `views` | path |  | a hardened macro's views directory (python3 -m sipath harden, or the views step): lef, gds, lib, cdl and supplies come from its macro.yaml unless given here |
 | `lib` | lib |  | Liberty: one file, or {corner or process: file}; null for none |
 | `location` | point |  | lower-left (um); null: autoplaced by the macros step |
 | `orient` | str |  | orientation (one of: R0, R90, R180, R270, MX, MY, MXR90, MYR90) |
@@ -173,6 +177,7 @@ YAML or JSON; relative paths are relative to the file. Keys not listed are error
 | `container_cpus` | number |  | CPU limit per container |
 | `container_memory` | str |  | memory limit per container (e.g. 8g) |
 | `image` | str |  | ORFS image (name@sha256:... pins it) |
+| `magic_image` | str |  | image with Magic for the signoff checks magic_drc and xor (docker/magic) |
 | `require_digest` | bool |  | refuse an image not pinned by digest |
 | `debug_failed` | bool |  | write a debug checkpoint for a failed attempt |
 | `log_level` | str |  | flow logger level (one of: DEBUG, INFO, WARNING, ERROR) |
@@ -205,6 +210,7 @@ Set per attempt in `variants` (design file `flow:` or MCP `run_step`), or as def
 | `abc_period_ps` | float | – | 1.. | ABC delay target; default: the SDC's first create_clock period [ps] |
 | `lint` | bool | true |  | lint the RTL first (implicit nets, hierarchy, undriven / multiply driven nets, combinational loops are errors) |
 | `lint_strict` | bool | false |  | fail on any lint warning |
+| `port_buffers` | bool | true |  | buffer assignments between ports (off: a port-to-port assignment stays one net with two pins, e.g. a wrapper output tied to a frame loopback input) |
 
 ### floorplan
 
@@ -237,6 +243,7 @@ No parameters.
 | `density` | float | 0.55 | 0.05..1.0 | global placement target density |
 | `seed` | int | – |  | global placement random seed; default: the tool's |
 | `routability_driven` | bool | false |  | routability-driven global placement |
+| `timing_driven` | bool | true |  | timing-driven global placement (off for designs whose pins are far from the cells, e.g. a mostly empty harness wrapper: repair_design then buffers the long wires) |
 | `repair_tie_fanout` | bool | true |  | one tie cell per load, placed next to it |
 | `remove_buffers` | bool | false |  | remove the netlist's buffers before placement |
 | `max_util` | float | – | 0.01..1.0 | utilization limit for repair_design / repair_timing |
@@ -276,6 +283,20 @@ No parameters.
 | `max_drc` | int | 0 | 0.. | routing DRC violations allowed |
 | `fail_on_violation` | bool | false |  | fail the attempt when setup or hold is not met after the step |
 
+### fill
+
+| parameter | type | default | allowed | description |
+|---|---|---|---|---|
+| `layers` | list[str] | – |  | layers to fill (default: the fill rules' layers up to the design's top routing layer) |
+| `area` | list[float] | – |  | fill only inside [x0, y0, x1, y1] (default: the die) [um] |
+
+### views
+
+| parameter | type | default | allowed | description |
+|---|---|---|---|---|
+| `corners` | list[str] | – |  | analysis corners to write a timing Liberty for (default: all) |
+| `bloat_occupied_layers` | bool | true |  | abstract LEF: layers the design uses are blocked whole (a parent routes over the macro only on layers it leaves free) |
+
 ### extract
 
 | parameter | type | default | allowed | description |
@@ -287,8 +308,8 @@ No parameters.
 
 | parameter | type | default | allowed | description |
 |---|---|---|---|---|
-| `checks` | list[str] | drc, lvs, antenna, setup, hold, drv, annotation, unconstrained | drc, lvs, antenna, setup, hold, drv, annotation, unconstrained | checks to run |
-| `require` | list[str] | drc, lvs, antenna, setup, hold, drv, annotation | drc, lvs, antenna, setup, hold, drv, annotation, unconstrained | checks whose failure fails signoff (of those run) |
+| `checks` | list[str] | drc, density, lvs, antenna, setup, hold, drv, annotation, unconstrained, harness | drc, density, lvs, antenna, setup, hold, drv, annotation, unconstrained, harness, magic_drc, xor | checks to run (magic_drc and xor are opt-in: they need the Magic image) |
+| `require` | list[str] | drc, density, lvs, antenna, setup, hold, drv, annotation, harness, magic_drc, xor | drc, density, lvs, antenna, setup, hold, drv, annotation, unconstrained, harness, magic_drc, xor | checks whose failure fails signoff (of those run) |
 | `fail_on_violation` | bool | true |  | fail the attempt when a required check fails (signoff.json is written either way) |
 
 ### eco
@@ -312,6 +333,7 @@ Design file `config:`, a `--config` file, or `SIPATH_<KEY>` environment variable
 | `container_cpus` | number | CPU limit per container |
 | `container_memory` | str | memory limit per container (e.g. 8g) |
 | `image` | str | ORFS image (name@sha256:... pins it) |
+| `magic_image` | str | image with Magic for the signoff checks magic_drc and xor (docker/magic) |
 | `require_digest` | bool | refuse an image not pinned by digest |
 | `debug_failed` | bool | write a debug checkpoint for a failed attempt |
 | `log_level` | str | flow logger level |

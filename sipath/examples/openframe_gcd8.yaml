@@ -1,0 +1,33 @@
+# openframe_gcd8: gcd8 as a ChipFoundry OpenFrame wrapper (harness: openframe).
+#   python3 -m sipath run sipath/examples/openframe_gcd8.yaml [workdir]
+# The harness sets the die and the 917 boundary pins (template), the user
+# supplies (vccd1/vssd1, strapped from their pins at the east edge to the ring)
+# and the power grid. A 4-bit gcd uses pads 0-14, all on the east edge, and the
+# standard-cell rows are a strip along that edge (the wrapper is otherwise
+# empty): every pad is next to the rows, so long pad nets can be buffered on
+# the way. The harness signoff check compares the routed wrapper with the
+# template.
+name: openframe_gcd8
+top: openframe_project_wrapper
+mode: macro
+pdk: sky130A
+harness: openframe
+harness_options:
+  core_region: [2900.0, 300.0, 3120.0, 4650.0]   # 220 um east strip (the grid needs one strap pitch): pads 0-14, vccd1/vssd1 pins
+rtl: [rtl/gcd8.v, rtl/openframe_gcd8.v]
+rtl_defines: {OPENFRAME_IO_PADS: 44, GCD_W: 4}
+sdc: rtl/openframe_gcd8.sdc
+clock_ports: ["gpio_in[0]"]
+flow:
+- step: synth
+  variants: [{port_buffers: false}]      # pad controls stay wires to the frame's loopback inputs
+- step: floorplan
+- step: physical
+- step: place
+  variants: [{timing_driven: false, density: 0.4}]   # pad nets up to 2 mm long: buffering is repair's job
+- step: cts
+- step: route_analog
+- step: route_digital
+- step: route_repair
+- step: extract
+- step: signoff

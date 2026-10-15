@@ -186,6 +186,13 @@ signoff:
   lvs_blackbox: ["sky130_ef_io__*", "sky130_fd_io__*"]
   drc_deck: ${pdk_root}/${variant}/libs.tech/klayout/drc/${variant}_mr.drc
   drc_options: {feol: true, beol: true, offgrid: true, floating_met: false, seal: false}
+  # metal density (max 60% per layer, met5 76%, over the die): the PDK's deck
+  density_deck: ${pdk_root}/${variant}/libs.tech/klayout/drc/met_min_ca_density.lydrc
+  # metal fill (fill step): OpenROAD density_fill rules; fill shapes go to the fill datatype
+  fill_rules: ${here}/sky130/fill.json
+  fill_gds: {met1: [36, 28], met2: [41, 28], met3: [34, 28], met4: [51, 28], met5: [59, 28]}
+  # second DRC engine and the stream-out XOR (opt-in checks magic_drc, xor): Magic with the PDK's rc
+  magic_rc: ${pdk_root}/${variant}/libs.tech/magic/${variant}.magicrc
   lvs_deck: ${here}/sky130/sky130_stdcell.lvs
   lvs_threads: 8
   # drawing layer -> text layer, low to high: supply nets get one label on the highest

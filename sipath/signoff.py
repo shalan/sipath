@@ -37,7 +37,9 @@ import xml.etree.ElementTree as ET
 from . import tcl
 from .tcl import q, qlist, tcl_words
 
-from .params import SIGNOFF_CHECKS as ALL_CHECKS, SIGNOFF_REQUIRED as DEFAULT_REQUIRED  # noqa: E402
+from .params import SIGNOFF_CHECKS as DEFAULT_CHECKS, SIGNOFF_OPTIONAL, SIGNOFF_REQUIRED  # noqa: E402
+ALL_CHECKS = DEFAULT_CHECKS + SIGNOFF_OPTIONAL
+DEFAULT_REQUIRED = SIGNOFF_REQUIRED + SIGNOFF_OPTIONAL
 HERE = os.path.dirname(os.path.abspath(__file__))
 STREAM = os.path.join(HERE, "klayout", "stream.py")
 
@@ -54,11 +56,12 @@ def _runner(ctx):
     return r
 
 
-def run_tool(ctx, args: list[str], log: str, timeout: float = 7200) -> str:
-    """Run a tool of the installation (KLayout); its output goes to ``log``.
-    A non-zero exit fails the check; the output is returned."""
+def run_tool(ctx, args: list[str], log: str, timeout: float = 7200, image: str | None = None,
+             env: dict | None = None) -> str:
+    """Run a tool of the installation (KLayout; Magic from ``image``); its
+    output goes to ``log``. A non-zero exit fails the check; the output is returned."""
     r = _runner(ctx)
-    cmd = r.tool_command(ctx.dir, args)
+    cmd = r.tool_command(ctx.dir, args, image=image, env=env) if (image or env) else r.tool_command(ctx.dir, args)
     t0 = time.time()
     p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, cwd=ctx.dir)
     out = p.stdout + p.stderr
@@ -72,7 +75,7 @@ def run_tool(ctx, args: list[str], log: str, timeout: float = 7200) -> str:
 
 def supplies(ctx) -> list[str]:
     d, pdk = ctx.design, ctx.pdk
-    nets = [gp["net"] for gp in pdk.power_pins] + list(d.analog_supplies)
+    nets = [d.net(gp["net"]) for gp in pdk.power_pins] + list(d.analog_supplies)
     return list(dict.fromkeys(nets))
 
 
@@ -197,7 +200,8 @@ def stream_gds(ctx, def_path: str, out: str, abstract: tuple[str, ...] = ()) -> 
     cfg = {"tech": so["klayout_tech"], "map": so["klayout_map"],
            "lefs": [pdk.tech_lef, *pdk.cell_lefs, *d.extra_lefs, *[m.lef for m in d.macros]],
            "def": def_path, "top": d.top, "gds": lib_gds, "macro_gds": macro_gds, "abstract": sorted(abstract),
-           "out": out, "supplies": supplies(ctx), "label_layers": so.get("label_layers", {})}
+           "out": out, "supplies": supplies(ctx), "label_layers": so.get("label_layers", {}),
+           "fill_gds": so.get("fill_gds", {})}
     cfg_path = out + ".cfg.json"
     with open(cfg_path, "w") as f:
         json.dump(cfg, f, indent=1)
@@ -213,6 +217,89 @@ def stream_gds(ctx, def_path: str, out: str, abstract: tuple[str, ...] = ()) -> 
 
 
 # ----------------------------------------------------------------------- DRC
+_DEF_TOKEN = re.compile(r"\(\s*(-?\d+|\*)\s+(-?\d+|\*)(?:\s+(-?\d+))?\s*\)|NEW\b|;|[^\s()]+")
+
+
+def fix_zero_ext_corners(def_path: str) -> list[dict]:
+    """Give the normal half-width extension to every same-layer corner the
+    router wrote with extension 0 (``( x y 0 )`` between two perpendicular
+    segments): both segments then stop flush at the corner and leave a
+    diagonal pinch narrower than the layer's minimum width (a DRC width error).
+    With the default extension the corner is the usual square one. Path ends
+    and points where the path changes layer keep what the router wrote.
+    Rewrites the DEF in place; returns the corners changed."""
+    with open(def_path) as f:
+        text = f.read()
+    start = text.find("\nNETS ")
+    if start < 0:
+        return []
+    end = text.index("\nEND NETS", start)
+    body = text[start:end]
+    fixed, edits = [], []
+    net, path = None, []  # path: [("pt", x, y, match) | ("via",)] since the last ROUTED/NEW
+    starts = {"ROUTED", "FIXED", "COVER", "NEW", "SHIELD", "NOSHIELD"}
+    words = [m for m in _DEF_TOKEN.finditer(body)]
+
+    def close():
+        for k, item in enumerate(path):
+            if item[0] != "pt" or item[3].group(3) != "0" or k == 0 or k + 1 >= len(path):
+                continue
+            if path[k + 1][0] != "pt":
+                continue  # the path changes layer here
+            j = k - 1
+            while j >= 0 and path[j][0] == "via":
+                j -= 1
+            if j < 0:
+                continue
+            (_, px, py, _), (_, cx, cy, m), (_, nx, ny, _) = path[j], item, path[k + 1]
+            if (px == cx) == (nx == cx):
+                continue  # straight on: the extension does not matter
+            edits.append(m)
+            fixed.append({"net": net, "at": (cx, cy)})
+        path.clear()
+
+    expect_layer = False
+    for i, m in enumerate(words):
+        tok = m.group(0)
+        if m.group(1) is not None:
+            x0, y0 = (path_last[1], path_last[2]) if (path_last := next((q for q in reversed(path) if q[0] == "pt"),
+                                                                          None)) else (None, None)
+            x = x0 if m.group(1) == "*" else int(m.group(1))
+            y = y0 if m.group(2) == "*" else int(m.group(2))
+            path.append(("pt", x, y, m))
+            expect_layer = False
+            continue
+        if tok == ";":
+            close()
+            net = None
+            continue
+        if tok == "-" or (tok.startswith("-") and len(tok) == 1):
+            continue
+        if net is None and i > 0 and words[i - 1].group(0) == "-":
+            net = tok
+            continue
+        if tok in starts:
+            close()
+            expect_layer = True
+            continue
+        if expect_layer:  # the layer name after ROUTED/NEW
+            expect_layer = False
+            continue
+        if path and tok not in ("+", "TAPER", "TAPERRULE", "STYLE", "MASK", "RECT", "VIRTUAL", "USE", "SIGNAL"):
+            path.append(("via",))
+    close()
+    if not edits:
+        return []
+    out, last = [], 0
+    for m in edits:
+        out.append(body[last:m.start()] + f"( {m.group(1)} {m.group(2)} )")
+        last = m.end()
+    out.append(body[last:])
+    with open(def_path, "w") as f:
+        f.write(text[:start] + "".join(out) + text[end:])
+    return fixed
+
+
 def parse_lyrdb(path: str, owners: dict | None = None, top: str | None = None) -> dict:
     """Marker counts by rule. With ``owners`` ({cell: owner}), markers are also
     counted by the owner of the cell they are reported in (``by_owner``): a
@@ -264,6 +351,130 @@ def drc(ctx, gds: str, owners: dict | None = None) -> dict:
     if not os.path.isfile(rpt):
         raise SignoffError(f"DRC wrote no report at {rpt}")
     return {**parse_lyrdb(rpt, owners, ctx.design.top), "report": rpt}
+
+
+def density(ctx, gds: str) -> dict:
+    """The PDK's metal density deck (signoff.density_deck) on the GDS: its
+    markers fail the check for a top-level layout (die, harness wrapper,
+    is_core); for an embedded macro they are reported only (the rule is the
+    chip's). The per-layer densities it logs are reported."""
+    so = _cfg(ctx)
+    rpt = ctx.path("density.lyrdb")
+    log = run_tool(ctx, ["klayout", "-b", "-r", so["density_deck"], "-rd", f"input={gds}",
+                         "-rd", f"top_cell={ctx.design.top}", "-rd", f"report={rpt}"], ctx.path("density.log"))
+    if not os.path.isfile(rpt):
+        raise SignoffError(f"density check wrote no report at {rpt}")
+    text = log or ""
+    # "<layer>_ca_density is <clear area fraction>": metal density = 1 - clear area
+    dens = {m.group(1): round(1 - float(m.group(2)), 4)
+            for m in re.finditer(r"(\w+?)_ca_density is (-?[\d.eE+-]+)", text)}
+    return {**parse_lyrdb(rpt, None, ctx.design.top), "report": rpt, "metal_density": dens}
+
+
+# ----------------------------------------------------------------- Magic
+XOR = os.path.join(HERE, "klayout", "xor.py")
+
+
+def _magic(ctx, script: str, name: str) -> str:
+    """Run a Magic Tcl script batch (no display) with the PDK's rc file, in
+    the Magic image (config.magic_image); returns its output."""
+    so = _cfg(ctx)
+    rc = so.get("magic_rc")
+    if not rc:
+        raise SignoffError(f"PDK {ctx.pdk.name} gives no signoff.magic_rc: no Magic checks")
+    # <root>/<variant>/libs.tech/magic/<variant>.magicrc: the rc file loads its tech from $PDK_ROOT/<variant>
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(rc))))
+    path = ctx.path(f"{name}.tcl")
+    with open(path, "w") as f:
+        f.write(script)
+    cfg = getattr(ctx, "config", None)
+    image = getattr(cfg, "magic_image", None) or "sipath/orfs-magic:8.3.685"
+    try:
+        return run_tool(ctx, ["magic", "-dnull", "-noconsole", "-rcfile", rc, path], ctx.path(f"{name}.log"),
+                        image=image, env={"PDK_ROOT": root})
+    except SignoffError as e:
+        raise SignoffError(f"{e}\n(Magic runs from the image {image}: build it with "
+                           f"docker build -t {image} docker/magic, or set magic_image)") from e
+
+
+def magic_drc(ctx, gds: str) -> dict:
+    """Magic's DRC (style drc(full), euclidean) on the GDS: a second DRC
+    engine beside KLayout, as in the Efabless/ChipFoundry precheck."""
+    rpt = ctx.path("magic_drc.rpt")
+    script = f"""crashbackups stop
+drc off
+gds readonly true
+gds read {{{gds}}}
+load {{{ctx.design.top}}} -dereference
+select top cell
+drc euclidean on
+drc style drc(full)
+drc check
+drc catchup
+set n 0
+set f [open {{{rpt}}} w]
+foreach {{why boxes}} [drc listall why] {{
+  foreach b $boxes {{ puts $f "$why\\t$b"; incr n }}
+}}
+close $f
+puts "SIPATH_MAGIC_DRC $n"
+quit -noprompt
+"""
+    out = _magic(ctx, script, "magic_drc")
+    m = re.search(r"SIPATH_MAGIC_DRC (\d+)", out)
+    if not m:
+        raise SignoffError(f"Magic DRC did not finish (log {ctx.path('magic_drc.log')})")
+    by_rule: dict = {}
+    with open(rpt) as f:
+        for line in f:
+            why = line.split("\t")[0].strip()
+            if why:
+                by_rule[why] = by_rule.get(why, 0) + 1
+    return {"count": int(m.group(1)), "by_rule": by_rule, "report": rpt}
+
+
+def xor(ctx, def_path: str, klayout_gds: str) -> dict:
+    """Stream-out XOR: the routed DEF written to GDS by Magic (with the cell
+    and macro layouts, no hierarchical CIF corrections) against the KLayout
+    stream-out; every differing layer fails the check (two independent DEF
+    readers must agree). Metal fill is not compared: Magic does not read DEF
+    FILLS."""
+    so, d = _cfg(ctx), ctx.design
+    lib_gds = list(so.get("cell_gds", [])) + (list(so.get("io_gds", [])) if d.pads else [])
+    lib_gds += [m.gds for m in d.macros if m.gds]
+    _runner(ctx).mount(XOR, *lib_gds)
+    mgds = ctx.path(f"{d.top}.magic.gds")
+    reads = "\n".join(f"gds read {{{g}}}" for g in dict.fromkeys(lib_gds))
+    script = f"""crashbackups stop
+drc off
+gds readonly true
+gds rescale false
+cif *hier write disable
+cif *array write disable
+lef read {{{ctx.pdk.tech_lef}}}
+{reads}
+def read {{{def_path}}}
+load {{{d.top}}} -dereference
+select top cell
+gds write {{{mgds}}}
+puts SIPATH_MAGIC_GDS_DONE
+quit -noprompt
+"""
+    out = _magic(ctx, script, "magic_stream")
+    if "SIPATH_MAGIC_GDS_DONE" not in out or not os.path.isfile(mgds):
+        raise SignoffError(f"Magic wrote no GDS (log {ctx.path('magic_stream.log')})")
+    res = ctx.path("xor.json")
+    cfg_path = ctx.path("xor.cfg.json")
+    with open(cfg_path, "w") as f:
+        # Magic's DEF reader skips the FILLS section: the fill datatypes are not compared
+        fill = [f"{g}/{dt}" for g, dt in (so.get("fill_gds") or {}).values()]
+        json.dump({"a": klayout_gds, "b": mgds, "top": d.top, "out": res,
+                   "ignore": list(so.get("xor_ignore", [])) + fill}, f, indent=1)
+    run_tool(ctx, ["klayout", "-b", "-rd", f"cfg_file={cfg_path}", "-r", XOR], ctx.path("xor.log"))
+    with open(res) as f:
+        r = json.load(f)
+    return {"count": len(r["differences"]), "layers_compared": r["layers_compared"],
+            "differences": r["differences"], "magic_gds": mgds, "report": res}
 
 
 # ----------------------------------------------------------------------- LVS
@@ -618,16 +829,24 @@ def _annotation(session, text: str) -> dict:
 def run(ctx) -> dict:
     """All signoff checks on the parent's final database; returns the summary."""
     d, s, p = ctx.design, ctx.session, ctx.params
-    checks = list(p.get("checks", ALL_CHECKS))
+    checks = list(p.get("checks", DEFAULT_CHECKS))
     required = [c for c in p.get("require", DEFAULT_REQUIRED) if c in checks]
     from . import registry
     bad = sorted(set(checks) - set(ALL_CHECKS) - set(registry.CHECKS))
     if bad:
         raise ValueError(f"unknown signoff checks {bad}; known: {list(ALL_CHECKS) + sorted(registry.CHECKS)}")
     s.run(tcl.global_connect(d, ctx.pdk))  # cells added after the PDN (CTS, fill, ties) on the supplies
+    if d.harness:  # the template's pin shapes, clipped to the die for routing since floorplan
+        from . import harness as harness_mod
+        ctx.metrics["harness_pins_restored"] = int(
+            s.value(harness_mod.get(d.harness, d.harness_options).restore_pins_tcl()))
     final_def, final_v = ctx.path(f"{d.top}.def"), ctx.path(f"{d.top}.v")
     s.run(f"write_def {q(final_def)}\nwrite_verilog {q(final_v)}")
+    corners = fix_zero_ext_corners(final_def)  # the outputs (DEF, GDS) get square corners
+    ctx.metrics["corners_squared"] = len(corners)
     summary, failures, t0 = {"checks": checks, "required": required}, [], time.time()
+    if corners:
+        summary["corners_squared"] = corners[:20]
     timings = {}
     phys = [c for c in ("drc", "lvs") if c in checks]
     if phys:
@@ -664,6 +883,22 @@ def run(ctx) -> dict:
             out.update(gds=drc_gds, abstract_macros=[m.inst for m in d.macros if m.abstract])
             return out
         jobs["drc"] = run_drc
+    if "density" in checks:
+        if not _cfg(ctx).get("density_deck"):
+            summary["density"] = {"pass": True, "skipped": "the PDK gives no signoff.density_deck"}
+        elif "gds" not in summary:
+            failures.append("density: no GDS (density needs drc or lvs among the checks)")
+        else:
+            jobs["density"] = lambda: density(ctx, summary["gds"]["file"])
+    if "magic_drc" in checks or "xor" in checks:
+        if "gds" not in summary:
+            failures += [f"{c}: no GDS (needs drc or lvs among the checks)" for c in ("magic_drc", "xor")
+                         if c in checks]
+        else:
+            if "magic_drc" in checks:
+                jobs["magic_drc"] = lambda: magic_drc(ctx, summary["gds"]["file"])
+            if "xor" in checks:
+                jobs["xor"] = lambda: xor(ctx, final_def, summary["gds"]["file"])
     lvs_prep = None
     if "lvs" in phys:
         t = time.time()
@@ -703,6 +938,24 @@ def run(ctx) -> dict:
         if summary["drc"]["count"]:
             failures.append(f"drc: {summary['drc']['count']} violations {summary['drc']['by_rule']} "
                             f"(by owner {summary['drc'].get('by_owner')})")
+    if "magic_drc" in results:
+        summary["magic_drc"] = results["magic_drc"]
+        if summary["magic_drc"]["count"]:
+            failures.append(f"magic_drc: {summary['magic_drc']['count']} violations "
+                            f"{dict(list(summary['magic_drc']['by_rule'].items())[:8])}")
+    if "xor" in results:
+        summary["xor"] = results["xor"]
+        if summary["xor"]["count"]:
+            failures.append(f"xor: Magic and KLayout stream-outs differ on {sorted(summary['xor']['differences'])}")
+    if "density" in results:
+        summary["density"] = results["density"]
+        # the deck measures each layer over the whole layout: a chip-level rule.
+        # An embedded macro's density counts in its parent's (reported, not gating)
+        top_level = d.mode == "die" or bool(d.harness) or d.is_core
+        summary["density"]["scope"] = "top level" if top_level else "embedded macro: informational"
+        if summary["density"]["count"] and top_level:
+            failures.append(f"density: {summary['density']['count']} violations {summary['density']['by_rule']} "
+                            f"(metal density {summary['density']['metal_density']})")
     if "lvs" in results:
         summary["lvs"] = results["lvs"]
     if "lvs" in summary and not summary["lvs"].get("match"):
@@ -725,6 +978,15 @@ def run(ctx) -> dict:
             failures.append(f"annotation: loaded nets without parasitics at {st['unannotated_loaded'][:8]}")
         if "unconstrained" in checks and st["unconstrained"]:
             failures.append(f"unconstrained: {len(st['unconstrained'])} endpoints, e.g. {st['unconstrained'][:5]}")
+    if "harness" in checks:  # the routed wrapper against the frame's template
+        if d.harness:
+            from . import harness as harness_mod
+            summary["harness"] = harness_mod.get(d.harness, d.harness_options).conformance(final_def)
+            summary["harness"]["name"] = d.harness
+            if not summary["harness"]["pass"]:
+                failures.append(f"harness: {summary['harness']['reason']}, e.g. {summary['harness']['missing'][:3]}")
+        else:
+            summary["harness"] = {"pass": True, "skipped": "no harness"}
     for name, fn in registry.CHECKS.items():  # plugin checks, after the built-in ones
         if name not in checks:
             continue
@@ -750,6 +1012,13 @@ def run(ctx) -> dict:
         m["drc_signoff"] = summary["drc"]["count"]
     if "lvs" in summary:
         m["lvs_match"] = summary["lvs"].get("match", False)
+    for k in ("magic_drc", "xor"):
+        if summary.get(k, {}).get("count") is not None:
+            m[f"{k}_violations"] = summary[k]["count"]
+    if summary.get("density", {}).get("count") is not None:
+        m["density_violations"] = summary["density"]["count"]
+        for layer, v in summary["density"]["metal_density"].items():
+            m[f"metal_density_{layer}"] = v
     if "antenna" in summary:
         m["antenna_signoff"] = summary["antenna"]["violations"]
     if "timing" in summary:
@@ -764,7 +1033,7 @@ def run(ctx) -> dict:
     ctx.outputs.update(signoff=path, def_=final_def, verilog=final_v,
                        gds=summary.get("gds", {}).get("file"))
     rep = ctx.outputs.setdefault("reports", {})
-    for k in ("drc", "lvs"):
+    for k in ("drc", "density", "lvs", "magic_drc", "xor"):
         if summary.get(k, {}).get("report"):
             rep[f"signoff_{k}"] = summary[k]["report"]
     for k, f in summary.get("timing", {}).get("reports", {}).items():

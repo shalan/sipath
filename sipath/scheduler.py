@@ -155,6 +155,7 @@ class Ctx:
     metrics: dict = field(default_factory=dict)
     outputs: dict = field(default_factory=dict)
     runner: object = None  # how the installation's tools run (tool steps, signoff)
+    config: object = None  # sipath.config.Config of the run (e.g. the Magic image)
 
     def path(self, name: str) -> str:
         return os.path.join(self.dir, name)
@@ -439,7 +440,7 @@ class Flow:
             # step_defaults, then the declared default); the attempt records the variant
             decl = "eco" if a.kind == "eco" else getattr(fn, "__name__", a.step)
             ctx = Ctx(session, self.design, self.pdk, params_mod.resolve(decl, a.params, self.pdk, self.design),
-                      a.dir, a.parent, a)
+                      a.dir, a.parent, a, config=self.config)
             fn(ctx)
             t1 = mark("step", t1)
             parasitics = session.value("::flow_timing_prep")
@@ -490,7 +491,7 @@ class Flow:
         a.process = "tool"
         decl = getattr(fn, "__name__", a.step)
         ctx = Ctx(None, self.design, self.pdk, params_mod.resolve(decl, a.params, self.pdk, self.design),
-                  a.dir, a.parent, a, runner=self.runner)
+                  a.dir, a.parent, a, runner=self.runner, config=self.config)
         fn(ctx)
         mark("step", t0)
         out = ctx.outputs.get("checkpoint")

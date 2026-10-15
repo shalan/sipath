@@ -1,0 +1,37 @@
+# gcd8_pair: a parent design built from a hardened macro (P2.1).
+#   python3 -m sipath harden gcd8 sipath/examples/hardened/gcd8
+#   python3 -m sipath run sipath/examples/gcd8_pair.yaml [workdir]
+# Two instances of the hardened gcd8 (abstract LEF, per-corner timing Liberty,
+# GDS and LVS subcircuit, all from its views directory) plus glue logic. The
+# parent's met5 straps (40 um pitch) cross each 76 um macro and join its met4
+# supply pins; signoff checks the macros' insides too (their GDS and CDL).
+name: gcd8_pair
+top: gcd8_pair
+mode: macro
+pdk: sky130A
+rtl: [rtl/gcd8_pair.v]
+sdc: rtl/gcd8_pair.sdc
+die: [0, 0, 260, 180]
+core_margin: 10.0
+is_core: true
+macros:
+- {inst: u_gcd0, views: hardened/gcd8, location: [24.84, 46.24], halo: 8.0}
+- {inst: u_gcd1, views: hardened/gcd8, location: [148.12, 46.24], halo: 8.0}
+pdn:
+  straps: [{layer: met4, width: 1.6, pitch: 40.0, offset: 10.0},
+           {layer: met5, width: 1.6, pitch: 40.0, offset: 10.0}]
+  connects: [[met1, met4], [met4, met5]]
+  macro_connects: [[met4, met5]]
+flow:
+- step: synth
+- step: floorplan
+- step: macros
+- step: physical
+- step: place
+- step: cts
+- step: route_analog
+- step: route_digital
+- step: route_repair
+- step: fill
+- step: extract
+- step: signoff

@@ -1,0 +1,30 @@
+# Caravel (efabless/ChipFoundry chipIgnite): management SoC + user area.
+# The wrapper user_project_wrapper is 2920 x 3520 um; its template's power pins
+# are the power grid itself (met4/met5 stripes on a 180 um pitch).
+# Sources: sources/caravel (see sources/SOURCES.txt). Status: template, supplies
+# and conformance; matching the template's power stripes is not verified yet.
+name: caravel
+description: Caravel user area; wrapper user_project_wrapper, 2920 x 3520 um (power pins = grid stripes)
+pdks: [sky130A, sky130B]
+wrapper: user_project_wrapper
+template_def: sources/caravel/user_project_wrapper.def
+wrapper_verilog: sources/caravel/user_project_wrapper.v
+site_width: 0.46
+row_height: 2.72
+core_margin: 30.0
+is_core: true
+max_route_layer: met4
+supplies: {VDD: vccd1, VSS: vssd1}
+power_pins: [vccd1, vccd2, vdda1, vdda2, vssa1, vssa2, vssd1, vssd2]  # all wrapper supply ports
+pdn:
+  rings: true
+  ring_layers: [met4, met5]
+  ring_width: 3.1
+  ring_spacing: 1.7
+  ring_core_offset: 12.45
+  straps: [{layer: met4, width: 3.1, pitch: 180.0, offset: 5.0},
+           {layer: met5, width: 3.1, pitch: 180.0, offset: 5.0}]
+  connects: [[met1, met4], [met4, met5]]
+frame:
+  gds: sources/caravel/chip_io.gds.gz
+  lef: sources/caravel/chip_io.lef

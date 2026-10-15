@@ -5,7 +5,8 @@
 # shape on the highest labelled layer, so LVS can name the supply nets), then
 # replaces every cell by its layout from the given GDS files and writes the
 # top cell's tree. Cells named in "abstract" keep their LEF view (pins on
-# drawing layers plus pin-name labels): LVS black boxes. Cells no GDS defines
+# drawing layers plus pin-name labels): LVS black boxes. Metal fill (DEF FILLS)
+# goes to the fill datatypes given as "fill_gds". Cells no GDS defines
 # and orphan cells are reported in <out>.json; sipath.signoff fails on them.
 # Follows OpenROAD-flow-scripts flow/util/def2stream.py (BSD 3-Clause).
 import json
@@ -17,7 +18,16 @@ cfg = json.load(open(cfg_file))  # noqa: F821  (cfg_file: KLayout -rd variable)
 tech = pya.Technology()
 tech.load(cfg["tech"])
 opt = tech.load_layout_options
-opt.lefdef_config.map_file = cfg["map"]
+map_file = cfg["map"]
+if cfg.get("fill_gds"):  # DEF FILLS (metal fill) on the PDK's fill datatypes
+    with open(cfg["map"]) as f:
+        base = f.read()
+    map_file = cfg["out"] + ".map"
+    with open(map_file, "w") as f:
+        f.write(base.rstrip("\n") + "\n" + "".join(f"{lname} FILL {g} {dt}\n"
+                                                    for lname, (g, dt) in cfg["fill_gds"].items()))
+    opt.lefdef_config.produce_fills = True
+opt.lefdef_config.map_file = map_file
 opt.lefdef_config.lef_files = cfg["lefs"]
 opt.lefdef_config.read_lef_with_def = False
 opt.lefdef_config.net_property_name = "NET"
@@ -107,22 +117,60 @@ for c in ly.each_cell():
 # library GDS: the first definition of a cell wins (IO libraries repeat cells)
 lopt = pya.LoadLayoutOptions()
 lopt.cell_conflict_resolution = pya.LoadLayoutOptions.SkipNewCell
+lib_cells = set()
 for g in cfg["gds"]:
     before = defined()
     ly.read(g, lopt)
     owners.update({n: os.path.basename(g) for n in defined() - before})
+    lib_cells |= defined() - before
 # Macro GDS may carry their own copies of cells named like library cells or
 # like cells of another macro (e.g. two IPs with different "follower_amp"s):
-# rename those instead of merging them, so every macro keeps its own layout.
-renamed = {}
+# rename those instead of merging them, so every macro keeps its own layout,
+# unless the copy is identical to the library cell of that name.
+renamed, merged = {}, {}
+
+
+def same_cell(a, b):
+    """Same geometry: on every layer the two cells' shapes (hierarchy included) XOR to nothing."""
+    if a.bbox() != b.bbox():
+        return False
+    return all((pya.Region(a.begin_shapes_rec(li)) ^ pya.Region(b.begin_shapes_rec(li))).is_empty()
+               for li in ly.layer_indexes())
+
+
+def use_cell(dup, lib):
+    """Point every instance of ``dup`` at ``lib`` and delete ``dup``. The
+    instance arrays are copied first: changing instances while iterating them
+    would skip some."""
+    for pi in list(dup.each_parent_cell()):
+        parent = ly.cell(pi)
+        arrays = [i.cell_inst.dup() for i in parent.each_inst() if i.cell_index == dup.cell_index()]
+        for arr in arrays:
+            arr.cell_index = lib.cell_index()
+            parent.insert(arr)
+    dup.delete()  # removes the old instances with it
+
+
 for g in cfg.get("macro_gds", []):
     before = defined()
     mopt = pya.LoadLayoutOptions()
     mopt.cell_conflict_resolution = pya.LoadLayoutOptions.RenameCell
     ly.read(g, mopt)
     new = sorted(defined() - before)
+    # a copy identical to the library cell of that name (a macro hardened with
+    # the same library) is the library cell: its instances go back to it, so
+    # LVS sees one cell, not a renamed copy it cannot pair
+    kept = []
+    for n in [n for n in new if "$" in n]:
+        base = n.split("$")[0]
+        if base in lib_cells and same_cell(ly.cell(n), ly.cell(base)):
+            use_cell(ly.cell(n), ly.cell(base))
+            merged.setdefault(g, []).append(base)
+        else:
+            kept.append(n)
+    new = sorted(defined() - before)
     owners.update({n: os.path.basename(g) for n in new})
-    renamed[g] = [n for n in new if "$" in n]
+    renamed[g] = kept
 
 out = pya.Layout()
 out.dbu = ly.dbu
@@ -136,6 +184,7 @@ empty_defined = sorted(c.name for c in used if c.is_empty() and not c.is_ghost_c
 orphan = sorted(c.name for c in out.each_cell() if c.name != cfg["top"] and c.parent_cells() == 0)
 out.write(cfg["out"])
 json.dump({"empty": empty, "orphan": orphan, "labels": labels, "cells": out.cells(), "renamed": renamed,
+           "merged_with_library": merged,
            "empty_defined": empty_defined, "abstract": sorted(abstract),
            "joins": joins, "join_metals": metals,
            "owners": {c.name: owners.get(c.name, "?") for c in used}}, open(cfg["out"] + ".json", "w"))

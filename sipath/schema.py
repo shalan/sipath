@@ -46,7 +46,9 @@ PDN = {
 }
 MACRO = {
     "inst": F("str", "instance name in the netlist", required=True),
-    "lef": F("path", "abstract LEF", required=True),
+    "lef": F("path", "abstract LEF (required unless views gives it)"),
+    "views": F("path", "a hardened macro's views directory (python3 -m sipath harden, or the views step): "
+                       "lef, gds, lib, cdl and supplies come from its macro.yaml unless given here"),
     "lib": F("lib", "Liberty: one file, or {corner or process: file}; null for none"),
     "location": F("point", "lower-left (um); null: autoplaced by the macros step"),
     "orient": F("str", "orientation", choices=("R0", "R90", "R180", "R270", "MX", "MY", "MXR90", "MYR90")),
@@ -101,6 +103,7 @@ CONFIG = {
     "container_cpus": F("number", "CPU limit per container"),
     "container_memory": F("str", "memory limit per container (e.g. 8g)"),
     "image": F("str", "ORFS image (name@sha256:... pins it)"),
+    "magic_image": F("str", "image with Magic for the signoff checks magic_drc and xor (docker/magic)"),
     "require_digest": F("bool", "refuse an image not pinned by digest"),
     "debug_failed": F("bool", "write a debug checkpoint for a failed attempt"),
     "log_level": F("str", "flow logger level", choices=("DEBUG", "INFO", "WARNING", "ERROR")),
@@ -162,6 +165,12 @@ DESIGN = {
     "step_defaults": F("dict", "{step: {param: value}}: parameter defaults over the PDK's"),
     "auto_blackbox": F("bool", "macros without lib get a black-box Liberty model written from their LEF (off by "
                                 "default; a macro's own auto_blackbox overrides)"),
+    "harness": F("str", "a frame (sipath/harnesses: openframe, caravel; or a plugin's): the design becomes its "
+                        "wrapper (template die and pins, user supplies, PDN); mode, floorplan and die come from it"),
+    "harness_options": F("dict", "harness settings, e.g. {core_region: [x0, y0, x1, y1]} (um): standard-cell rows "
+                                 "only there (a wrapper is mostly empty)"),
+    "supply_names": F("dict", "PDK core supply net -> its name in this design, e.g. {VDD: vccd1, VSS: vssd1} "
+                               "(standard-cell supplies, PDN, macro and pad supply maps, signoff)"),
     "plugins": F("list[str]", "Python modules imported before this file is checked; they register steps, scores, "
                               "signoff checks, harnesses and extension keys (sipath.registry)"),
     "extensions": F("dict", "plugin namespace -> its settings, checked against the keys the plugin registered"),
@@ -171,7 +180,7 @@ DESIGN = {
 }
 
 # design-file key -> dataclass field, where they differ (no difference today)
-FILE_ONLY = {"description", "config", "inputs", "flow"}  # not Design fields
+FILE_ONLY = {"description", "config", "inputs", "flow", "views"}  # not Design fields (views: read into a Macro)
 INTERNAL = {"straps_from_pdk"}  # dataclass fields set by the flow, not in a design file
 
 
@@ -244,6 +253,13 @@ def validate(data: dict, required: bool = True) -> None:
     errors: list = []
     spec = DESIGN if required else {k: Field(f.type, f.doc, False, f.fields, f.choices) for k, f in DESIGN.items()}
     check_object("", spec, data, errors)
+    if data.get("harness"):  # the harness gives the floorplan: a die or floorplan here would be ignored
+        for k in ("floorplan_def", "die", "core_utilization"):
+            if data.get(k) is not None:
+                errors.append(f"{k}: not allowed with harness (the frame's wrapper template sets it)")
+    for k, m in enumerate(data.get("macros") or []):
+        if isinstance(m, dict) and not m.get("lef") and not m.get("views"):
+            errors.append(f"macros[{k}]: lef or views is required")
     if required and not data.get("netlist") and not data.get("rtl"):
         errors.append("netlist or rtl: one is required")
     from . import registry

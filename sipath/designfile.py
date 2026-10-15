@@ -30,7 +30,7 @@ SIMPLE = ("name", "top", "mode", "die", "core_margin", "analog_nets", "analog_nd
           "pad_kinds", "analog_supplies", "analog_supply_layers", "analog_supply_ndr", "macro_channel",
           "macro_pin_clearance", "analog_guard", "layer_adjustments", "pad_masters", "pdk", "dont_use",
           "allow_excluded", "step_defaults", "rtl_defines", "core_utilization", "aspect_ratio", "auto_blackbox",
-          "plugins", "extensions")
+          "plugins", "extensions", "supply_names", "harness", "harness_options")
 
 
 def default_flow(d: Design) -> list[dict]:
@@ -49,6 +49,17 @@ def _path(base, p):
 
 def _strap(s):
     return s if isinstance(s, Strap) else Strap(**s)
+
+
+def hardened_entry(vdir: str) -> dict:
+    """The macro entry of a views directory (its macro.yaml, paths relative to it)."""
+    path = os.path.join(vdir, "macro.yaml")
+    if not os.path.isfile(path):
+        raise FileNotFoundError(f"{vdir}: no macro.yaml (harden the macro first: python3 -m sipath harden ...)")
+    macros = read_file(path).get("macros") or []
+    if len(macros) != 1:
+        raise ValueError(f"{path}: expected one macro entry, found {len(macros)}")
+    return macros[0]
 
 
 def design_from_dict(data: dict, base: str) -> Design:
@@ -73,12 +84,20 @@ def design_from_dict(data: dict, base: str) -> Design:
     macros = []
     for m in data.get("macros", []):
         m = dict(m)
-        m["lef"] = _path(base, m["lef"])
+        roots = {k: base for k in ("lef", "gds", "cdl", "lib")}
+        if m.get("views"):  # a hardened macro: what the entry leaves out comes from its macro.yaml
+            vdir = _path(base, m.pop("views"))
+            got = hardened_entry(vdir)
+            for k in ("lef", "gds", "cdl", "lib", "lvs", "supplies"):
+                if m.get(k) is None and got.get(k) is not None:
+                    m[k] = got[k]
+                    roots[k] = vdir
+        m["lef"] = _path(roots["lef"], m["lef"])
         for k in ("gds", "cdl"):
             if m.get(k):
-                m[k] = _path(base, m[k])
-        lib = m.get("lib")
-        m["lib"] = {c: _path(base, v) for c, v in lib.items()} if isinstance(lib, dict) else _path(base, lib)
+                m[k] = _path(roots[k], m[k])
+        lib, lb = m.get("lib"), roots["lib"]
+        m["lib"] = {c: _path(lb, v) for c, v in lib.items()} if isinstance(lib, dict) else _path(lb, lib)
         if m.get("location") is not None:
             m["location"] = tuple(m["location"])
         if m.get("grid_stripes") is not None:
@@ -135,6 +154,10 @@ def build(d: Design, workdir: str, runner, config=None, resume: bool = False):
     from .session import OpenRoadSession
     cfg = config or Config.load()
     pdk = load_pdk(d.pdk, runner)
+    harness_info = None
+    if d.harness:  # before resolve: the harness sets supplies, PDN and floorplan
+        from . import harness
+        harness_info = harness.get(d.harness, d.harness_options).apply(d, pdk, os.path.abspath(workdir))
     d.resolve(pdk)
     from . import blackbox
     models = blackbox.generate(d, pdk, os.path.join(os.path.abspath(workdir), "models"))  # opt-in only
@@ -142,6 +165,8 @@ def build(d: Design, workdir: str, runner, config=None, resume: bool = False):
     prov = runner.provenance() if hasattr(runner, "provenance") else {}
     if models:
         prov = dict(prov, blackbox_models=models)
+    if harness_info:
+        prov = dict(prov, harness=harness_info)
     from . import registry
     ext = registry.loaded()
     if any(ext.values()):
@@ -181,3 +206,26 @@ def run(path_or_design, workdir: str, runner=None, overrides: dict | None = None
                       parallel=item.get("parallel", 1))
         parent = r.selected
     return flow
+
+
+def harden(path: str, outdir: str, workdir: str | None = None, runner=None, config=None,
+           resume: bool = False) -> str:
+    """Run a design file through signoff and the views step and copy its
+    hardened views (LEF, Liberty per corner, GDS, CDL, SPEF, netlists,
+    macro.yaml) to ``outdir``; a parent lists the macro with ``views: outdir``."""
+    import shutil
+    from .config import Config
+    d, spec = load(path)
+    names = [s["step"] for s in spec]
+    if "signoff" not in names:
+        spec.append({"step": "signoff"})
+    if "views" not in names:
+        spec.append({"step": "views"})
+    wd = workdir or os.path.join(os.getcwd(), "runs", d.name + "_harden")
+    cfg = config or Config.load(**file_config(path))
+    flow = run(d, wd, runner=runner, flow_steps=spec, config=cfg, resume=resume)
+    views = flow.steps["views"].selected.outputs["views"]
+    os.makedirs(outdir, exist_ok=True)
+    for f in os.listdir(views["dir"]):
+        shutil.copy2(os.path.join(views["dir"], f), os.path.join(outdir, f))
+    return outdir

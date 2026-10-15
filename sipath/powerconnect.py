@@ -138,6 +138,51 @@ def connect(session, inst: str, pin_pattern: str, layers: list[str], die, *, max
     return records
 
 
+def connect_bterms(session, nets: list[str], layers: list[str], die, *, max_len: int = 10 ** 7,
+                   margin: int = 400, min_width: int = 1000, via_pitch: int = 1600, via_inset: int = 800) -> list[dict]:
+    """Strap every top-level pin (BTerm) of ``nets`` to its net's grid, like
+    connect() does for instance pins: a straight strap on the pin's layer to
+    the nearest same-net shape above (e.g. a harness's supply pins at the die
+    edge to the core ring). Pin shapes are clipped to the die first (template
+    pins may straddle its edge)."""
+    session.run(DUMP)
+    grid = max(1, int(session.value("[ord::get_db_tech] getManufacturingGrid") or 1))
+    pins = tcl_parse(session.value(
+        "set o {}; foreach n " + "{" + " ".join(nets) + "}" + " { set net [[ord::get_db_block] findNet $n]; "
+        "if {$net eq \"NULL\"} continue; foreach t [$net getBTerms] { foreach p [$t getBPins] { "
+        "foreach b [$p getBoxes] { lappend o [list $n [$t getName] [[$b getTechLayer] getName] "
+        "[$b xMin] [$b yMin] [$b xMax] [$b yMax]] } } } }; set o"))
+    special = [(n, ly, tuple(map(int, r))) for n, ly, *r in tcl_parse(session.value(
+        "::flow_pc_special {" + " ".join(layers) + "}"))]
+    vias = _via_table(session, layers)
+    placed = [(n, ly, int(x), int(y)) for n, ly, x, y in tcl_parse(session.value("::flow_pc_vias"))]
+    records = []
+    for net, term, ly, *r in pins:
+        x0, y0, x1, y1 = map(int, r)
+        p = (max(x0, die[0]), max(y0, die[1]), min(x1, die[2]), min(y1, die[3]))
+        if ly not in layers or ly == layers[-1] or p[2] <= p[0] or p[3] <= p[1]:
+            continue
+        up = layers[layers.index(ly) + 1:]
+        best, reasons = None, []
+        for d in ("W", "E", "S", "N"):
+            why = []
+            cand = _strap(p, d, ly, up, net, special, [], p, die, max_len, margin, min_width, why)
+            if cand and (best is None or cand["length"] < best["length"]):
+                best = cand
+            elif why:
+                reasons.append(f"{d}: {why[0]}")
+        if best is None:
+            records.append({"pin": term, "net": net, "ok": False, "why": sorted(set(reasons))[:8]})
+            continue
+        best = _on_grid(best, grid)
+        best["fills"] = _notch_fills(best["box"], best["layer"], net, special, margin, grid)
+        best["skipped_vias"] = _draw(session, net, best, layers, vias, via_pitch, via_inset, grid, placed)
+        special.append((net, best["layer"], best["box"]))
+        records.append({"pin": term, "net": net, "ok": True, "layer": best["layer"], "to": best["to_layer"],
+                        "length": best["length"]})
+    return records
+
+
 def _strap(p, d, ly, up, net, special, obs, ibox, die, max_len, margin, min_width, why=None):  # noqa: C901
     """Strap from pin shape ``p`` in direction ``d`` on layer ``ly`` to the
     nearest same-net shape on a layer in ``up``; None if blocked."""

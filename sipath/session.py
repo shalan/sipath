@@ -69,9 +69,11 @@ class NativeRunner:
     def kill(self, name: str):
         pass
 
-    def tool_command(self, workdir: str, args: list[str]) -> list[str]:
-        """Command line running another tool of the installation (e.g. klayout)."""
-        return list(args)
+    def tool_command(self, workdir: str, args: list[str], image: str | None = None,
+                     env: dict | None = None) -> list[str]:
+        """Command line running another tool of the installation (e.g. klayout,
+        magic: on PATH here, so ``image`` does not apply)."""
+        return (["env", *[f"{k}={v}" for k, v in env.items()]] if env else []) + list(args)
 
     def mount(self, *paths):
         return self
@@ -142,14 +144,18 @@ class DockerRunner:
     def kill(self, name: str):
         subprocess.run(["docker", "kill", name], capture_output=True)
 
-    def tool_command(self, workdir: str, args: list[str]) -> list[str]:
+    def tool_command(self, workdir: str, args: list[str], image: str | None = None,
+                     env: dict | None = None) -> list[str]:
         """Command line running another tool of the image (e.g. klayout) with
-        the same mounts as an OpenROAD session."""
+        the same mounts as an OpenROAD session; ``image``: another image (e.g.
+        one with Magic), ``env``: environment variables in the container."""
         cmd = ["docker", "run", "--rm", "--platform", self.platform, *self.limits()]
+        for k, v in (env or {}).items():
+            cmd += ["-e", f"{k}={v}"]
         for m in sorted({os.path.abspath(workdir), *map(os.path.abspath, self.mounts)}):
             if os.path.isdir(m):
                 cmd += ["-v", f"{m}:{m}"]
-        return cmd + ["-w", os.path.abspath(workdir), self.image, *args]
+        return cmd + ["-w", os.path.abspath(workdir), image or self.image, *args]
 
     def mount(self, *paths):
         """Make host directories visible in the container at the same path."""

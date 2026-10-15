@@ -184,6 +184,39 @@ def parse_verilog(text: str, top: str | None = None) -> Module:
                     break
         take(";")
         declared: dict[str, Port] = {}
+        widths: dict[str, int] = {}  # declared name -> width (0: scalar)
+
+        def bits_of() -> list[str]:
+            """An assign operand as bits, most significant first: name, name[i],
+            name[a:b], or {operand, ...}."""
+            if peek()[1] == "{":
+                take("{")
+                out = []
+                while True:
+                    out += bits_of()
+                    if peek()[1] == ",":
+                        take(",")
+                        continue
+                    break
+                take("}")
+                return out
+            kind, val = take()
+            if kind == "const":
+                raise ValueError(f"verilog parse: constant {val!r} in an assign is not supported "
+                                 "(map constants to tie cells)")
+            if peek()[1] == "[":
+                take("[")
+                hi = int(take()[1])
+                lo = hi
+                if peek()[1] == ":":
+                    take(":")
+                    lo = int(take()[1])
+                take("]")
+                step = -1 if hi >= lo else 1
+                return [f"{val}[{i}]" for i in range(hi, lo + step, step)]
+            w = widths.get(val, 0)
+            return [f"{val}[{i}]" for i in range(w - 1, -1, -1)] if w else [val]
+
         while peek()[1] != "endmodule":
             kw = peek()[1]
             if kw in ("input", "output", "inout", "wire"):
@@ -198,6 +231,7 @@ def parse_verilog(text: str, top: str | None = None) -> Module:
                     width = abs(msb - lsb) + 1
                 while True:
                     name = take()[1]
+                    widths[name] = width
                     if kw == "wire":
                         if width:
                             mod.wires.extend(f"{name}[{i}]" for i in range(width))
@@ -212,11 +246,13 @@ def parse_verilog(text: str, top: str | None = None) -> Module:
                 take(";")
             elif kw == "assign":
                 take()
-                lhs = ref()
+                lhs = bits_of()
                 take("=")
-                rhs = ref()
+                rhs = bits_of()
                 take(";")
-                mod.assigns.append((lhs, rhs))
+                if len(lhs) != len(rhs):
+                    raise ValueError(f"verilog parse: assign of {len(rhs)} bits to {len(lhs)}")
+                mod.assigns += list(zip(lhs, rhs))
             else:
                 cell = take()[1]
                 if peek()[1] == "#":

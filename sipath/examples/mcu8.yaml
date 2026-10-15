@@ -356,6 +356,7 @@ flow:
 - step: route_digital
   score: drc_then_slack
 - step: route_repair
+- step: fill                 # metal fill (PDK fill rules); signoff checks density
 - step: extract
 - step: signoff
   # DRC and LVS with the three ChipFoundry macros as their LEF abstracts (the

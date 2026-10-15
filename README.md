@@ -319,8 +319,37 @@ OpenROAD `26Q3-1867-g84e3ff1eb2` (linux/amd64 under emulation).
 
 ## Step pipeline
 
-`floorplan` → (`macros`) → `physical` → `place` → `cts` → `route_analog` →
-`route_digital` → `route_repair` → `extract`.
+(`synth`) → `floorplan` → (`macros`) → `physical` → `place` → `cts` → `route_analog` →
+`route_digital` → `route_repair` → (`fill`) → `extract` → `signoff` → (`views`).
+
+**Fill, frames and hardened macros.**
+- `fill`: metal fill with OpenROAD `density_fill` and the PDK's fill rules
+  (`signoff.fill_rules`), by default up to the design's top routing layer (an
+  embedded macro leaves the layers above to its parent). Fill goes to the
+  PDK's fill datatypes in the GDS. Signoff's `density` check runs the PDK's
+  density deck and reports each layer's density.
+- Harnesses (`harness: openframe`, `caravel`, or a plugin's): the design is the
+  frame's wrapper. The harness sets the die and every template pin, creates the
+  frame's supply pins (all of them; the user supplies are strapped to the core
+  ring), the power grid and routing limits. Template pins overhanging the
+  boundary are clipped to the die for routing and restored exactly at signoff;
+  the `harness` signoff check compares the routed wrapper with the template
+  (die, every pin by name, layer and rectangle). Pin-to-pin nets (loopback ties)
+  stay plain wires (never buffered). `examples/openframe_gcd8.yaml` puts a 4-bit
+  gcd on the OpenFrame's east-edge pads.
+- `views`: the hardened-macro views of a signed-off design: abstract LEF, a
+  timing Liberty per corner from the extracted parasitics
+  (`write_timing_model`), GDS, the LVS subcircuit, SPEF per corner, netlists with
+  and without supply pins, and `macro.yaml`. `python3 -m sipath harden <design>
+  <dir>` runs a design through signoff and `views` and copies them to `<dir>`; a
+  parent lists the macro with `{inst: u0, views: <dir>, location: [x, y]}`
+  (`examples/gcd8_pair.yaml`: two hardened gcd8 plus glue, signed off with the
+  macros' insides checked). Library cells the macro's GDS carries are
+  recognised (identical geometry) and kept as the library's, so LVS pairs them.
+- Opt-in signoff checks `magic_drc` (Magic DRC, `drc(full)`) and `xor` (the
+  routed DEF written to GDS by Magic against KLayout's stream-out; metal fill not
+  compared, Magic does not read DEF fills). Magic runs from `config.magic_image`
+  (`docker build -t sipath/orfs-magic:8.3.685 docker/magic`).
 
 **Timing closure (Phase 1).**
 - Three corners when an open_pdks `sky130A` tree is available (`$SIPATH_SKY130A`
@@ -388,6 +417,22 @@ OpenROAD `26Q3-1867-g84e3ff1eb2` (linux/amd64 under emulation).
   configured: rotations R0/R270/R0, against sky130's R180/R90/R180.
 
 ## Workarounds for this OpenROAD build (found by running it)
+
+- `place_pins -random` is obsolete (a no-op with a warning): automatic pins
+  are placed provisionally at floorplan without it, and again after global
+  placement.
+- `write_timing_model` takes `-scene`, not `-corner`.
+- A second `global_route` in one process fails (GRT-0229, edge usage 65535: the
+  first route's usage is kept): post-route repair re-routes once per process.
+- `clock_tree_synthesis -clk_nets` splits its value on spaces: names are passed
+  space-joined, not list-quoted (`{gpio_in[0]}` kept its braces).
+- The detailed router can end a segment with extension 0 at a same-layer
+  corner, leaving a diagonal pinch under the minimum width; signoff squares
+  such corners in the written DEF (`corners_squared`).
+- The global router places pins outside the die off its grid (a net of such
+  pins only gets an empty Steiner tree): harness pins are clipped for routing.
+- The detailed router takes one pin per signal port: duplicate template pins
+  (same shapes, listed twice) keep one copy.
 
 - With several corner libraries loaded, CTS cannot resolve its dummy-load
   cells (CTS-0118, even with `-library`): multi-corner runs pass
