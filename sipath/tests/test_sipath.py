@@ -669,7 +669,7 @@ class Exclusions(unittest.TestCase):
     def test_lists_loaded_and_enforced(self):
         from sipath.eco import check_ops
         hd, hs = load_pdk("sky130A", platforms="/p"), load_pdk("sky130A_hs", platforms="/p")
-        self.assertEqual((len(hd.exclude), len(hs.exclude)), (54, 51))  # hd: + a21oi_2 (LVS)
+        self.assertEqual((len(hd.exclude), len(hs.exclude)), (59, 51))  # hd: + 6 cells the LVS deck cannot pair
         self.assertIn("sky130_fd_sc_hd__buf_16", hd.exclude)
         self.assertIn("sky130_fd_sc_hs__mux4_4", hs.exclude)
         self.assertTrue(hd.exclude_sources[0].endswith("sky130_fd_sc_hd/drc_exclude.cells"))

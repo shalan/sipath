@@ -175,8 +175,9 @@ def blackboxes(ctx, masters: list[str] | None = None) -> dict[str, str]:
 
 def _lef_files(ctx) -> list[str]:
     pdk, d = ctx.pdk, ctx.design
-    return [f for f in dict.fromkeys([*pdk.io_lefs.values(), *d.extra_lefs, *[m.lef for m in d.macros]])
-            if os.path.isfile(f)]
+    # standard-cell LEFs too: library cells the PDK compares as black boxes take their pins from them
+    return [f for f in dict.fromkeys([*pdk.io_lefs.values(), *d.extra_lefs, *[m.lef for m in d.macros],
+                                      *pdk.cell_lefs]) if os.path.isfile(f)]
 
 
 def _lef_pins(ctx) -> dict[str, list[str]]:

@@ -474,7 +474,7 @@ Rosetta (amd64 image), with other jobs running: indicative only.
 | gcd (1.1 ns) | SiPath | −2.484 | −105.6 | 7,552 | 338 | 3,994 | 0 | 0 | 284 |
 | aes | ORFS | −0.196 | −0.67 | 588,211 | 15,396 | 124,637 | 0 | 0 | 2,724 |
 | aes | SiPath (defaults) | — | — | — | — | — | did not route | — | — |
-| aes | SiPath, routability-driven placement | (pending) | | | | | 0 | | |
+| aes | SiPath, routability-driven placement | −0.157 | −1.57 | 577,107 | 15,984 | 138,114 | 0 | 0 | 10,025* |
 
 Both flows route to met5 and get the design's own routing adjustments (aes:
 30% on every layer). At gcd's 1.1 ns clock (beyond what sky130 HD closes) ORFS
@@ -483,7 +483,14 @@ both layouts are DRC-clean and SiPath's signoff passes everything but setup.
 On aes SiPath's default placement (not routability-driven) leaves the router
 congested: global routing fails with the design's adjustments, detailed
 routing stalls at ~31k violations without them. With routability-driven
-placement (ORFS's default) the routing is clean. ORFS's equivalence check (kepler-formal) is disabled
+placement (ORFS's default) the routing is clean: WNS at the typical corner
+slightly better than ORFS, 2% less wire, 11% more cell area, TNS worse.
+SiPath's own signoff of that run (nine corners) shows setup −3.85 ns at the
+slow corners and 202 slew violations, and its LVS failed on five cells the
+KLayout deck cannot pair, now excluded from synthesis
+(`sipath/pdks/sky130/lvs_exclude_sky130_fd_sc_hd.cells`). *Wall time includes a
+1,800 s re-route lost to a fixed limit since removed, and signoff work ORFS's
+make does not do (KLayout DRC, LVS, nine-corner STA). ORFS's equivalence check (kepler-formal) is disabled
 (`LEC_CHECK=0`): its binary dies under Rosetta.
 
 ## Workarounds for this OpenROAD build (found by running it)
