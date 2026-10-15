@@ -159,6 +159,21 @@ proc ::open {path args} {
 """
 
 
+def tools() -> list:
+    """TOOLS with the step and score names as registered now (plugins included)."""
+    import copy
+    from . import registry
+    registry.load_entry_points()
+    out = copy.deepcopy(TOOLS)
+    for t in out:
+        props = t["inputSchema"].get("properties", {})
+        if "step" in props and "enum" in props["step"]:
+            props["step"]["enum"] = sorted(STEPS)
+        if "score" in props and "enum" in props["score"]:
+            props["score"]["enum"] = sorted(scores.SCORES)
+    return out
+
+
 class ToolError(Exception):
     pass
 
@@ -519,7 +534,7 @@ class Server:
             if method == "ping":
                 return self._ok(mid, {})
             if method == "tools/list":
-                return self._ok(mid, {"tools": TOOLS})
+                return self._ok(mid, {"tools": tools()})
             if method in ("resources/list", "resources/read"):
                 p = msg.get("params") or {}
                 try:

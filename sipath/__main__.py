@@ -6,6 +6,7 @@
                                       real OpenROAD run -> routed DEF + SPEF; --resume continues the
                                       attempt graph in workdir (finished steps are not run again)
     python3 -m sipath pdks              PDK descriptions available (sipath/pdks)
+    python3 -m sipath plugins [module ...]   what plugins (entry points and the given modules) register
     python3 -m sipath docs [out.md]     reference: design-file keys, step parameters, config, PDK keys
                                       (default docs/reference.md)
     python3 -m sipath schema [out.json] JSON Schema of a design file (stdout without a file)
@@ -129,6 +130,12 @@ def main(argv) -> int:
         for f in sorted(os.listdir(PDK_DIR)):
             if f.endswith((".yaml", ".yml", ".json")):
                 print(f"{os.path.splitext(f)[0]:16s} {os.path.join(PDK_DIR, f)}")
+        return 0
+    if cmd == "plugins":
+        import json
+        from . import registry
+        registry.load_plugins(argv[1:])
+        print(json.dumps(registry.loaded(), indent=1))
         return 0
     if cmd == "docs":
         from .reference import write

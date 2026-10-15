@@ -881,6 +881,68 @@ class BlackboxModels(unittest.TestCase):
         self.assertEqual(d.macros[1].lib, "b.lib")  # a given lib is never replaced
 
 
+class Plugins(unittest.TestCase):
+    """Extension points (sipath.registry) with the example plugin, on stand-in sessions."""
+
+    @classmethod
+    def setUpClass(cls):
+        from sipath import registry
+        registry.load_plugins(["sipath.examples.plugin_example"])
+
+    def test_registered_things_join_the_builtins(self):
+        from sipath import params, registry, scores, steps
+        from sipath.mcp_server import Server, tools
+        self.assertIn("cell_census", steps.STEPS)
+        steps.check_params("cell_census", [{"prefix": "u_core."}])
+        with self.assertRaisesRegex(ValueError, "cell_census.prefix: expected str"):
+            steps.check_params("cell_census", [{"prefix": 3}])
+        self.assertIn("fewest_cells", scores.SCORES)
+        self.assertIn("cell_budget", params.DECLARED["signoff"]["checks"].choices)  # signoff accepts it
+        self.assertIn("cell_census", next(t for t in tools() if t["name"] == "run_step")["inputSchema"]
+                      ["properties"]["step"]["enum"])
+        self.assertIn("prefix", Server().call("describe_step", {"step": "cell_census"})["cell_census"]["properties"])
+        self.assertEqual(registry.loaded()["plugins"], ["sipath.examples.plugin_example"])
+        with self.assertRaises(registry.RegistryError):  # no silent override
+            registry.register_step("place", lambda ctx: None)
+
+    def test_design_file_loads_plugins_and_checks_extensions(self):
+        from sipath import designfile, schema
+        base = {"name": "t", "top": "t", "mode": "macro", "pdk": "sky130A", "netlist": "n.v", "sdc": "s.sdc",
+                "floorplan_def": "f.def", "plugins": ["sipath.examples.plugin_example"]}
+        d = designfile.design_from_dict(dict(base, extensions={"example": {"max_cells": 10}}), "/x")
+        self.assertEqual(d.extensions["example"]["max_cells"], 10)
+        with self.assertRaisesRegex(ValueError, "extensions.example.max_cells: expected int"):
+            schema.validate(dict(base, extensions={"example": {"max_cells": "ten"}}))
+        with self.assertRaisesRegex(ValueError, "extensions.nosuch: no plugin registered"):
+            schema.validate(dict(base, extensions={"nosuch": {}}))
+        with self.assertRaisesRegex(ValueError, "plugin 'no.such.module' could not be imported"):
+            designfile.design_from_dict(dict(base, plugins=["no.such.module"]), "/x")
+
+    def test_plugin_step_runs_with_variants_and_score(self):
+        from sipath import steps
+        with tempfile.TemporaryDirectory() as td:
+            d = Design("fake", "fake", "x.v", "x.sdc", "macro", floorplan_def="x.def")
+            counts = iter(["120", "80"])
+
+            def fac(w):  # each attempt's stand-in session answers the census with its own count
+                return FakeSession(w, responses={"::flow_timing_prep": "placement", "set n 0": next(counts)})
+            f = Flow(d, sky130hd("/p"), td, fac, validate_inputs=False)
+            r = f.step("cell_census", steps.STEPS["cell_census"], variants=[{"prefix": ""}, {"prefix": "u_"}],
+                       score="fewest_cells")
+            self.assertEqual(sorted(a.metrics["census_cells"] for a in r.attempts), [80, 120])
+            self.assertEqual(r.selected.metrics["census_cells"], 80)
+
+    def test_signoff_check_contract(self):
+        from sipath import registry
+        fn = registry.CHECKS["cell_budget"]
+        ctx = types.SimpleNamespace(design=types.SimpleNamespace(extensions={"example": {"max_cells": 100}}),
+                                    session=FakeSession(".", responses={"llength": "150"}))
+        res = fn(ctx, {})
+        self.assertEqual((res["pass"], res["cells"]), (False, 150))
+        ctx.design.extensions = {}
+        self.assertTrue(fn(ctx, {})["pass"])
+
+
 class SignoffUnits(unittest.TestCase):
     LIB = """.SUBCKT X__inv_1 A VGND VNB VPB VPWR Y
 MI1 Y A VGND VNB nfet_01v8 m=1 w=0.65 l=0.15

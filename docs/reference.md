@@ -59,7 +59,9 @@ YAML or JSON; relative paths are relative to the file. Keys not listed are error
 | `allow_excluded` | list[str] |  | PDK-excluded cells used on purpose (waivers) |
 | `step_defaults` | dict |  | {step: {param: value}}: parameter defaults over the PDK's |
 | `auto_blackbox` | bool |  | macros without lib get a black-box Liberty model written from their LEF (off by default; a macro's own auto_blackbox overrides) |
-| `config` | object |  | run configuration (also FLOW_* environment, --config) |
+| `plugins` | list[str] |  | Python modules imported before this file is checked; they register steps, scores, signoff checks, harnesses and extension keys (sipath.registry) |
+| `extensions` | dict |  | plugin namespace -> its settings, checked against the keys the plugin registered |
+| `config` | object |  | run configuration (also SIPATH_* environment, --config) |
 | `inputs` | object |  | generated inputs |
 | `flow` | list[object] |  | steps in order; default: the standard chain |
 

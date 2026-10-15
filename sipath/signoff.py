@@ -620,9 +620,10 @@ def run(ctx) -> dict:
     d, s, p = ctx.design, ctx.session, ctx.params
     checks = list(p.get("checks", ALL_CHECKS))
     required = [c for c in p.get("require", DEFAULT_REQUIRED) if c in checks]
-    bad = sorted(set(checks) - set(ALL_CHECKS))
+    from . import registry
+    bad = sorted(set(checks) - set(ALL_CHECKS) - set(registry.CHECKS))
     if bad:
-        raise ValueError(f"unknown signoff checks {bad}; known: {list(ALL_CHECKS)}")
+        raise ValueError(f"unknown signoff checks {bad}; known: {list(ALL_CHECKS) + sorted(registry.CHECKS)}")
     s.run(tcl.global_connect(d, ctx.pdk))  # cells added after the PDN (CTS, fill, ties) on the supplies
     final_def, final_v = ctx.path(f"{d.top}.def"), ctx.path(f"{d.top}.v")
     s.run(f"write_def {q(final_def)}\nwrite_verilog {q(final_v)}")
@@ -724,6 +725,17 @@ def run(ctx) -> dict:
             failures.append(f"annotation: loaded nets without parasitics at {st['unannotated_loaded'][:8]}")
         if "unconstrained" in checks and st["unconstrained"]:
             failures.append(f"unconstrained: {len(st['unconstrained'])} endpoints, e.g. {st['unconstrained'][:5]}")
+    for name, fn in registry.CHECKS.items():  # plugin checks, after the built-in ones
+        if name not in checks:
+            continue
+        t = time.time()
+        res = fn(ctx, summary)
+        if not isinstance(res, dict) or "pass" not in res:
+            raise ValueError(f"signoff check {name} returned {res!r}; expected a dict with 'pass'")
+        summary[name] = res
+        timings[name] = round(time.time() - t, 1)
+        if not res["pass"]:
+            failures.append(f"{name}: {res.get('reason') or 'failed'}")
     timings["wall"] = round(time.time() - t0, 1)
     summary["failures"] = failures
     failed_required = [f for f in failures if f.split(":")[0] in required]

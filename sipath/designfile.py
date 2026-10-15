@@ -29,7 +29,8 @@ SIMPLE = ("name", "top", "mode", "die", "core_margin", "analog_nets", "analog_nd
           "is_core", "min_route_layer", "max_route_layer", "clock_ports", "clock_nets", "keepouts", "pad_supplies",
           "pad_kinds", "analog_supplies", "analog_supply_layers", "analog_supply_ndr", "macro_channel",
           "macro_pin_clearance", "analog_guard", "layer_adjustments", "pad_masters", "pdk", "dont_use",
-          "allow_excluded", "step_defaults", "rtl_defines", "core_utilization", "aspect_ratio", "auto_blackbox")
+          "allow_excluded", "step_defaults", "rtl_defines", "core_utilization", "aspect_ratio", "auto_blackbox",
+          "plugins", "extensions")
 
 
 def default_flow(d: Design) -> list[dict]:
@@ -51,7 +52,8 @@ def _strap(s):
 
 
 def design_from_dict(data: dict, base: str) -> Design:
-    from . import schema
+    from . import registry, schema
+    registry.load_plugins(data.get("plugins") or [])  # they may add steps, checks, extension keys
     schema.validate(data)  # unknown keys, wrong types, missing required keys (all listed)
     from . import params
     params.check_defaults("design file", data.get("step_defaults"))
@@ -140,6 +142,10 @@ def build(d: Design, workdir: str, runner, config=None, resume: bool = False):
     prov = runner.provenance() if hasattr(runner, "provenance") else {}
     if models:
         prov = dict(prov, blackbox_models=models)
+    from . import registry
+    ext = registry.loaded()
+    if any(ext.values()):
+        prov = dict(prov, plugins=ext)
     return Flow(d, pdk, workdir, lambda w: OpenRoadSession(w, runner, timeout=cfg.command_timeout),
                 runner_prefixes=runner.runner_prefixes(), config=cfg, resume=resume, provenance=prov, runner=runner)
 

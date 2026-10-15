@@ -162,7 +162,10 @@ DESIGN = {
     "step_defaults": F("dict", "{step: {param: value}}: parameter defaults over the PDK's"),
     "auto_blackbox": F("bool", "macros without lib get a black-box Liberty model written from their LEF (off by "
                                 "default; a macro's own auto_blackbox overrides)"),
-    "config": F("object", "run configuration (also FLOW_* environment, --config)", fields=CONFIG),
+    "plugins": F("list[str]", "Python modules imported before this file is checked; they register steps, scores, "
+                              "signoff checks, harnesses and extension keys (sipath.registry)"),
+    "extensions": F("dict", "plugin namespace -> its settings, checked against the keys the plugin registered"),
+    "config": F("object", "run configuration (also SIPATH_* environment, --config)", fields=CONFIG),
     "inputs": F("object", "generated inputs", fields={"generate": F("str", "module:function that writes them")}),
     "flow": F("list[object]", "steps in order; default: the standard chain", fields=FLOW_STEP),
 }
@@ -243,6 +246,14 @@ def validate(data: dict, required: bool = True) -> None:
     check_object("", spec, data, errors)
     if required and not data.get("netlist") and not data.get("rtl"):
         errors.append("netlist or rtl: one is required")
+    from . import registry
+    for ns, val in (data.get("extensions") or {}).items():
+        if ns not in registry.EXTENSIONS:
+            errors.append(f"extensions.{ns}: no plugin registered this namespace (known: {sorted(registry.EXTENSIONS)})")
+        elif not isinstance(val, dict):
+            errors.append(f"extensions.{ns}: expected a mapping")
+        else:
+            check_object(f"extensions.{ns}", registry.EXTENSIONS[ns], val, errors)
     if errors:
         raise ValueError("design file:\n  " + "\n  ".join(errors))
 

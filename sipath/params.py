@@ -172,6 +172,7 @@ STEP_PARAMS: dict[str, list[Param]] = {
     ],
 }
 DECLARED = {step: {p.name: p for p in ps} for step, ps in STEP_PARAMS.items()}
+BUILTIN = {step: list(ps) for step, ps in STEP_PARAMS.items()}  # before any plugin registers (for the reference)
 
 
 def check(step: str, variant: dict | None) -> None:
@@ -232,12 +233,12 @@ def step_schema(step: str) -> dict:
 
 
 def markdown() -> str:
-    """Reference tables of every step's parameters."""
+    """Reference tables of the built-in steps' parameters (plugins document their own)."""
     out = ["## Step parameters", "",
            "Set per attempt in `variants` (design file `flow:` or MCP `run_step`), or as defaults in a design "
            "file's or PDK description's `step_defaults: {step: {param: value}}`. Resolution: variant, then "
            "design, then PDK, then the default below.", ""]
-    for step, ps in STEP_PARAMS.items():
+    for step, ps in BUILTIN.items():
         out.append(f"### {step}")
         out.append("")
         if not ps:

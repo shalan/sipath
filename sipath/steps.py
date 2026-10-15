@@ -1101,8 +1101,8 @@ STEP_PARAMS = {step: set(decl) for step, decl in params.DECLARED.items() if step
 def check_params(step: str, variants) -> None:
     """Raise ValueError for a variant that is not a dict, names a parameter
     the step does not declare, or gives a value of the wrong type or range."""
-    if step not in STEP_PARAMS:
-        raise ValueError(f"unknown step {step!r}; known: {sorted(STEP_PARAMS)}")
+    if step not in STEPS or step not in params.DECLARED:  # live tables: plugin steps included
+        raise ValueError(f"unknown step {step!r}; known: {sorted(STEPS)}")
     if variants is None:
         return
     if not isinstance(variants, list) or not variants:

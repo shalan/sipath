@@ -154,6 +154,8 @@ class Design:
     allow_excluded: list = field(default_factory=list)  # PDK-excluded cells this design uses on purpose (waivers)
     step_defaults: dict = field(default_factory=dict)  # {step: {param: value}} (sipath.params), over the PDK's
     auto_blackbox: bool = False  # macros without lib get a black-box Liberty model from their LEF (opt-in)
+    plugins: list = field(default_factory=list)  # modules imported before the design file is checked (sipath.registry)
+    extensions: dict = field(default_factory=dict)  # plugin namespace -> its settings (checked by the plugin's schema)
     # RTL input (instead of netlist): the synth step writes the netlist
     rtl: list = field(default_factory=list)  # Verilog / SystemVerilog files
     rtl_defines: dict = field(default_factory=dict)  # name -> value ("" for a bare define)
