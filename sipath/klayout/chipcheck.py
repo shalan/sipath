@@ -23,10 +23,10 @@ if top is not None:
     for inst in top.each_inst():
         if inst.cell.name == cfg["wrapper_cell"]:
             t = inst.dcplx_trans
-            places.append([round(t.disp.x, 4), round(t.disp.y, 4), t.rot, t.is_mirror()])
+            places.append([round(t.disp.x, 4), round(t.disp.y, 4), round(t.angle, 4), bool(t.is_mirror())])
     res["wrapper_placements"] = places
     ox, oy = cfg["origin"]
-    res["wrapper_at_origin"] = places == [[round(ox, 4), round(oy, 4), 0, False]]
+    res["wrapper_at_origin"] = places == [[round(ox, 4), round(oy, 4), 0.0, False]]
     wl = pya.Layout()
     wl.read(cfg["wrapper"])
     wc, cc = wl.cell(cfg["wrapper_cell"]), chip.cell(cfg["wrapper_cell"])

@@ -501,14 +501,14 @@ week or more. "Owner" marks items that need a decision or approval first.
 |---|------|------|-----------|
 | ~~P0.1~~ | **DONE 2026-10-15.** Version control: renamed SiPath (`sipath`), git repo, pushed to github.com/shalan/sipath (public, Apache-2.0), commits as shalan. | S | done |
 | P0.2 | Metal fill and density: a `finish` step (OpenROAD `density_fill` or KLayout fill, PDK fill rules), density checks in signoff DRC, fill in the written GDS. (Done 2026-10-15 for gcd8 and gcd8_pair; dp8/mcu8 runs pending, see above.) | M | dp8, gcd8 and mcu8 signoff with fill: DRC 0 including density |
-| P0.3 | RTL vs netlist equivalence: `eqy` (in the image) on the synth step's netlist against the RTL, with the PDK Liberty cell functions. | M | gcd8 proven; a deliberately wrong netlist is refused |
+| P0.3 | RTL vs netlist equivalence: `eqy` (in the image) on the synth step's netlist against the RTL, with the PDK Liberty cell functions. (Done 2026-10-15, bounded: Yosys miter + SAT from reset, 10 cycles; gcd8 equivalent, a wrong gate refused. A full proof needs register correspondence: open.) | M | gcd8 proven; a deliberately wrong netlist is refused |
 | P0.4 | Full-device LVS: the PDK-maintained KLayout LVS deck (or Magic extraction + Netgen) with hv devices, MIM caps and poly resistors, beside the standard-cell deck. | M-L | dp8 still matches; a macro-level LVS of the ADC against its schematic runs |
 
 ### P1: signoff speed, confidence at scale, reproducibility
 
 | # | Item | Size | Done when |
 |---|------|------|-----------|
-| P1.1 | Native toolchain: KLayout/OpenROAD/Yosys on the host (Homebrew/Nix) through the runner, or a multi-arch image. Today the amd64 image under Rosetta makes mcu8 LVS take 44 min. **Owner** (supported runtime) | M | mcu8 signoff time measured natively, both runtimes tested |
+| P1.1 | Native toolchain: KLayout/OpenROAD/Yosys on the host (Homebrew/Nix) through the runner, or a multi-arch image. Today the amd64 image under Rosetta makes mcu8 LVS take 44 min. **Owner** (supported runtime) (2026-10-15: runner takes an arm64 image (LibreLane 3.0.16) and native tools; gcd8 1.9x faster, signoff 2.8x; Homebrew's KLayout cask is disabled (Gatekeeper). Live suite on arm64 pending.) | M | mcu8 signoff time measured natively, both runtimes tested |
 | P1.2 | Parallel signoff: DRC, LVS and STA in separate processes at once. | S | signoff wall time ≈ the longest check |
 | P1.3 | Regression with metric limits: a limits file per design (WNS, DRC, wirelength, area, runtime) and one checker. Split `test_sipath.py` (now ~2,100 lines, 120 tests, ~55 min) into unit and live modules; slow tests marked and run in parallel. | M | `unit` < 1 min; live suite parallel; limits checked |
 | P1.4 | Benchmark against ORFS (old I4): 2–3 sky130 reference designs from the same RTL through both flows; compare WNS/TNS, wirelength, DRC and runtime. | M | table in README |
@@ -523,7 +523,7 @@ week or more. "Owner" marks items that need a decision or approval first.
 | P2.1 | Macro hardening views (old I8): abstract LEF, timing Liberty, GDS, powered netlist and SPEF from a finished soft macro. (Done 2026-10-15: gcd8 views, gcd8_pair signs off.) | M | dp8/gcd8 views load into a parent design and sign off there |
 | P2.2 | OpenFrame harness (old I9, owner's choice): wrapper, pads, seal ring, project integration (after P0.2 and P2.1). (H1 wrapper flow done 2026-10-15; H2 integration next: needs the frame's extra Caravel cells, download pending the owner's OK.) | L | a design in the OpenFrame wrapper, routed, signed off |
 | P2.3 | Pluggable, finer steps: split `steps.py` (1,100 lines); checks as their own steps; user steps from an import path in the design file. | M | a custom step added without editing the package |
-| P2.4 | Run report: one HTML/Markdown page per run (metrics per step, failures with report links, pictures). | S-M | report written by every run |
+| P2.4 | Run report: one HTML/Markdown page per run (metrics per step, failures with report links, pictures). (Done 2026-10-15.) | S-M | report written by every run |
 | P2.5 | Real pad timing (old I7): gpiov2 Liberty instead of the black-box pad Liberty in mcu8. | S-M | mcu8 timing paths through pad delays |
 | P2.6 | Mixed hs/ms/ls libraries (old I5). | M | a netlist mixing them signs off; ms->hs ECO passes equivalence |
 | P2.7 | Front end: Verilator lint (needs the tool), SystemVerilog through slang, synthesis variants (abc scripts, retiming) as attempts. (Done 2026-10-15: Yosys lint + synthesis step, black-box Liberty models for macros without a lib.) | M | an SV design synthesizes; a sweep over abc goals picks by score |

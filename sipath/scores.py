@@ -67,6 +67,8 @@ def auto(m):
         return (0, -m["hpwl_um"])
     if m.get("synth_area_um2") is not None:  # synthesis: smaller is better
         return (0, -m["synth_area_um2"])
+    if m.get("chip_check_pass") is not None:  # chip integration: an assembled chip that passes its checks
+        return (1, 0) if m["chip_check_pass"] else None
     return None
 
 

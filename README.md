@@ -208,6 +208,23 @@ when no open_pdks tree is installed; for a native binary set
 On this machine there is no native `openroad`; runs use the image's
 OpenROAD `26Q3-1867-g84e3ff1eb2` (linux/amd64 under emulation).
 
+
+**Runtimes (P1.1).** The default is the ORFS image (`openroad/orfs:latest`,
+amd64: under Rosetta on Apple silicon). Two ways to avoid the emulation:
+- an arm64 image with the tools on PATH, e.g. LibreLane's multi-arch image:
+  `SIPATH_OPENROAD_IMAGE=ghcr.io/librelane/librelane:3.0.16
+  SIPATH_OPENROAD_BINARY=openroad SIPATH_PLATFORM=linux/arm64` (and
+  `SIPATH_MAGIC_IMAGE` the same image for the Magic checks). gcd8, synthesis to
+  signoff on an Apple M5 Max: 136 s on the ORFS image, 70 s on the arm64 image
+  (signoff 30 s to 11 s: DRC 16.7 s to 5.4 s, LVS 13.0 s to 4.4 s), both signing
+  off clean. Its tool versions differ (OpenROAD 2026-02-17, KLayout 0.30.7,
+  Yosys 0.62): results differ slightly (158 vs 165 cells).
+- `native_tools` (`SIPATH_NATIVE_TOOLS=yosys,klayout`): those tools run on the
+  host while OpenROAD stays in the image (gcd8 synthesis 10.0 s to 4.4 s with
+  Homebrew's Yosys).
+Each run's provenance records the image, platform, binary and native tool
+versions.
+
 ## Layout
 
 | module | role |
@@ -320,7 +337,7 @@ OpenROAD `26Q3-1867-g84e3ff1eb2` (linux/amd64 under emulation).
 ## Step pipeline
 
 (`synth`) → `floorplan` → (`macros`) → `physical` → `place` → `cts` → `route_analog` →
-`route_digital` → `route_repair` → (`fill`) → `extract` → `signoff` → (`views`).
+`route_digital` → `route_repair` → (`fill`) → `extract` → `signoff` → (`views`, `integrate`).
 
 **Fill, frames and hardened macros.**
 - `fill`: metal fill with OpenROAD `density_fill` and the PDK's fill rules
@@ -346,6 +363,29 @@ OpenROAD `26Q3-1867-g84e3ff1eb2` (linux/amd64 under emulation).
   (`examples/gcd8_pair.yaml`: two hardened gcd8 plus glue, signed off with the
   macros' insides checked). Library cells the macro's GDS carries are
   recognised (identical geometry) and kept as the library's, so LVS pairs them.
+- `integrate` (after signoff, harness designs): Magic puts the signed-off
+  wrapper GDS, unchanged, into the frame's layout (as the frame's own build
+  does) and writes the chip GDS; KLayout checks one top cell, the frame's die,
+  the wrapper placed once at its origin and identical to the signed-off GDS.
+  The seal ring is left to tape-out, as in the frame's build.
+- Design templates: `python3 -m sipath templates` lists them, `python3 -m
+  sipath new <dir> --template openframe --set inputs=8 --set outputs=6` writes a
+  project (design file, wrapper with every frame port and the loopback ties,
+  a starter core, SDC) that runs as generated. Plugins register more
+  (`registry.register_template`).
+- RTL equivalence (synth step, P0.3): the netlist against the RTL (Yosys
+  miter, cell functions from the Liberty file), equal outputs for every input
+  sequence for `equiv_depth` (10) cycles from reset; a mismatch fails the step
+  with the counterexample. Bounded, not a full proof (induction needs register
+  correspondence the synthesized names do not give). gcd8: equivalent; one gate
+  changed is refused in 2 s.
+- Run reports (P2.4): every run writes `report.md` / `report.html` (steps,
+  attempts, failures, signoff checks, files, pictures) after each step;
+  `python3 -m sipath report <workdir> --render` adds the layout picture.
+- DRC rule groups: the PDK lists its deck's rule groups (`signoff.drc_groups`;
+  sky130: front-end, back-end, off-grid); signoff runs one KLayout process per
+  group at once and merges the reports (`drc_split`, default on). aes: 209 s to
+  156 s, same markers.
 - Opt-in signoff checks `magic_drc` (Magic DRC, `drc(full)`) and `xor` (the
   routed DEF written to GDS by Magic against KLayout's stream-out; metal fill not
   compared, Magic does not read DEF fills). Magic runs from `config.magic_image`
@@ -415,6 +455,36 @@ OpenROAD `26Q3-1867-g84e3ff1eb2` (linux/amd64 under emulation).
 
   `examples/ihp_ring.py` closes the ring on IHP SG13G2 with nothing
   configured: rotations R0/R270/R0, against sky130's R180/R90/R180.
+
+## Benchmark against ORFS
+
+`python3 bench/orfs_compare.py gcd aes` runs ORFS's own sky130hd reference designs
+through ORFS (`make` in the ORFS image) and through SiPath (sky130A, the
+standard flow with fill) from the same RTL, SDC and core utilization, then
+measures both final layouts with the same code: setup WNS/TNS at the typical
+corner (open_pdks tt Liberty, the design's SDC, each flow's own SPEF), routed
+wirelength from the final DEF, logic cells and their area (no fill, tap,
+decap or diode), the detailed router's DRC count and the PDK's KLayout DRC deck
+on each GDS. Wall time is the whole run, on an Apple-silicon Mac under
+Rosetta (amd64 image), with other jobs running: indicative only.
+
+| design | flow | WNS (ns) | TNS (ns) | wirelength (µm) | cells | cell area (µm²) | DRT DRC | KLayout DRC | wall (s) |
+|---|---|---|---|---|---|---|---|---|---|
+| gcd (1.1 ns) | ORFS | −1.465 | −65.1 | 11,786 | 473 | 5,319 | 0 | 0 | 321 |
+| gcd (1.1 ns) | SiPath | −2.484 | −105.6 | 7,552 | 338 | 3,994 | 0 | 0 | 284 |
+| aes | ORFS | −0.196 | −0.67 | 588,211 | 15,396 | 124,637 | 0 | 0 | 2,724 |
+| aes | SiPath (defaults) | — | — | — | — | — | did not route | — | — |
+| aes | SiPath, routability-driven placement | (pending) | | | | | 0 | | |
+
+Both flows route to met5 and get the design's own routing adjustments (aes:
+30% on every layer). At gcd's 1.1 ns clock (beyond what sky130 HD closes) ORFS
+repairs harder (40% more cells and area, 56% more wire) and ends 1.0 ns better;
+both layouts are DRC-clean and SiPath's signoff passes everything but setup.
+On aes SiPath's default placement (not routability-driven) leaves the router
+congested: global routing fails with the design's adjustments, detailed
+routing stalls at ~31k violations without them. With routability-driven
+placement (ORFS's default) the routing is clean. ORFS's equivalence check (kepler-formal) is disabled
+(`LEC_CHECK=0`): its binary dies under Rosetta.
 
 ## Workarounds for this OpenROAD build (found by running it)
 
