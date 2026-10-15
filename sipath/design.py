@@ -68,6 +68,8 @@ class Macro:
     # the GDS: DRC checks the chip around the macro, not its insides, and LVS
     # treats it as a black box. The written GDS still carries the macro's GDS.
     abstract: bool = False
+    # no lib: write a black-box Liberty model from the LEF (sipath.blackbox); None: the design's auto_blackbox
+    auto_blackbox: bool | None = None
     analog: bool | None = None  # None: analog if it connects to an analog net or analog supply
 
 
@@ -151,6 +153,7 @@ class Design:
     dont_use: list = field(default_factory=list)  # extra cell patterns this design never uses
     allow_excluded: list = field(default_factory=list)  # PDK-excluded cells this design uses on purpose (waivers)
     step_defaults: dict = field(default_factory=dict)  # {step: {param: value}} (sipath.params), over the PDK's
+    auto_blackbox: bool = False  # macros without lib get a black-box Liberty model from their LEF (opt-in)
     # RTL input (instead of netlist): the synth step writes the netlist
     rtl: list = field(default_factory=list)  # Verilog / SystemVerilog files
     rtl_defines: dict = field(default_factory=dict)  # name -> value ("" for a bare define)

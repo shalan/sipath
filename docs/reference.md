@@ -58,6 +58,7 @@ YAML or JSON; relative paths are relative to the file. Keys not listed are error
 | `dont_use` | list[str] |  | more cell patterns never used |
 | `allow_excluded` | list[str] |  | PDK-excluded cells used on purpose (waivers) |
 | `step_defaults` | dict |  | {step: {param: value}}: parameter defaults over the PDK's |
+| `auto_blackbox` | bool |  | macros without lib get a black-box Liberty model written from their LEF (off by default; a macro's own auto_blackbox overrides) |
 | `config` | object |  | run configuration (also FLOW_* environment, --config) |
 | `inputs` | object |  | generated inputs |
 | `flow` | list[object] |  | steps in order; default: the standard chain |
@@ -102,6 +103,7 @@ YAML or JSON; relative paths are relative to the file. Keys not listed are error
 | `lvs` | str |  | blackbox: LVS checks only the connections to its pins (one of: blackbox) |
 | `abstract` | bool |  | signoff on the LEF abstract (DRC around it, LVS black box); the written GDS still carries its GDS |
 | `analog` | bool |  | analog macro; null: decided from its nets and supplies |
+| `auto_blackbox` | bool |  | no lib: write a black-box Liberty model from the LEF (pins, directions, no timing arcs); null: the design's auto_blackbox |
 
 ### macros → grid_stripes
 

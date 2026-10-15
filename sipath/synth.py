@@ -123,7 +123,15 @@ def synth(ctx):
         with open(script, "w") as f:
             f.write(lint_script(pdk, d))
         log = ctx.path("lint.log")
-        run_tool(ctx, ["yosys", "-q", "-l", log, "-s", script], ctx.path("lint.out"))
+        try:
+            run_tool(ctx, ["yosys", "-q", "-l", log, "-s", script], ctx.path("lint.out"))
+        except Exception as e:
+            nolib = [m.inst for m in d.macros if not m.lib]
+            if nolib and "is not part of the design" in str(e):
+                raise RuntimeError(f"{e}\nmacros without a Liberty model: {nolib}; give each a lib, define it in "
+                                   "the RTL, or set auto_blackbox: true (design or macro) for a black-box model "
+                                   "written from its LEF") from e
+            raise
         with open(log, errors="replace") as f:
             warnings = [ln.strip() for ln in f if ln.startswith("Warning:")]
         ctx.metrics["lint_warnings"] = len(warnings)

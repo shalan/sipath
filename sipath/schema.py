@@ -62,6 +62,8 @@ MACRO = {
     "abstract": F("bool", "signoff on the LEF abstract (DRC around it, LVS black box); the written GDS "
                           "still carries its GDS"),
     "analog": F("bool", "analog macro; null: decided from its nets and supplies"),
+    "auto_blackbox": F("bool", "no lib: write a black-box Liberty model from the LEF (pins, directions, no timing "
+                                "arcs); null: the design's auto_blackbox"),
 }
 PAD = {
     "inst": F("str", "pad instance name", required=True),
@@ -158,6 +160,8 @@ DESIGN = {
     "dont_use": F("list[str]", "more cell patterns never used"),
     "allow_excluded": F("list[str]", "PDK-excluded cells used on purpose (waivers)"),
     "step_defaults": F("dict", "{step: {param: value}}: parameter defaults over the PDK's"),
+    "auto_blackbox": F("bool", "macros without lib get a black-box Liberty model written from their LEF (off by "
+                                "default; a macro's own auto_blackbox overrides)"),
     "config": F("object", "run configuration (also FLOW_* environment, --config)", fields=CONFIG),
     "inputs": F("object", "generated inputs", fields={"generate": F("str", "module:function that writes them")}),
     "flow": F("list[object]", "steps in order; default: the standard chain", fields=FLOW_STEP),

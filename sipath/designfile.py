@@ -29,7 +29,7 @@ SIMPLE = ("name", "top", "mode", "die", "core_margin", "analog_nets", "analog_nd
           "is_core", "min_route_layer", "max_route_layer", "clock_ports", "clock_nets", "keepouts", "pad_supplies",
           "pad_kinds", "analog_supplies", "analog_supply_layers", "analog_supply_ndr", "macro_channel",
           "macro_pin_clearance", "analog_guard", "layer_adjustments", "pad_masters", "pdk", "dont_use",
-          "allow_excluded", "step_defaults", "rtl_defines", "core_utilization", "aspect_ratio")
+          "allow_excluded", "step_defaults", "rtl_defines", "core_utilization", "aspect_ratio", "auto_blackbox")
 
 
 def default_flow(d: Design) -> list[dict]:
@@ -39,9 +39,11 @@ def default_flow(d: Design) -> list[dict]:
 
 
 def _path(base, p):
-    if p is None or os.path.isabs(p):
+    """Absolute and normalized: OpenROAD may run in a container that mounts
+    only the normalized directories, where an "a/../b" path cannot resolve."""
+    if p is None:
         return p
-    return os.path.normpath(os.path.join(base, p))
+    return os.path.normpath(p if os.path.isabs(p) else os.path.join(base, p))
 
 
 def _strap(s):
@@ -132,8 +134,12 @@ def build(d: Design, workdir: str, runner, config=None, resume: bool = False):
     cfg = config or Config.load()
     pdk = load_pdk(d.pdk, runner)
     d.resolve(pdk)
+    from . import blackbox
+    models = blackbox.generate(d, pdk, os.path.join(os.path.abspath(workdir), "models"))  # opt-in only
     runner.mount(workdir, *d.input_files(), *d.rtl_includes, *pdk.files())
     prov = runner.provenance() if hasattr(runner, "provenance") else {}
+    if models:
+        prov = dict(prov, blackbox_models=models)
     return Flow(d, pdk, workdir, lambda w: OpenRoadSession(w, runner, timeout=cfg.command_timeout),
                 runner_prefixes=runner.runner_prefixes(), config=cfg, resume=resume, provenance=prov, runner=runner)
 

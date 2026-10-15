@@ -484,6 +484,7 @@ macros:
   supplies: {"^vpwr[amp]$": VDD, "^vgnd$": VSS}
   grid_stripes: [{layer: met3, width: 2, pitch: 30, offset: 5}]
   grid_connects: [[met3, met4]]
+  auto_blackbox: true               # no lib: a black-box Liberty model is written from the LEF (opt-in)
   gds: ip/sram.gds                  # signoff DRC (and LVS when cdl is given)
   cdl: ip/sram.cdl                  # transistor netlist for LVS
   lvs: blackbox                     # no cdl: LVS checks only the connections to its pins
@@ -530,6 +531,19 @@ An RTL design needs only `rtl`, `sdc`, and `core_utilization` or `die`
     cell fails the step.
   - Its netlist is the attempt's checkpoint. Variants and scores
     (`synth_area`) work as for any step.
+- **Macros without a Liberty file**: with `auto_blackbox: true` (on the design,
+  or per macro), the flow writes a black-box model from the macro's LEF into
+  `<workdir>/models/` before the run:
+  - pin directions, with indexed pins grouped into buses;
+  - a default pin capacitance, and the area from the LEF;
+  - no timing arcs; power and ground pins left out (LEF `USE`, or the macro's
+    `supplies`).
+
+  Yosys uses it to resolve the instance and OpenROAD links against it. Paths
+  through the macro are not timed. The run's provenance lists each model and
+  any pin whose direction had to be assumed (`inout`). It is off by default:
+  without it, synthesis fails and the message names the macros and the ways
+  out.
 - **Floorplan without a DEF**: pins are placed at random, then by the cells
   after a first placement. PDK-default power straps too wide for a small
   core are scaled to it (recorded as `pdn_straps_scaled`).

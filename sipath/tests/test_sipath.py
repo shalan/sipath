@@ -829,6 +829,58 @@ class SynthUnits(unittest.TestCase):
                 f.step("synth2", broken)
 
 
+class BlackboxModels(unittest.TestCase):
+    """Black-box Liberty models written from a macro's LEF (opt-in)."""
+    DAC = os.path.join(os.path.dirname(__file__), "..", "examples", "inputs", "chipfoundry",
+                       "sky130_ef_ip__rdac3v_8bit", "sky130_ef_ip__rdac3v_8bit.lef")
+
+    def test_model_from_lef(self):
+        from sipath import blackbox
+        from sipath.synth import _liberty_cells
+        text, rep = blackbox.liberty("sky130_ef_ip__rdac3v_8bit", self.DAC, {"^dvdd$": "VDD", "^dvss$": "VSS"})
+        self.assertIn('bus ("b") { bus_type : bus_7_0; direction : input;', text)
+        self.assertIn('pin ("out") { direction : output;', text)
+        self.assertNotIn('"dvdd"', text)  # supplies (and LEF USE POWER/GROUND) are left out
+        self.assertNotIn("timing ()", text)  # no timing arcs
+        self.assertEqual(sorted(rep["power_pins_left_out"]), ["avdd", "avss", "dvdd", "dvss"])
+        self.assertEqual(rep["direction_assumed_inout"], [])
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d)
+        with open(os.path.join(d, "m.lib"), "w") as fh:
+            fh.write(text)
+        self.assertEqual(_liberty_cells([os.path.join(d, "m.lib")]), {"sky130_ef_ip__rdac3v_8bit": False})
+
+    def test_missing_direction_is_reported(self):
+        from sipath import blackbox
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d)
+        lef = os.path.join(d, "x.lef")
+        with open(lef, "w") as fh:
+            fh.write("MACRO X\n  SIZE 10 BY 20 ;\n  PIN A\n  END A\n  PIN D[1]\n    DIRECTION OUTPUT ;\n  END D[1]\n"
+                     "  PIN D[3]\n    DIRECTION OUTPUT ;\n  END D[3]\n  PIN VPWR\n  END VPWR\nEND X\n")
+        text, rep = blackbox.liberty("X", lef, {"^VPWR$": "VDD"})
+        self.assertEqual(rep["direction_assumed_inout"], ["A"])
+        self.assertIn("area : 200.000;", text)
+        self.assertIn('pin ("D[1]")', text)  # D[1], D[3]: not a contiguous bus, kept as single pins
+        self.assertNotIn("bus (", text)
+
+    def test_opt_in_rules(self):
+        from sipath import blackbox
+        d = Design("t", "t", "n.v", "s.sdc", "die", macros=[Macro(inst="u_a", lef=self.DAC),
+                                                          Macro(inst="u_b", lef=self.DAC, lib="b.lib"),
+                                                          Macro(inst="u_c", lef=self.DAC, auto_blackbox=False),
+                                                          Macro(inst="u_d", lef=self.DAC, auto_blackbox=True)])
+        self.assertEqual([blackbox.wanted(d, m) for m in d.macros], [False, False, False, True])  # off by default
+        d.auto_blackbox = True
+        self.assertEqual([blackbox.wanted(d, m) for m in d.macros], [True, False, False, True])
+        out = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, out)
+        made = blackbox.generate(d, types.SimpleNamespace(voltages={"VDD": 1.8}), out)
+        self.assertEqual(sorted(made), ["u_a", "u_d"])
+        self.assertTrue(d.macros[0].lib.endswith("sky130_ef_ip__rdac3v_8bit.blackbox.lib"))
+        self.assertEqual(d.macros[1].lib, "b.lib")  # a given lib is never replaced
+
+
 class SignoffUnits(unittest.TestCase):
     LIB = """.SUBCKT X__inv_1 A VGND VNB VPB VPWR Y
 MI1 Y A VGND VNB nfet_01v8 m=1 w=0.65 l=0.15
@@ -978,6 +1030,38 @@ class LiveRtl(unittest.TestCase):
         s = _read_json(f.steps["signoff"].selected.outputs["signoff"])
         self.assertTrue(s["pass"], s["failures"])
         self.assertEqual((s["drc"]["count"], s["lvs"]["match"], s["antenna"]["violations"]), (0, True, 0))
+
+    def test_macro_without_lib_gets_a_blackbox_model(self):
+        from sipath import designfile
+        wd = _workdir("rtl_blackbox")
+        if not KEEP:
+            self.addCleanup(_rmtree, wd)
+        os.makedirs(wd, exist_ok=True)
+        rtl = os.path.join(wd, "dacwrap.v")
+        with open(rtl, "w") as fh:
+            fh.write("module dacwrap(input clk, input en, input [7:0] code, output dac_out, inout vh, inout vl);\n"
+                     "  reg [7:0] q;\n  always @(posedge clk) q <= code;\n"
+                     "  sky130_ef_ip__rdac3v_8bit u_dac (.b(q), .ena(en), .out(dac_out), .Vhigh(vh), .Vlow(vl));\n"
+                     "endmodule\n")
+        sdc = os.path.join(wd, "dacwrap.sdc")
+        with open(sdc, "w") as fh:
+            fh.write("create_clock -name clk -period 10 [get_ports clk]\n")
+        base = {"name": "dacwrap", "top": "dacwrap", "mode": "macro", "pdk": "sky130A", "rtl": [rtl], "sdc": sdc,
+                "core_utilization": 0.4, "macros": [{"inst": "u_dac", "lef": BlackboxModels.DAC,
+                                                     "supplies": {"^dvdd$": "VDD", "^dvss$": "VSS",
+                                                                  "^avdd$": "VDD", "^avss$": "VSS"}}]}
+        with self.assertRaises(StepFailed) as cm:  # off by default: a clear error with the way out
+            designfile.run(designfile.design_from_dict(dict(base), wd), os.path.join(wd, "off"), RUNNER,
+                           flow_steps=[{"step": "synth"}])
+        self.assertIn("auto_blackbox", str(cm.exception))
+        d = designfile.design_from_dict(dict(base, auto_blackbox=True), wd)
+        f = designfile.run(d, os.path.join(wd, "on"), RUNNER, flow_steps=[{"step": "synth"}, {"step": "floorplan"}])
+        model = f.provenance["blackbox_models"]["u_dac"]
+        self.assertTrue(os.path.isfile(model["lib"]))
+        self.assertEqual(model["buses"], 1)
+        with open(f.steps["synth"].selected.checkpoint) as fh:
+            self.assertIn("sky130_ef_ip__rdac3v_8bit u_dac", fh.read())
+        self.assertEqual(f.steps["floorplan"].selected.status, "selected")  # OpenROAD linked it with the model
 
     def test_lint_errors_fail_synthesis(self):
         from sipath import designfile
