@@ -875,7 +875,7 @@ def routability_check(ctx, margin: float = 0.0) -> dict:
     s.run(tcl.routing_layers(d, ctx.pdk, margin=margin))
     rpt = ctx.path("place_congestion.rpt")
     s.run(f"global_route -allow_congestion -congestion_iterations 30 -congestion_report_file {q(rpt)}\n"
-          "foreach net [[ord::get_db_block] getNets] { $net clearGuides }", timeout=1800)
+          "foreach net [[ord::get_db_block] getNets] { $net clearGuides }")  # config.command_timeout
     c = congestion.parse(rpt)
     ctx.metrics["grt_overflow"] = c["overflow"]
     ctx.metrics["grt_congested_gcells"] = c["gcells"]
@@ -1180,7 +1180,7 @@ def antenna_loop(ctx, max_rounds: int = 3, tag: str = "antenna") -> int:
         # route every digital net (a previous patch route may have narrowed the
         # router's net list, which would leave the new diode pins unconnected)
         r = s.run(tcl.DIGITAL_NETS + "::flow_route_nets $::flow_digital\n"
-                  + tcl.detailed_route_only(ctx.path("drc.rpt"), p.get("iters", 64)), timeout=1800)
+                  + tcl.detailed_route_only(ctx.path("drc.rpt"), p.get("iters", 64)))  # config.command_timeout
         nums = _drt_numbers(r.output)
         if "drc" not in nums:
             raise RuntimeError("detailed_route reported no violation count")

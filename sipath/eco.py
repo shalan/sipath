@@ -189,11 +189,11 @@ def patch_route(ctx, touched: set[str], sig0: dict, analog_before: str, max_patc
     if len(touched) > max_patch:
         out["route_mode"] = "full"
         out["ripped"] = _destroy_wires(s)
-        r = s.run(tcl.route_digital(drc, iters), timeout=1800)
+        r = s.run(tcl.route_digital(drc, iters))  # config.command_timeout
     else:
         out["route_mode"] = "incremental"
         out["ripped"] = _destroy_wires(s, touched)
-        r = s.run(tcl.route_subset(sorted(touched), drc, iters), timeout=1800)  # a hang fails the attempt
+        r = s.run(tcl.route_subset(sorted(touched), drc, iters))  # config.command_timeout: a hang fails the attempt
     nums = steps._drt_numbers(r.output)
     if "drc" not in nums:
         raise RuntimeError("detailed_route reported no violation count")

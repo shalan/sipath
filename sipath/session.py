@@ -122,8 +122,8 @@ class DockerRunner:
         return {"image": self.image, "id": parts[0] if parts else None, "digest": parts[1] if len(parts) > 1 else None}
 
     def provenance(self) -> dict:
-        out = {"kind": self.kind, **self.image_id(), "threads": self.threads, "cpus": self.cpus,
-               "memory": self.memory}
+        out = {"kind": self.kind, **self.image_id(), "platform": self.platform, "binary": self.binary,
+               "threads": self.threads, "cpus": self.cpus, "memory": self.memory}
         if self.native_tools:
             out["native_tools"] = {t: {"binary": b, "version": tool_version(b)} for t, b in self.native_tools.items()}
         return out
@@ -238,7 +238,8 @@ def find_openroad(config: Config | None = None):
         except (OSError, subprocess.TimeoutExpired):
             ok = False
         if ok:
-            return DockerRunner(cfg.image, threads=cfg.threads, cpus=cfg.container_cpus, memory=cfg.container_memory,
+            return DockerRunner(cfg.image, binary=cfg.openroad_binary or ORFS_OPENROAD, platform=cfg.platform,
+                                threads=cfg.threads, cpus=cfg.container_cpus, memory=cfg.container_memory,
                                 native_tools=native_tools(cfg))
     return None
 

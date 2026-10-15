@@ -14,6 +14,9 @@ parallel_cap           SIPATH_PARALLEL_CAP       most attempts alive at once (0:
 container_cpus         SIPATH_CPUS               docker ``--cpus`` per process
 container_memory       SIPATH_MEMORY             docker ``--memory`` per process (e.g. 8g)
 image                  SIPATH_OPENROAD_IMAGE     ORFS image; ``name@sha256:...`` pins it
+openroad_binary        SIPATH_OPENROAD_BINARY    OpenROAD inside the image (default the ORFS path; "openroad" for
+                                                 an image with it on PATH, e.g. LibreLane's)
+platform               SIPATH_PLATFORM           image platform (linux/amd64; linux/arm64 for a native arm64 image)
 magic_image            SIPATH_MAGIC_IMAGE        image with Magic (signoff magic_drc / xor; docker/magic)
 native_tools           SIPATH_NATIVE_TOOLS       tools run on the host instead of the image (e.g. klayout,yosys)
 require_digest         SIPATH_REQUIRE_DIGEST     refuse an image not pinned by digest
@@ -30,6 +33,7 @@ ORFS_IMAGE = "openroad/orfs:latest"
 
 ENV = {"threads": "SIPATH_THREADS", "command_timeout": "SIPATH_TIMEOUT", "tool_timeout": "SIPATH_TOOL_TIMEOUT", "parallel_cap": "SIPATH_PARALLEL_CAP",
        "container_cpus": "SIPATH_CPUS", "container_memory": "SIPATH_MEMORY", "image": "SIPATH_OPENROAD_IMAGE",
+       "openroad_binary": "SIPATH_OPENROAD_BINARY", "platform": "SIPATH_PLATFORM",
        "magic_image": "SIPATH_MAGIC_IMAGE", "native_tools": "SIPATH_NATIVE_TOOLS",
        "require_digest": "SIPATH_REQUIRE_DIGEST", "debug_failed": "SIPATH_DEBUG_FAILED",
        "log_level": "SIPATH_LOG_LEVEL"}
@@ -48,6 +52,8 @@ class Config:
     container_cpus: float | None = None
     container_memory: str | None = None
     image: str = ORFS_IMAGE
+    openroad_binary: str = ""  # empty: the ORFS image's path
+    platform: str = "linux/amd64"
     magic_image: str = "sipath/orfs-magic:8.3.685"  # built from docker/magic/Dockerfile
     native_tools: list = field(default_factory=list)  # e.g. ["klayout", "yosys"]: host binaries, not the image's
     require_digest: bool = False

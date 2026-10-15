@@ -178,6 +178,8 @@ YAML or JSON; relative paths are relative to the file. Keys not listed are error
 | `container_memory` | str |  | memory limit per container (e.g. 8g) |
 | `image` | str |  | ORFS image (name@sha256:... pins it) |
 | `magic_image` | str |  | image with Magic for the signoff checks magic_drc and xor (docker/magic) |
+| `openroad_binary` | str |  | OpenROAD inside the image (default the ORFS path; openroad for an image with it on PATH) |
+| `platform` | str |  | image platform: linux/amd64, or linux/arm64 for a native arm64 image |
 | `native_tools` | list[str] |  | tools run on the host instead of the image (klayout, yosys, magic): faster than emulation |
 | `tool_timeout` | number |  | seconds one signoff tool run (KLayout DRC/LVS, Magic) may take |
 | `require_digest` | bool |  | refuse an image not pinned by digest |
@@ -348,6 +350,8 @@ Design file `config:`, a `--config` file, or `SIPATH_<KEY>` environment variable
 | `container_memory` | str | memory limit per container (e.g. 8g) |
 | `image` | str | ORFS image (name@sha256:... pins it) |
 | `magic_image` | str | image with Magic for the signoff checks magic_drc and xor (docker/magic) |
+| `openroad_binary` | str | OpenROAD inside the image (default the ORFS path; openroad for an image with it on PATH) |
+| `platform` | str | image platform: linux/amd64, or linux/arm64 for a native arm64 image |
 | `native_tools` | list[str] | tools run on the host instead of the image (klayout, yosys, magic): faster than emulation |
 | `tool_timeout` | number | seconds one signoff tool run (KLayout DRC/LVS, Magic) may take |
 | `require_digest` | bool | refuse an image not pinned by digest |
