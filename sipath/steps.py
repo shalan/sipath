@@ -1106,6 +1106,64 @@ def views(ctx):
     ctx.metrics["view_corners"] = len(libs)
 
 
+def integrate(ctx):
+    """The hardened wrapper in its frame (H2): Magic puts the signed-off
+    wrapper GDS (copied unchanged) into the harness's frame layout and writes
+    the chip GDS, as the frame's own build does; KLayout then checks it (one
+    top cell, the frame's die, the wrapper placed once at its origin and
+    identical to the signed-off GDS). params: drc (full-chip KLayout DRC,
+    default off: the frame's IO cells carry their own waivers). The seal ring
+    is not added (the frame's build leaves it to tape-out)."""
+    import json as _json
+    from . import harness, signoff
+    d = ctx.design
+    if not d.harness:
+        raise ValueError("integrate needs a harness design (harness: ...)")
+    h = harness.get(d.harness, d.harness_options)
+    f = h.spec.get("frame") or {}
+    if not f.get("magic"):
+        raise ValueError(f"harness {d.harness} gives no frame layout to integrate into (frame.magic)")
+    wrapper_gds = ctx.ancestor_output("gds")
+    if not (wrapper_gds and os.path.isfile(wrapper_gds)):
+        raise RuntimeError("integrate needs the signed-off wrapper GDS (run signoff first)")
+    work = ctx.path("frame_work")
+    os.makedirs(work, exist_ok=True)
+    ctx.outputs["frame_files"] = h.prepare_frame(work)
+    top = f["magic"]["top"]
+    chip = ctx.path(f"{top}.gds")
+    rc = (ctx.pdk.signoff or {}).get("magic_rc")
+    if rc:  # the rc file's cell libraries and their GDS live under the PDK root
+        signoff._runner(ctx).mount(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(rc)))))
+    signoff._runner(ctx).mount(os.path.dirname(wrapper_gds), work)
+    out = signoff._magic(ctx, h.integrate_script(work, wrapper_gds, chip), "integrate")
+    if "SIPATH_DONE" not in out or not os.path.isfile(chip) or os.path.getsize(chip) == 0:
+        raise RuntimeError(f"Magic wrote no chip GDS (log {ctx.path('integrate.log')})")
+    missing = sorted(set(re.findall(r"Cell (\S+) is unavailable", out)))
+    if missing:
+        raise RuntimeError(f"frame cells without a view: {missing[:10]} (log {ctx.path('integrate.log')})")
+    script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "klayout", "chipcheck.py")
+    cfg = ctx.path("chipcheck.cfg.json")
+    with open(cfg, "w") as fh:
+        _json.dump({"chip": chip, "top": top, "die": f["die"], "wrapper": wrapper_gds,
+                    "wrapper_cell": f["magic"]["wrapper_cell"], "origin": f["wrapper_origin"],
+                    "out": ctx.path("chipcheck.json")}, fh, indent=1)
+    signoff._runner(ctx).mount(script)
+    signoff.run_tool(ctx, ["klayout", "-b", "-rd", f"cfg_file={cfg}", "-r", script], ctx.path("chipcheck.log"))
+    with open(ctx.path("chipcheck.json")) as fh:
+        check = _json.load(fh)
+    ctx.outputs.update(checkpoint=chip, chip_gds=chip, chipcheck=check)
+    ctx.metrics["chip_check_pass"] = check["pass"]
+    if not check["pass"]:
+        raise RuntimeError(f"assembled chip fails its checks: {check}")
+    if ctx.params.get("drc"):
+        r = signoff.drc(ctx, chip, top=top)
+        ctx.outputs["chip_drc"] = r
+        ctx.metrics["chip_drc"] = r["count"]
+
+
+integrate.tool = True
+
+
 def antenna_loop(ctx, max_rounds: int = 3, tag: str = "antenna") -> int:
     """Repair antennas on the detailed routes and re-route, until clean or
     ``max_rounds``. Updates metrics (drc, antenna_violations, antenna_diodes)."""
@@ -1248,7 +1306,7 @@ from .synth import synth  # noqa: E402  (tool step: Yosys, no OpenROAD process)
 
 STEPS = {
     "synth": synth, "floorplan": floorplan, "macros": macros, "physical": physical, "place": place, "cts": cts,
-    "route_analog": route_analog, "route_digital": route_digital, "route_repair": route_repair, "fill": fill, "extract": extract, "views": views,
+    "route_analog": route_analog, "route_digital": route_digital, "route_repair": route_repair, "fill": fill, "extract": extract, "views": views, "integrate": integrate,
     "signoff": signoff,
 }
 

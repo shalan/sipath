@@ -1,5 +1,5 @@
-"""Extension points: steps, scores, signoff checks, harnesses and design-file
-extensions, registered into the same tables the built-ins use.
+"""Extension points: steps, scores, signoff checks, harnesses, design templates
+and design-file extensions, registered into the same tables the built-ins use.
 
 A plugin is a Python module that registers what it adds when imported::
 
@@ -37,6 +37,7 @@ from . import scores as _scores
 CHECKS: dict[str, Callable] = {}  # signoff check name -> fn(ctx, summary) -> {"pass": bool, ...}
 HARNESSES: dict[str, type] = {}  # harness name -> Harness subclass
 EXTENSIONS: dict[str, dict] = {}  # design-file extensions namespace -> {key: schema.Field}
+TEMPLATES: dict[str, str] = {}  # design template name -> its directory (sipath.templates)
 _LOADED: set[str] = set()
 _ENTRY_POINTS_DONE = False
 
@@ -133,6 +134,17 @@ def harness(name: str):
     return wrap
 
 
+# ------------------------------------------------------------------- templates
+def register_template(name: str, directory: str, replace: bool = False):
+    """A design template (a directory with template.yaml, see sipath.templates)."""
+    import os
+    if name in TEMPLATES and not replace:
+        raise RegistryError(f"template {name!r} is already registered")
+    if not os.path.isfile(os.path.join(directory, "template.yaml")):
+        raise RegistryError(f"template {name!r}: no template.yaml in {directory}")
+    TEMPLATES[name] = directory
+
+
 # ------------------------------------------------------------------ extensions
 def register_extension(namespace: str, fields: dict, replace: bool = False):
     """Keys a plugin reads from the design file's ``extensions: {namespace: {...}}``,
@@ -180,6 +192,7 @@ def loaded() -> dict:
     """What plugins added (for provenance and the MCP server)."""
     from . import steps
     builtin = {"synth", "floorplan", "macros", "physical", "place", "cts", "route_analog", "route_digital",
-               "route_repair", "fill", "extract", "signoff", "views"}
+               "route_repair", "fill", "extract", "signoff", "views", "integrate"}
     return {"plugins": sorted(_LOADED), "steps": sorted(set(steps.STEPS) - builtin),
-            "checks": sorted(CHECKS), "harnesses": sorted(HARNESSES), "extensions": sorted(EXTENSIONS)}
+            "checks": sorted(CHECKS), "harnesses": sorted(HARNESSES), "extensions": sorted(EXTENSIONS),
+            "templates": sorted(TEMPLATES)}

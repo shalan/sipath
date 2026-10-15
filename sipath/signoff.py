@@ -56,10 +56,13 @@ def _runner(ctx):
     return r
 
 
-def run_tool(ctx, args: list[str], log: str, timeout: float = 7200, image: str | None = None,
+def run_tool(ctx, args: list[str], log: str, timeout: float | None = None, image: str | None = None,
              env: dict | None = None) -> str:
     """Run a tool of the installation (KLayout; Magic from ``image``); its
-    output goes to ``log``. A non-zero exit fails the check; the output is returned."""
+    output goes to ``log``. A non-zero exit fails the check; the output is
+    returned. ``timeout``: default config.tool_timeout (7200 s)."""
+    if timeout is None:
+        timeout = float(getattr(getattr(ctx, "config", None), "tool_timeout", None) or 7200)
     r = _runner(ctx)
     cmd = r.tool_command(ctx.dir, args, image=image, env=env) if (image or env) else r.tool_command(ctx.dir, args)
     t0 = time.time()
@@ -338,37 +341,60 @@ def cell_owners(ctx, stream_result: dict) -> dict:
             for c, o in (stream_result.get("owners") or {}).items()}
 
 
-def drc(ctx, gds: str, owners: dict | None = None) -> dict:
+def _drc_run(ctx, gds: str, opts: dict, tag: str, top: str | None = None) -> str:
     so = _cfg(ctx)
-    rpt = ctx.path("drc.lyrdb")
-    args = ["klayout", "-b", "-r", so["drc_deck"], "-rd", f"input={gds}", "-rd", f"topcell={ctx.design.top}",
+    rpt = ctx.path(f"drc{tag}.lyrdb")
+    args = ["klayout", "-b", "-r", so["drc_deck"], "-rd", f"input={gds}", "-rd", f"topcell={top or ctx.design.top}",
             "-rd", f"report={rpt}"]
-    opts = dict(so.get("drc_options") or {})
-    opts.setdefault("thr", max(4, int(getattr(_runner(ctx), "threads", 1) or 1)))  # the open_pdks decks read $thr
     for k, v in opts.items():
         args += ["-rd", f"{k}={str(v).lower() if isinstance(v, bool) else v}"]
-    run_tool(ctx, args, ctx.path("drc.log"))
+    run_tool(ctx, args, ctx.path(f"drc{tag}.log"))
     if not os.path.isfile(rpt):
         raise SignoffError(f"DRC wrote no report at {rpt}")
-    return {**parse_lyrdb(rpt, owners, ctx.design.top), "report": rpt}
+    return rpt
 
 
-def density(ctx, gds: str) -> dict:
-    """The PDK's metal density deck (signoff.density_deck) on the GDS: its
-    markers fail the check for a top-level layout (die, harness wrapper,
-    is_core); for an embedded macro they are reported only (the rule is the
-    chip's). The per-layer densities it logs are reported."""
+def _merge_drc(parts: list[dict]) -> dict:
+    out = {"count": 0, "by_rule": {}, "by_owner": {}, "by_owner_rule": {}}
+    for p in parts:
+        out["count"] += p["count"]
+        for k in ("by_rule", "by_owner"):
+            for r, n in p.get(k, {}).items():
+                out[k][r] = out[k].get(r, 0) + n
+        for o, rules in p.get("by_owner_rule", {}).items():
+            dst = out["by_owner_rule"].setdefault(o, {})
+            for r, n in rules.items():
+                dst[r] = dst.get(r, 0) + n
+    out["by_rule"] = dict(sorted(out["by_rule"].items(), key=lambda kv: -kv[1]))
+    return out
+
+
+def drc(ctx, gds: str, owners: dict | None = None, top: str | None = None) -> dict:
+    """The PDK's KLayout DRC deck on ``gds``. With ``signoff.drc_groups`` (deck
+    options selecting a subset of the rules each, e.g. FEOL / BEOL / off-grid)
+    and the signoff parameter ``drc_split`` (default on), one KLayout process
+    per group runs at once and their reports are merged: the groups' rules
+    together are the deck's, each process reads the layout itself."""
     so = _cfg(ctx)
-    rpt = ctx.path("density.lyrdb")
-    log = run_tool(ctx, ["klayout", "-b", "-r", so["density_deck"], "-rd", f"input={gds}",
-                         "-rd", f"top_cell={ctx.design.top}", "-rd", f"report={rpt}"], ctx.path("density.log"))
-    if not os.path.isfile(rpt):
-        raise SignoffError(f"density check wrote no report at {rpt}")
-    text = log or ""
-    # "<layer>_ca_density is <clear area fraction>": metal density = 1 - clear area
-    dens = {m.group(1): round(1 - float(m.group(2)), 4)
-            for m in re.finditer(r"(\w+?)_ca_density is (-?[\d.eE+-]+)", text)}
-    return {**parse_lyrdb(rpt, None, ctx.design.top), "report": rpt, "metal_density": dens}
+    base = dict(so.get("drc_options") or {})
+    total = max(4, int(getattr(_runner(ctx), "threads", 1) or 1))
+    groups = list(so.get("drc_groups") or []) if (ctx.params or {}).get("drc_split", True) else []
+    if len(groups) < 2:
+        base.setdefault("thr", total)  # the open_pdks decks read $thr
+        rpt = _drc_run(ctx, gds, base, "", top)
+        return {**parse_lyrdb(rpt, owners, top or ctx.design.top), "report": rpt}
+    from concurrent.futures import ThreadPoolExecutor
+    thr = max(2, -(-total // len(groups)))
+    runs = [{**base, "thr": thr, **g} for g in groups]
+    with ThreadPoolExecutor(max_workers=len(runs)) as ex:
+        rpts = list(ex.map(lambda kv: _drc_run(ctx, gds, kv[1], f"_{kv[0]}", top), enumerate(runs)))
+    parts = [parse_lyrdb(r, owners, top or ctx.design.top) for r in rpts]
+    merged = _merge_drc(parts)
+    if owners is None:
+        merged.pop("by_owner"), merged.pop("by_owner_rule")
+    names = [",".join(k for k, v in g.items() if v is True) or str(g) for g in groups]
+    return {**merged, "report": rpts[0], "reports": rpts,
+            "groups": [{"options": n, "count": p["count"]} for n, p in zip(names, parts)]}
 
 
 # ----------------------------------------------------------------- Magic

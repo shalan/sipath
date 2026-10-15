@@ -18,6 +18,8 @@ rtl: [rtl/gcd8.v, rtl/openframe_gcd8.v]
 rtl_defines: {OPENFRAME_IO_PADS: 44, GCD_W: 4}
 sdc: rtl/openframe_gcd8.sdc
 clock_ports: ["gpio_in[0]"]
+config:
+  tool_timeout: 21600       # LVS of the 4.35 mm row strip (~98k cells) under Rosetta takes > 2 h
 flow:
 - step: synth
   variants: [{port_buffers: false}]      # pad controls stay wires to the frame's loopback inputs
@@ -31,3 +33,4 @@ flow:
 - step: route_repair
 - step: extract
 - step: signoff
+- step: integrate             # the wrapper in the OpenFrame chip (Magic), checked against the frame

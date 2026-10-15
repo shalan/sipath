@@ -186,6 +186,9 @@ signoff:
   lvs_blackbox: ["sky130_ef_io__*", "sky130_fd_io__*"]
   drc_deck: ${pdk_root}/${variant}/libs.tech/klayout/drc/${variant}_mr.drc
   drc_options: {feol: true, beol: true, offgrid: true, floating_met: false, seal: false}
+  # the deck's rule groups, one KLayout process each, run at once (signoff drc_split)
+  drc_groups: [{feol: true, beol: false, offgrid: false}, {feol: false, beol: true, offgrid: false},
+               {feol: false, beol: false, offgrid: true}]
   # metal density (max 60% per layer, met5 76%, over the die): the PDK's deck
   density_deck: ${pdk_root}/${variant}/libs.tech/klayout/drc/met_min_ca_density.lydrc
   # metal fill (fill step): OpenROAD density_fill rules; fill shapes go to the fill datatype

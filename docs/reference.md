@@ -178,6 +178,7 @@ YAML or JSON; relative paths are relative to the file. Keys not listed are error
 | `container_memory` | str |  | memory limit per container (e.g. 8g) |
 | `image` | str |  | ORFS image (name@sha256:... pins it) |
 | `magic_image` | str |  | image with Magic for the signoff checks magic_drc and xor (docker/magic) |
+| `tool_timeout` | number |  | seconds one signoff tool run (KLayout DRC/LVS, Magic) may take |
 | `require_digest` | bool |  | refuse an image not pinned by digest |
 | `debug_failed` | bool |  | write a debug checkpoint for a failed attempt |
 | `log_level` | str |  | flow logger level (one of: DEBUG, INFO, WARNING, ERROR) |
@@ -290,6 +291,12 @@ No parameters.
 | `layers` | list[str] | – |  | layers to fill (default: the fill rules' layers up to the design's top routing layer) |
 | `area` | list[float] | – |  | fill only inside [x0, y0, x1, y1] (default: the die) [um] |
 
+### integrate
+
+| parameter | type | default | allowed | description |
+|---|---|---|---|---|
+| `drc` | bool | false |  | full-chip KLayout DRC of the assembled chip (slow; the frame's IO cells carry their own waivers) |
+
 ### views
 
 | parameter | type | default | allowed | description |
@@ -311,6 +318,7 @@ No parameters.
 | `checks` | list[str] | drc, density, lvs, antenna, setup, hold, drv, annotation, unconstrained, harness | drc, density, lvs, antenna, setup, hold, drv, annotation, unconstrained, harness, magic_drc, xor | checks to run (magic_drc and xor are opt-in: they need the Magic image) |
 | `require` | list[str] | drc, density, lvs, antenna, setup, hold, drv, annotation, harness, magic_drc, xor | drc, density, lvs, antenna, setup, hold, drv, annotation, unconstrained, harness, magic_drc, xor | checks whose failure fails signoff (of those run) |
 | `fail_on_violation` | bool | true |  | fail the attempt when a required check fails (signoff.json is written either way) |
+| `drc_split` | bool | true |  | run the PDK's DRC rule groups (signoff.drc_groups) as concurrent processes and merge their reports |
 
 ### eco
 
@@ -334,6 +342,7 @@ Design file `config:`, a `--config` file, or `SIPATH_<KEY>` environment variable
 | `container_memory` | str | memory limit per container (e.g. 8g) |
 | `image` | str | ORFS image (name@sha256:... pins it) |
 | `magic_image` | str | image with Magic for the signoff checks magic_drc and xor (docker/magic) |
+| `tool_timeout` | number | seconds one signoff tool run (KLayout DRC/LVS, Magic) may take |
 | `require_digest` | bool | refuse an image not pinned by digest |
 | `debug_failed` | bool | write a debug checkpoint for a failed attempt |
 | `log_level` | str | flow logger level |

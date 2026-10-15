@@ -9,6 +9,7 @@ field                  environment             meaning
 =====================  ======================  =====================================
 threads                SIPATH_THREADS            OpenROAD ``-threads`` per process
 command_timeout        SIPATH_TIMEOUT            seconds one Tcl command may take
+tool_timeout           SIPATH_TOOL_TIMEOUT       seconds one signoff tool run (KLayout DRC/LVS, Magic) may take
 parallel_cap           SIPATH_PARALLEL_CAP       most attempts alive at once (0: none)
 container_cpus         SIPATH_CPUS               docker ``--cpus`` per process
 container_memory       SIPATH_MEMORY             docker ``--memory`` per process (e.g. 8g)
@@ -26,7 +27,7 @@ from dataclasses import asdict, dataclass, fields
 
 ORFS_IMAGE = "openroad/orfs:latest"
 
-ENV = {"threads": "SIPATH_THREADS", "command_timeout": "SIPATH_TIMEOUT", "parallel_cap": "SIPATH_PARALLEL_CAP",
+ENV = {"threads": "SIPATH_THREADS", "command_timeout": "SIPATH_TIMEOUT", "tool_timeout": "SIPATH_TOOL_TIMEOUT", "parallel_cap": "SIPATH_PARALLEL_CAP",
        "container_cpus": "SIPATH_CPUS", "container_memory": "SIPATH_MEMORY", "image": "SIPATH_OPENROAD_IMAGE",
        "magic_image": "SIPATH_MAGIC_IMAGE",
        "require_digest": "SIPATH_REQUIRE_DIGEST", "debug_failed": "SIPATH_DEBUG_FAILED",
@@ -41,6 +42,7 @@ class ConfigError(ValueError):
 class Config:
     threads: int = 2
     command_timeout: float = 3600.0
+    tool_timeout: float = 7200.0
     parallel_cap: int = 0
     container_cpus: float | None = None
     container_memory: str | None = None

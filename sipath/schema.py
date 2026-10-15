@@ -104,6 +104,7 @@ CONFIG = {
     "container_memory": F("str", "memory limit per container (e.g. 8g)"),
     "image": F("str", "ORFS image (name@sha256:... pins it)"),
     "magic_image": F("str", "image with Magic for the signoff checks magic_drc and xor (docker/magic)"),
+    "tool_timeout": F("number", "seconds one signoff tool run (KLayout DRC/LVS, Magic) may take"),
     "require_digest": F("bool", "refuse an image not pinned by digest"),
     "debug_failed": F("bool", "write a debug checkpoint for a failed attempt"),
     "log_level": F("str", "flow logger level", choices=("DEBUG", "INFO", "WARNING", "ERROR")),

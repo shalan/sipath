@@ -1079,6 +1079,20 @@ class Harnesses(unittest.TestCase):
         self.assertIn("( * 50 0 ) ( * 90 ) ( 20 * 0 ) M2M3_PR", text)
         self.assertEqual(fix_zero_ext_corners(path), [])  # idempotent
 
+    def test_frame_integration_inputs(self):
+        copied = self.h.prepare_frame(self.tmp)
+        self.assertEqual(copied, ["caravel_openframe.mag", "chip_io_openframe.mag", "frame/"])
+        # the views name their GDS uncompressed (simple_por: ../gds/simple_por.gds)
+        self.assertTrue(os.path.isfile(os.path.join(self.tmp, "frame", "gds", "simple_por.gds")))
+        self.assertTrue(os.path.isfile(os.path.join(self.tmp, "frame", "mag", "primitives",
+                                                    "sky130_fd_pr__res_xhigh_po_0p69_S5N9F3.mag")))
+        script = self.h.integrate_script(self.tmp, "/w/wrapper.gds", "/o/chip.gds")
+        self.assertLess(script.index("gds read {/w/wrapper.gds}"), script.index("load caravel_openframe -dereference"))
+        self.assertIn("cif *hier write disable", script)
+        self.assertIn("gds write {/o/chip.gds}", script)
+        from sipath import steps
+        self.assertTrue(steps.STEPS["integrate"].tool)
+
     def test_harness_excludes_a_floorplan(self):
         from sipath import schema
         with self.assertRaisesRegex(ValueError, "die: not allowed with harness"):
@@ -1146,6 +1160,43 @@ class HardenedViewsAndFill(unittest.TestCase):
             self.assertEqual([layer["layer"], layer["datatype"]], p.signoff["fill_gds"][name])
         for k in ("density_deck", "fill_rules", "magic_rc"):
             self.assertIn(p.signoff[k], p.files())  # mounted for the tools
+
+
+class Templates(unittest.TestCase):
+    """Design templates (sipath.templates), rendered without running a flow."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def test_openframe_template_renders_a_loadable_project(self):
+        from sipath import designfile, templates
+        self.assertIn("openframe", [x["name"] for x in templates.listing()])
+        files = templates.get("openframe").render(self.tmp, {"name": "demo", "inputs": "6", "outputs": "4"})
+        self.assertEqual([os.path.relpath(f, self.tmp) for f in files],
+                         ["design.yaml", "rtl/demo.sdc", "rtl/demo_wrapper.v", "rtl/user_core.v"])
+        d, flow = designfile.load(os.path.join(self.tmp, "design.yaml"))
+        self.assertEqual((d.name, d.top, d.harness), ("demo", "openframe_project_wrapper", "openframe"))
+        self.assertEqual(flow[-1]["step"], "integrate")
+        with open(os.path.join(self.tmp, "rtl", "demo_wrapper.v")) as f:
+            v = f.read()
+        self.assertIn("localparam IN_LO = 0, IN_HI = 6, OUT_LO = 7, OUT_HI = 10;", v)
+        self.assertIn(".in(gpio_in[6:1])", v)
+        self.assertNotIn("{{", v)
+        with self.assertRaises(FileExistsError):
+            templates.get("openframe").render(self.tmp, {"name": "demo"})
+
+    def test_template_parameters_are_checked(self):
+        from sipath import templates
+        t = templates.get("openframe")
+        with self.assertRaisesRegex(ValueError, "17 pads: the east edge has 15"):
+            t.values({"inputs": 10, "outputs": 6})
+        with self.assertRaisesRegex(ValueError, "unknown parameter"):
+            t.values({"pads": 3})
+        with self.assertRaisesRegex(ValueError, "is not a int"):
+            t.values({"inputs": "many"})
+        with self.assertRaisesRegex(ValueError, "below 1"):
+            t.values({"outputs": 0})
 
 
 class SignoffUnits(unittest.TestCase):

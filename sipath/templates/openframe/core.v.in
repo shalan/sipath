@@ -1,0 +1,24 @@
+// {{core}}: the design inside the OpenFrame wrapper (generated starter: replace the body).
+// Ports are fixed by the wrapper: clk (pad 0), rst_n (the frame's resetb_l),
+// in[{{inputs_m1}}:0] (pads 1-{{in_hi}}), out[{{outputs_m1}}:0] (pads {{out_lo}}-{{out_hi}}).
+// The starter registers the inputs and drives each output with a running parity
+// of them, so every pin is used and the design signs off as generated.
+`default_nettype none
+module {{core}} (
+  input  wire                clk,
+  input  wire                rst_n,
+  input  wire [{{inputs_w}}:0] in,
+  output reg  [{{outputs_m1}}:0] out
+);
+  reg [{{inputs_w}}:0] q;
+  integer k;
+  always @(posedge clk or negedge rst_n)
+    if (!rst_n) begin
+      q <= 0;
+      out <= 0;
+    end else begin
+      q <= in;
+      for (k = 0; k < {{outputs}}; k = k + 1)
+        out[k] <= ^(q >> k) ^ out[k];
+    end
+endmodule

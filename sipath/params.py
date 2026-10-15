@@ -162,6 +162,10 @@ STEP_PARAMS: dict[str, list[Param]] = {
               "design's top routing layer)"),
         Param("area", "list[float]", None, "fill only inside [x0, y0, x1, y1] (default: the die)", unit="um"),
     ],
+    "integrate": [
+        Param("drc", "bool", False, "full-chip KLayout DRC of the assembled chip (slow; the frame's IO cells "
+              "carry their own waivers)"),
+    ],
     "views": [
         Param("corners", "list[str]", None, "analysis corners to write a timing Liberty for (default: all)"),
         Param("bloat_occupied_layers", "bool", True, "abstract LEF: layers the design uses are blocked whole "
@@ -179,6 +183,8 @@ STEP_PARAMS: dict[str, list[Param]] = {
               "(of those run)", choices=SIGNOFF_CHECKS + SIGNOFF_OPTIONAL),
         Param("fail_on_violation", "bool", True, "fail the attempt when a required check fails (signoff.json "
               "is written either way)"),
+        Param("drc_split", "bool", True, "run the PDK's DRC rule groups (signoff.drc_groups) as concurrent "
+              "processes and merge their reports"),
     ],
     "eco": [
         Param("ops", "list[dict]", None, "ECO operations: {op: resize, inst, master} or {op: buffer, net, "

@@ -248,6 +248,49 @@ set __n"""
                            + ("" if die_ok else ", die differs"))}
 
 
+    # ---- integration (H2)
+    def integrate_script(self, workdir: str, wrapper_gds: str, out_gds: str) -> str:
+        """Magic script putting the hardened wrapper (its GDS, copied as is)
+        into the frame layout and writing the chip GDS, as the frame's own
+        build does (Caravel ``make openframe``). ``workdir`` holds a copy of the
+        frame views (``prepare_frame``)."""
+        f = self.spec["frame"]
+        m = f["magic"]
+        paths = ["frame/mag", "frame/mag/hexdigits", "frame/mag/primitives", "."]
+        lines = ["crashbackups stop", "drc off", "gds readonly true", "gds rescale false"]
+        lines += [f"addpath {{{os.path.join(workdir, p)}}}" for p in paths]
+        lines += [f"gds read {{{wrapper_gds}}}",  # the wrapper's cells, read-only: written back unchanged
+                  f"load {m['top']} -dereference", "select top cell", "expand",
+                  "puts \"SIPATH_BBOX [box values]\"",
+                  "cif *hier write disable", "cif *array write disable",
+                  f"gds write {{{out_gds}}}", "puts SIPATH_DONE", "quit -noprompt"]
+        return "\n".join(lines) + "\n"
+
+    def prepare_frame(self, workdir: str) -> list[str]:
+        """Copy the frame's views into ``workdir`` (GDS decompressed: the
+        views name their GDS files uncompressed, relative to themselves)."""
+        import gzip
+        import shutil
+        f = self.spec["frame"]
+        copied = []
+        for key in [f["magic"]["file"], *f.get("views", [])]:
+            src = key if os.path.isabs(key) else os.path.join(self.root, key)
+            shutil.copy2(src, os.path.join(workdir, os.path.basename(src)))
+            copied.append(os.path.basename(src))
+        cells = f.get("cells")
+        if cells:
+            src = cells if os.path.isabs(cells) else os.path.join(self.root, cells)
+            dst = os.path.join(workdir, "frame")
+            shutil.copytree(src, dst, dirs_exist_ok=True)
+            for dp, _, fs in os.walk(dst):
+                for g in fs:
+                    if g.endswith(".gds.gz"):
+                        with gzip.open(os.path.join(dp, g)) as fi, open(os.path.join(dp, g[:-3]), "wb") as fo:
+                            shutil.copyfileobj(fi, fo)
+            copied.append("frame/")
+        return copied
+
+
 class TemplateHarness(Harness):
     """A harness described by data (sipath/harnesses/<name>.yaml)."""
 

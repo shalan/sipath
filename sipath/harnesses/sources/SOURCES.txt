@@ -12,3 +12,11 @@ caravel/    from github.com/chipfoundry/caravel @ 01fb61d4397c5e7308c3e277031b32
             from github.com/chipfoundry/caravel_user_project @ b510613cec367828966b37583f9090ac5ddb6491
   openlane/user_project_wrapper/fixed_dont_change/user_project_wrapper.def   Caravel wrapper template
   verilog/rtl/user_project_wrapper.v     wrapper ports and directions
+
+openframe/frame/  from github.com/chipfoundry/caravel @ 01fb61d4397c5e7308c3e277031b326eca6ce475 (fetched 2026-10-15)
+  the Caravel cells caravel_openframe.mag / chip_io_openframe.mag use besides the PDK's IO cells:
+  caravel_logo, caravel_motto, chip_io_gpio_connects_horiz/_vert, constant_block, copyright_block_of,
+  open_source, simple_por, user_id_programming, user_id_textblock, xres_buf (+ hexdigits/alpha_0):
+  mag/*.mag (Magic views), gds/*.gds.gz (layout where published), verilog/gl/*.v (gate-level netlists).
+  SHA-256 in openframe/frame/SHA256SUMS. The PDK supplies the rest (sky130_fd_io, sky130_fd_sc_hd/hvl,
+  sky130_ml_xx_hd fonts). Used by the integrate step (H2).

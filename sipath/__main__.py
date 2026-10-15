@@ -8,6 +8,9 @@
     python3 -m sipath harden <design.yaml|example> <outdir> [workdir] [--resume] [-v]
                                       run through signoff + views; copy the hardened macro views
                                       (LEF, Liberty per corner, GDS, CDL, macro.yaml) to outdir
+    python3 -m sipath templates         design templates (a starter project per target, sipath/templates)
+    python3 -m sipath new <dir> --template <name> [--set key=value ...] [--force]
+                                      write a project from a template (design file, RTL, SDC)
     python3 -m sipath pdks              PDK descriptions available (sipath/pdks)
     python3 -m sipath plugins [module ...]   what plugins (entry points and the given modules) register
     python3 -m sipath docs [out.md]     reference: design-file keys, step parameters, config, PDK keys
@@ -147,6 +150,29 @@ def main(argv) -> int:
             path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "examples", path + ".yaml")
         out = designfile.harden(path, os.path.abspath(args[1]), args[2] if len(args) > 2 else None, resume=resume)
         print("views:", out)
+        return 0
+    if cmd == "templates":
+        from . import templates
+        for t in templates.listing():
+            print(f"{t['name']:14s} harness {t['harness'] or '-':10s} {t['description']}")
+            print(f"{'':14s} params {t['params']}")
+        return 0
+    if cmd == "new":
+        from . import templates
+        args = [a for a in argv[1:]]
+        if not args or "--template" not in args:
+            print("usage: python3 -m sipath new <dir> --template <name> [--set key=value ...] [--force]")
+            return 2
+        name = args[args.index("--template") + 1]
+        sets = {}
+        for k, a in enumerate(args):
+            if a == "--set":
+                key, _, val = args[k + 1].partition("=")
+                sets[key] = val
+        outdir = args[0]
+        files = templates.get(name).render(outdir, sets, force="--force" in args)
+        print("\n".join(files))
+        print(f"run it: python3 -m sipath run {os.path.join(outdir, 'design.yaml')}")
         return 0
     if cmd == "pdks":
         from .pdk import PDK_DIR

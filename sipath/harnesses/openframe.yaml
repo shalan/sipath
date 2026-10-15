@@ -28,5 +28,7 @@ frame:
   die: [3588.0, 5188.0]
   wrapper_origin: [210.685, 210.685]
   magic: {file: sources/openframe/caravel_openframe.mag, top: caravel_openframe, wrapper_cell: openframe_project_wrapper}
+  views: [sources/openframe/chip_io_openframe.mag]   # beside the top view
+  cells: sources/openframe/frame                      # Caravel cells: mag/ (+ hexdigits, primitives), gds/
   netlist: sources/openframe/chip_io_openframe.v
   seal_ring: sources/openframe/advSeal_6um_gen.gds.gz

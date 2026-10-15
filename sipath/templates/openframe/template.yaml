@@ -1,0 +1,18 @@
+name: openframe
+description: >
+  A design in the ChipFoundry OpenFrame (harness openframe): the wrapper with every
+  frame port, your core on the east-edge pads, the frame's loopback ties on every
+  unused pad control, and the flow settings that sign off on this frame.
+harness: openframe
+params:
+  name:     {type: str, default: my_openframe, doc: "project and design name"}
+  core:     {type: str, default: user_core, doc: "the core module (clk, rst_n, in[INPUTS-1:0], out[OUTPUTS-1:0])"}
+  inputs:   {type: int, default: 8, min: 1, doc: "core inputs: pads 1..inputs"}
+  outputs:  {type: int, default: 6, min: 1, doc: "core outputs: the pads after the inputs"}
+  clock_ns: {type: float, default: 20.0, min: 1, doc: "clock period on pad 0"}
+derive: openframe_pads        # sipath.templates: pad numbering and checks (1 + inputs + outputs <= 15)
+files:
+  design.yaml: design.yaml.in
+  rtl/{{name}}_wrapper.v: wrapper.v.in
+  rtl/{{core}}.v: core.v.in
+  rtl/{{name}}.sdc: top.sdc.in
