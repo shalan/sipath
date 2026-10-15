@@ -1,0 +1,362 @@
+# mcu8: an MCU die (mode 2) on Sky130 HD with ChipFoundry hard macros.
+#   python3 -m sipath run sipath/examples/mcu8.yaml [workdir]
+# Die box + 39 pads (edge, order) -> pad ring (geometry derived from the IO
+# library); CF_SRAM_1024x32 frozen; EF_ADCS1008NC and rdac3v_8bit autoplaced by
+# a sweep (seeded random search, the same with orientation search, and
+# rtl_macro_placer) scored after a quick placement + global route, under
+# channel / pin-side / analog-guard rules. Flat top: soft logic between the
+# macros; datapath column + array, a fence and a cluster; core ring joined to
+# the VCCD/VSSD pads; analog nets and VDDA/VSSA routed first with NDRs.
+# Pad LEFs, corner and filler cells come from the PDK's IO library.
+name: mcu8
+top: mcu8
+mode: die
+pdk: sky130A
+inputs:
+  generate: sipath.examples.designs:write_mcu8
+netlist: inputs/mcu8_flat.v
+sdc: inputs/mcu8.sdc
+die: [0.0, 0.0, 1500.0, 1500.0]
+core_margin: 241.0
+pads:
+- inst: pad_clk
+  edge: west
+  order: 0
+  master: sky130_ef_io__gpiov2_pad_wrapped
+- inst: pad_rst_n
+  edge: west
+  order: 1
+  master: sky130_ef_io__gpiov2_pad_wrapped
+- inst: pad_en
+  edge: west
+  order: 2
+  master: sky130_ef_io__gpiov2_pad_wrapped
+- inst: pad_vccd_w
+  edge: west
+  order: 3
+  master: sky130_ef_io__vccd_lvc_clamped_pad
+- inst: pad_vssd_w
+  edge: west
+  order: 4
+  master: sky130_ef_io__vssd_lvc_clamped_pad
+- inst: pad_gain_0
+  edge: west
+  order: 5
+  master: sky130_ef_io__gpiov2_pad_wrapped
+- inst: pad_gain_1
+  edge: west
+  order: 6
+  master: sky130_ef_io__gpiov2_pad_wrapped
+- inst: pad_gain_2
+  edge: west
+  order: 7
+  master: sky130_ef_io__gpiov2_pad_wrapped
+- inst: pad_gain_3
+  edge: west
+  order: 8
+  master: sky130_ef_io__gpiov2_pad_wrapped
+- inst: pad_vddio_w
+  edge: west
+  order: 9
+  master: sky130_ef_io__vddio_hvc_clamped_pad
+- inst: pad_vssio_w
+  edge: west
+  order: 10
+  master: sky130_ef_io__vssio_hvc_clamped_pad
+- inst: pad_dout_0
+  edge: north
+  order: 0
+  master: sky130_ef_io__gpiov2_pad_wrapped
+- inst: pad_dout_1
+  edge: north
+  order: 1
+  master: sky130_ef_io__gpiov2_pad_wrapped
+- inst: pad_dout_2
+  edge: north
+  order: 2
+  master: sky130_ef_io__gpiov2_pad_wrapped
+- inst: pad_dout_3
+  edge: north
+  order: 3
+  master: sky130_ef_io__gpiov2_pad_wrapped
+- inst: pad_vddio_n
+  edge: north
+  order: 4
+  master: sky130_ef_io__vddio_hvc_clamped_pad
+- inst: pad_vssio_n
+  edge: north
+  order: 5
+  master: sky130_ef_io__vssio_hvc_clamped_pad
+- inst: pad_dout_4
+  edge: north
+  order: 6
+  master: sky130_ef_io__gpiov2_pad_wrapped
+- inst: pad_dout_5
+  edge: north
+  order: 7
+  master: sky130_ef_io__gpiov2_pad_wrapped
+- inst: pad_dout_6
+  edge: north
+  order: 8
+  master: sky130_ef_io__gpiov2_pad_wrapped
+- inst: pad_dout_7
+  edge: north
+  order: 9
+  master: sky130_ef_io__gpiov2_pad_wrapped
+- inst: pad_vddio_e
+  edge: east
+  order: 0
+  master: sky130_ef_io__vddio_hvc_clamped_pad
+- inst: pad_vssio_e
+  edge: east
+  order: 1
+  master: sky130_ef_io__vssio_hvc_clamped_pad
+- inst: pad_vssa
+  edge: east
+  order: 2
+  master: sky130_ef_io__vssa_hvc_clamped_pad
+- inst: pad_vdda
+  edge: east
+  order: 3
+  master: sky130_ef_io__vdda_hvc_clamped_pad
+- inst: pad_ana_in
+  edge: east
+  order: 4
+  master: sky130_ef_io__gpiov2_pad_wrapped
+- inst: pad_vref_hi
+  edge: east
+  order: 5
+  master: sky130_ef_io__gpiov2_pad_wrapped
+- inst: pad_vref_lo
+  edge: east
+  order: 6
+  master: sky130_ef_io__gpiov2_pad_wrapped
+- inst: pad_dac_out
+  edge: east
+  order: 7
+  master: sky130_ef_io__gpiov2_pad_wrapped
+- inst: pad_cfg_0
+  edge: south
+  order: 0
+  master: sky130_ef_io__gpiov2_pad_wrapped
+- inst: pad_cfg_1
+  edge: south
+  order: 1
+  master: sky130_ef_io__gpiov2_pad_wrapped
+- inst: pad_cfg_2
+  edge: south
+  order: 2
+  master: sky130_ef_io__gpiov2_pad_wrapped
+- inst: pad_vccd_s
+  edge: south
+  order: 3
+  master: sky130_ef_io__vccd_lvc_clamped_pad
+- inst: pad_vssd_s
+  edge: south
+  order: 4
+  master: sky130_ef_io__vssd_lvc_clamped_pad
+- inst: pad_ch_0
+  edge: south
+  order: 5
+  master: sky130_ef_io__gpiov2_pad_wrapped
+- inst: pad_ch_1
+  edge: south
+  order: 6
+  master: sky130_ef_io__gpiov2_pad_wrapped
+- inst: pad_ch_2
+  edge: south
+  order: 7
+  master: sky130_ef_io__gpiov2_pad_wrapped
+- inst: pad_vddio_s
+  edge: south
+  order: 8
+  master: sky130_ef_io__vddio_hvc_clamped_pad
+- inst: pad_vssio_s
+  edge: south
+  order: 9
+  master: sky130_ef_io__vssio_hvc_clamped_pad
+pad_kinds:
+  pad_clk: input
+  pad_rst_n: input
+  pad_en: input
+  pad_gain_0: input
+  pad_gain_1: input
+  pad_gain_2: input
+  pad_gain_3: input
+  pad_dout_0: output
+  pad_dout_1: output
+  pad_dout_2: output
+  pad_dout_3: output
+  pad_dout_4: output
+  pad_dout_5: output
+  pad_dout_6: output
+  pad_dout_7: output
+  pad_ana_in: analog
+  pad_vref_hi: analog
+  pad_vref_lo: analog
+  pad_dac_out: analog
+  pad_cfg_0: input
+  pad_cfg_1: input
+  pad_cfg_2: input
+  pad_ch_0: input
+  pad_ch_1: input
+  pad_ch_2: input
+pad_supplies:
+  ^VCCD$: VDD
+  ^VSSD$: VSS
+  ^VDDA$: VDDA
+  ^VSSA$: VSSA
+  ^VDDIO$: VDDIO
+  ^VSSIO$: VSSIO
+macros:
+- inst: u_sram
+  lef: inputs/chipfoundry/CF_SRAM_1024x32/CF_SRAM_1024x32.lef
+  lib:
+    ss: inputs/chipfoundry/CF_SRAM_1024x32/CF_SRAM_1024x32_ss_160V_100C.lib
+    tt: inputs/chipfoundry/CF_SRAM_1024x32/CF_SRAM_1024x32_tt_180V_25C.lib
+    ff: inputs/chipfoundry/CF_SRAM_1024x32/CF_SRAM_1024x32_ff_195V_n40C.lib
+  location: [262.2, 843.2]
+  orient: R90
+  halo: 15.0
+  gds: inputs/chipfoundry/CF_SRAM_1024x32/views/CF_SRAM_1024x32.gds
+  # signoff on the LEF abstract (ChipFoundry IP, signed off by its vendor; no netlist
+  # published): DRC checks the chip around it, LVS its pin connections
+  abstract: true
+  supplies:
+    ^vpwr[amp]$: VDD
+    ^vpb$: VDD
+    ^vgnd$: VSS
+    ^vnb$: VSS
+  grid_stripes:
+  - layer: met3
+    width: 2.0
+    pitch: 30.0
+    offset: 5.0
+  - layer: met4
+    width: 2.0
+    pitch: 30.0
+    offset: 5.0
+  grid_connects:
+  - [met2, met3]
+  - [met3, met4]
+  - [met4, met5]
+- inst: u_adc
+  lef: inputs/EF_ADCS1008NC.annotated.lef
+  lib: null
+  location: null
+  halo: 15.0
+  gds: inputs/chipfoundry/EF_ADCS1008NC/views/EF_ADCS1008NC.gds
+  # signoff on the LEF abstract (ChipFoundry analog IP: hv devices, MIM caps,
+  # xhigh-po resistors are beyond the standard-cell LVS deck;
+  # views/EF_ADCS1008NC.schematic.spice is kept for a macro-level LVS)
+  abstract: true
+  supplies:
+    ^DVDD$: VDD
+    ^DVSS$: VSS
+    ^VDD$: VDDA
+    ^VSS$: VSSA
+  grid_connects: []
+- inst: u_dac
+  lef: inputs/chipfoundry/sky130_ef_ip__rdac3v_8bit/sky130_ef_ip__rdac3v_8bit.lef
+  lib: null
+  location: null
+  halo: 15.0
+  gds: inputs/chipfoundry/sky130_ef_ip__rdac3v_8bit/views/sky130_ef_ip__rdac3v_8bit.gds.gz
+  abstract: true  # signoff on the LEF abstract (ChipFoundry IP; no netlist at the pinned commit)
+  supplies:
+    ^dvdd$: VDD
+    ^dvss$: VSS
+    ^avdd$: VDDA
+    ^avss$: VSSA
+  grid_connects: []
+extra_libs:
+- inputs/mcu8_blackboxes.lib
+is_core: true
+pdn:
+  straps:
+  - layer: met4
+    width: 1.6
+    pitch: 54.28
+    offset: 27.14
+  - layer: met5
+    width: 1.6
+    pitch: 54.4
+    offset: 27.2
+  connects:
+  - [met1, met4]
+  - [met4, met5]
+  rings: true
+  ring_layers: [met4, met5]
+  ring_width: 5.0
+  ring_spacing: 2.0
+  ring_core_offset: 4.5
+  ring_connect_to_pads: true
+  ring_pad_layers: [met3]
+analog_nets: [ana.ana_in, ana.dac_out, ana.vref_hi, ana.vref_lo]
+analog_supplies: [VDDA, VSSA]
+clock_nets: [core.pad_clk_i]
+datapaths:
+- name: adder
+  kind: column
+  cells: [u_add.fa_0, u_add.fa_1, u_add.fa_2, u_add.fa_3, u_add.fa_4, u_add.fa_5, u_add.fa_6, u_add.fa_7]
+  origin: [300.0, 300.0]
+- name: mult
+  kind: array
+  cells:
+  - [u_mul.pp_0_0, u_mul.pp_0_1, u_mul.pp_0_2, u_mul.pp_0_3]
+  - [u_mul.pp_1_0, u_mul.add_1_0, u_mul.pp_1_1, u_mul.add_1_1, u_mul.pp_1_2, u_mul.add_1_2, u_mul.pp_1_3, u_mul.add_1_3]
+  - [u_mul.pp_2_0, u_mul.add_2_0, u_mul.pp_2_1, u_mul.add_2_1, u_mul.pp_2_2, u_mul.add_2_2, u_mul.pp_2_3, u_mul.add_2_3]
+  - [u_mul.pp_3_0, u_mul.add_3_0, u_mul.pp_3_1, u_mul.add_3_1, u_mul.pp_3_2, u_mul.add_3_2, u_mul.pp_3_3, u_mul.add_3_3]
+  origin: [330.0, 300.0]
+groups:
+- name: cnt_fence
+  prefix: u_cnt.
+  kind: fence
+  box: [300.0, 360.0, 400.0, 430.0]
+- name: out_cluster
+  prefix: u_core.ro_
+  kind: cluster
+  utilization: 0.8
+keepouts:
+- [280.0, 280.0, 420.0, 450.0]
+macro_channel: 20.0
+macro_pin_clearance: 20.0
+analog_guard: 10.0
+flow:
+- step: floorplan
+- step: macros
+  score: macro_quick
+  parallel: 2
+  variants:
+  - method: random
+    seed: 1
+    samples: 40
+  - method: random
+    seed: 2
+    samples: 40
+  - method: random
+    seed: 3
+    samples: 40
+  - method: random
+    seed: 1
+    samples: 40
+    orients: [R0, MX, MY, R180]
+  - method: mpl
+- step: physical
+- step: place
+  variants:
+  - density: 0.5
+    seed: 1
+  - density: 0.65
+    seed: 2
+  score: routability_then_wns
+  parallel: 2
+- step: cts
+- step: route_analog
+- step: route_digital
+  score: drc_then_slack
+- step: route_repair
+- step: extract
+- step: signoff
+  # DRC and LVS with the three ChipFoundry macros as their LEF abstracts (the
+  # written GDS carries their full layouts) and the IO cells as LVS black boxes

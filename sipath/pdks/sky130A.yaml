@@ -1,0 +1,196 @@
+# Sky130 (sky130A) from an open_pdks tree (ciel/volare): the source of truth
+# for every view. Standard cells: sky130_fd_sc_hd (+ sky130_ef_sc_hd);
+# IO: sky130_ef_io; macros: sky130_sram_macros (OpenRAM).
+# Settings follow the PDK's own reference flow configuration
+# (libs.tech/openlane/config.tcl and sky130_fd_sc_hd/config.tcl).
+# Variables: ${pdk_root} ($PDK_ROOT, default ~/.ciel), ${variant} (sky130A).
+name: sky130A
+vars:
+  pdk_root: {env: PDK_ROOT, default: "~/.ciel"}
+  variant: {default: sky130A, must_exist: false}
+  scl: {default: sky130_fd_sc_hd, must_exist: false}
+
+tech_lef: ${pdk_root}/${variant}/libs.ref/${scl}/techlef/${scl}__nom.tlef
+cell_lef: ["${pdk_root}/${variant}/libs.ref/${scl}/lef/sky130_fd_sc_hd.lef",
+           "${pdk_root}/${variant}/libs.ref/${scl}/lef/sky130_ef_sc_hd.lef"]
+liberty: ${pdk_root}/${variant}/libs.ref/${scl}/lib/${scl}__tt_025C_1v80.lib
+rcx_rules: ${pdk_root}/${variant}/libs.tech/openlane/rules.openrcx.${variant}.nom.calibre
+site: unithd
+tracks_file: ${pdk_root}/${variant}/libs.tech/openlane/${scl}/tracks.info
+
+layers: [met1, met2, met3, met4, met5]
+local_layers: [li1]
+route:
+  min_layer: met1          # RT_MIN_LAYER
+  max_layer_core: met5     # RT_MAX_LAYER
+  max_layer_macro: met4    # an embedded macro leaves met5 to its parent
+  clock_min_layer: met3    # RT_CLOCK_MIN_LAYER
+  pin_layers: [met3, met2] # automatic pin placement: horizontal (left/right edges), vertical (top/bottom)
+  layer_adjustments: {}    # GRT_LAYER_ADJUSTMENTS: 0 on met1-met5 (li1 0.99 is below the stack)
+
+cells:
+  tap: sky130_fd_sc_hd__tapvpwrvgnd_1
+  tap_distance: 13.0       # FP_TAPCELL_DIST
+  endcap: sky130_fd_sc_hd__decap_3
+  # decaps first (they add supply decoupling), then the fill cells
+  fill: [sky130_fd_sc_hd__decap_12, sky130_fd_sc_hd__decap_8, sky130_fd_sc_hd__decap_6, sky130_fd_sc_hd__decap_4,
+         sky130_fd_sc_hd__decap_3, sky130_fd_sc_hd__fill_2, sky130_fd_sc_hd__fill_1]
+  tie_hi: [sky130_fd_sc_hd__conb_1, HI]
+  tie_lo: [sky130_fd_sc_hd__conb_1, LO]
+  synth_buffer: [sky130_fd_sc_hd__buf_2, A, X]  # synthesis: buffer for assigns to ports (cell, in, out)
+  diode: sky130_fd_sc_hd__diode_2
+  cts_buffers: [sky130_fd_sc_hd__clkbuf_8, sky130_fd_sc_hd__clkbuf_4, sky130_fd_sc_hd__clkbuf_2]
+  cts_root_buffer: sky130_fd_sc_hd__clkbuf_16
+  # cts_apply_ndr: none|root_only|half|full (unset: the tool's default)
+  dont_use: [sky130_fd_sc_hd__probe_p_*, sky130_fd_sc_hd__probec_p_*, sky130_fd_sc_hd__lpflow_*,
+             sky130_fd_sc_hd__clkdlybuf4s*]
+  # cells with known layout (DRC) problems, as listed by the PDK: never used
+  exclude_files: ["${pdk_root}/${variant}/libs.tech/openlane/${scl}/drc_exclude.cells"]
+
+power:
+  pins:  # STD_CELL_POWER_PINS / STD_CELL_GROUND_PINS
+    - {pin: "^VPWR$", net: VDD, kind: power}
+    - {pin: "^VPB$", net: VDD}
+    - {pin: "^VGND$", net: VSS, kind: ground}
+    - {pin: "^VNB$", net: VSS}
+  voltages: {core: 1.8, analog: 3.3}
+
+# design rules from the PDK's reference configuration, applied before the design
+# SDC (which may override them)
+constraints:
+  max_transition: 0.75     # ns  (MAX_TRANSITION_CONSTRAINT)
+  max_fanout: 10           # (MAX_FANOUT_CONSTRAINT)
+  max_capacitance: 0.2     # pF  (MAX_CAPACITANCE_CONSTRAINT)
+  driving_cell: [sky130_fd_sc_hd__inv_2, Y]   # SYNTH_DRIVING_CELL
+  output_load: 0.033442    # pF  (OUTPUT_CAP_LOAD: inv_16 input)
+
+# timing repair slack margins of the reference flow (PL_/GRT_RESIZER_*_SLACK_MARGIN)
+# setup/hold: ns of slack to keep; slew/cap: % below the limits for repair_design
+# (estimated parasitics read low against the extracted SPEF: mcu8 signoff saw
+# 0.78 ns slews after repair against a 0.75 ns limit)
+repair_margins: {setup: 0.025, hold_place: 0.1, hold_route: 0.05, slew: 10, cap: 10}
+
+pdn:
+  rail_layer: met1
+  rail_width: 0.48
+  # FP_PDN_V*/H*: met4 vertical and met5 horizontal straps
+  straps: [{layer: met4, width: 1.6, pitch: 153.6, offset: 16.32},
+           {layer: met5, width: 1.6, pitch: 153.18, offset: 16.65}]
+  connects: [[met1, met4], [met4, met5]]
+  straps_macro: [{layer: met4, width: 1.6, pitch: 153.6, offset: 16.32}]   # embedded: no met5
+  connects_macro: [[met1, met4]]
+  ring_layers: [met4, met5]
+  ring_width: 1.6          # FP_PDN_CORE_RING_*
+  ring_spacing: 1.7
+  ring_core_offset: 6.0
+  via_pitch: 1.6
+  via_inset: 0.8
+
+analog:
+  ndr:
+    width: {met2: 0.28, met3: 0.6, met4: 0.6}
+    spacing: {met2: 0.28, met3: 0.6, met4: 0.6}
+  row_blocked_layers: [met1, met2]
+  supply_layers: [met3, met5]
+  supply_ndr:
+    width: {met3: 2.0, met4: 2.0, met5: 2.0}
+    spacing: {met3: 0.6, met4: 0.6, met5: 1.6}
+  launch_layer: met4
+
+# nominal estimation RC (per um; calibrated against OpenRCX, as in the OpenROAD
+# sky130hd platform). The other RC corners scale each layer and via by the
+# corner's tech LEF against the nominal one (sheet resistance, area + edge
+# capacitance, cut resistance).
+rc: |
+  set_layer_rc -layer li1 -capacitance 1.499e-04 -resistance 7.176e-02
+  set_layer_rc -layer met1 -capacitance 1.72375E-04 -resistance 1.20565E-03
+  set_layer_rc -layer met2 -capacitance 1.36233E-04 -resistance 1.22132E-03
+  set_layer_rc -layer met3 -capacitance 2.14962E-04 -resistance 1.66281E-04
+  set_layer_rc -layer met4 -capacitance 1.48128E-04 -resistance 1.68093E-04
+  set_layer_rc -layer met5 -capacitance 1.54087E-04 -resistance 1.83558E-05
+  set_layer_rc -via mcon -resistance 9.249146E-3
+  set_layer_rc -via via -resistance 4.5E-3
+  set_layer_rc -via via2 -resistance 3.368786E-3
+  set_layer_rc -via via3 -resistance 0.376635E-3
+  set_layer_rc -via via4 -resistance 0.00580E-3
+  set_wire_rc -signal -layer met2
+  set_wire_rc -clock -layer met5
+rc_tech_lefs:
+  nom: ${pdk_root}/${variant}/libs.ref/${scl}/techlef/${scl}__nom.tlef
+  min: ${pdk_root}/${variant}/libs.ref/${scl}/techlef/${scl}__min.tlef
+  max: ${pdk_root}/${variant}/libs.ref/${scl}/techlef/${scl}__max.tlef
+
+# signoff corners: process/voltage/temperature x interconnect (min/nom/max),
+# as in the PDK's reference STA corner set
+typical_corner: tt_nom
+corners:
+  - {name: tt_nom, process: tt, rc: nom, liberty: "${pdk_root}/${variant}/libs.ref/${scl}/lib/${scl}__tt_025C_1v80.lib", rcx_rules: "${pdk_root}/${variant}/libs.tech/openlane/rules.openrcx.${variant}.nom.calibre"}
+  - {name: tt_min, process: tt, rc: min, liberty: "${pdk_root}/${variant}/libs.ref/${scl}/lib/${scl}__tt_025C_1v80.lib", rcx_rules: "${pdk_root}/${variant}/libs.tech/openlane/rules.openrcx.${variant}.min.calibre"}
+  - {name: tt_max, process: tt, rc: max, liberty: "${pdk_root}/${variant}/libs.ref/${scl}/lib/${scl}__tt_025C_1v80.lib", rcx_rules: "${pdk_root}/${variant}/libs.tech/openlane/rules.openrcx.${variant}.max.calibre"}
+  - {name: ss_nom, process: ss, rc: nom, liberty: "${pdk_root}/${variant}/libs.ref/${scl}/lib/${scl}__ss_100C_1v60.lib", rcx_rules: "${pdk_root}/${variant}/libs.tech/openlane/rules.openrcx.${variant}.nom.calibre"}
+  - {name: ss_min, process: ss, rc: min, liberty: "${pdk_root}/${variant}/libs.ref/${scl}/lib/${scl}__ss_100C_1v60.lib", rcx_rules: "${pdk_root}/${variant}/libs.tech/openlane/rules.openrcx.${variant}.min.calibre"}
+  - {name: ss_max, process: ss, rc: max, liberty: "${pdk_root}/${variant}/libs.ref/${scl}/lib/${scl}__ss_100C_1v60.lib", rcx_rules: "${pdk_root}/${variant}/libs.tech/openlane/rules.openrcx.${variant}.max.calibre"}
+  - {name: ff_nom, process: ff, rc: nom, liberty: "${pdk_root}/${variant}/libs.ref/${scl}/lib/${scl}__ff_n40C_1v95.lib", rcx_rules: "${pdk_root}/${variant}/libs.tech/openlane/rules.openrcx.${variant}.nom.calibre"}
+  - {name: ff_min, process: ff, rc: min, liberty: "${pdk_root}/${variant}/libs.ref/${scl}/lib/${scl}__ff_n40C_1v95.lib", rcx_rules: "${pdk_root}/${variant}/libs.tech/openlane/rules.openrcx.${variant}.min.calibre"}
+  - {name: ff_max, process: ff, rc: max, liberty: "${pdk_root}/${variant}/libs.ref/${scl}/lib/${scl}__ff_n40C_1v95.lib", rcx_rules: "${pdk_root}/${variant}/libs.tech/openlane/rules.openrcx.${variant}.max.calibre"}
+
+io:
+  lef_dir: ${pdk_root}/${variant}/libs.ref/sky130_fd_io/lef
+  masters: [sky130_ef_io__gpiov2_pad_wrapped, sky130_ef_io__gpiov2_pad, sky130_ef_io__corner_pad,
+            sky130_ef_io__vccd_hvc_pad, sky130_ef_io__vssd_hvc_pad, sky130_ef_io__vccd_lvc_pad,
+            sky130_ef_io__vssd_lvc_pad, sky130_ef_io__vdda_hvc_pad, sky130_ef_io__vssa_hvc_pad,
+            sky130_ef_io__vdda_lvc_pad, sky130_ef_io__vssa_lvc_pad, sky130_ef_io__vddio_hvc_pad,
+            sky130_ef_io__vssio_hvc_pad, sky130_ef_io__vddio_lvc_pad, sky130_ef_io__vssio_lvc_pad,
+            sky130_ef_io__analog_pad, sky130_ef_io__analog_esd_pad, sky130_ef_io__analog_noesd_pad,
+            sky130_ef_io__com_bus_slice_1um, sky130_ef_io__com_bus_slice_5um, sky130_ef_io__com_bus_slice_10um,
+            sky130_ef_io__com_bus_slice_20um,
+            # power pads with their ESD clamps wired inside (Caravel's padframe uses these)
+            sky130_ef_io__vccd_lvc_clamped_pad, sky130_ef_io__vssd_lvc_clamped_pad,
+            sky130_ef_io__vccd_lvc_clamped2_pad, sky130_ef_io__vssd_lvc_clamped2_pad,
+            sky130_ef_io__vccd_lvc_clamped3_pad, sky130_ef_io__vssd_lvc_clamped3_pad,
+            sky130_ef_io__vddio_hvc_clamped_pad, sky130_ef_io__vssio_hvc_clamped_pad,
+            sky130_ef_io__vdda_hvc_clamped_pad, sky130_ef_io__vssa_hvc_clamped_pad]
+  lef_pattern: "${lef_dir}/sky130_ef_io.lef"    # one LEF holds every ef_io master
+  roles: {"*gpiov2*": signal, "*analog*": signal, "*vccd*": vccd, "*vssd*": vssd, "*vddio*": vddio,
+          "*vssio*": vssio, "*vdda*": vdda, "*vssa*": vssa}
+  corner: sky130_ef_io__corner_pad
+  fill: [sky130_ef_io__com_bus_slice_20um, sky130_ef_io__com_bus_slice_10um, sky130_ef_io__com_bus_slice_5um,
+         sky130_ef_io__com_bus_slice_1um]
+
+sram:
+  sky130_sram_1kbyte_1rw1r_32x256_8:
+    lef: ${pdk_root}/${variant}/libs.ref/sky130_sram_macros/lef/sky130_sram_1kbyte_1rw1r_32x256_8.lef
+    lib: ${pdk_root}/${variant}/libs.ref/sky130_sram_macros/lib/sky130_sram_1kbyte_1rw1r_32x256_8_TT_1p8V_25C.lib
+  sky130_sram_1kbyte_1rw1r_8x1024_8:
+    lef: ${pdk_root}/${variant}/libs.ref/sky130_sram_macros/lef/sky130_sram_1kbyte_1rw1r_8x1024_8.lef
+    lib: ${pdk_root}/${variant}/libs.ref/sky130_sram_macros/lib/sky130_sram_1kbyte_1rw1r_8x1024_8_TT_1p8V_25C.lib
+  sky130_sram_2kbyte_1rw1r_32x512_8:
+    lef: ${pdk_root}/${variant}/libs.ref/sky130_sram_macros/lef/sky130_sram_2kbyte_1rw1r_32x512_8.lef
+    lib: ${pdk_root}/${variant}/libs.ref/sky130_sram_macros/lib/sky130_sram_2kbyte_1rw1r_32x512_8_TT_1p8V_25C.lib
+
+# physical signoff with KLayout (sipath.signoff): GDS from the routed DEF, the
+# PDK's DRC deck, and a standard-cell LVS deck (sipath/pdks/sky130, derived from ORFS)
+signoff:
+  klayout_tech: ${pdk_root}/${variant}/libs.tech/klayout/tech/${variant}.lyt
+  klayout_map: ${pdk_root}/${variant}/libs.tech/klayout/tech/${variant}.map
+  cell_gds: ["${pdk_root}/${variant}/libs.ref/${scl}/gds/${scl}.gds"]
+  cell_cdl: ["${pdk_root}/${variant}/libs.ref/${scl}/cdl/${scl}.cdl"]
+  # the ef_io pads instantiate sky130_fd_io cells; first definition of a cell wins
+  io_gds: ["${pdk_root}/${variant}/libs.ref/sky130_fd_io/gds/sky130_ef_io.gds",
+           "${pdk_root}/${variant}/libs.ref/sky130_fd_io/gds/sky130_ef_io__gpiov2_pad_wrapped.gds",
+           "${pdk_root}/${variant}/libs.ref/sky130_fd_io/gds/sky130_fd_io.gds"]
+  io_cdl: ["${pdk_root}/${variant}/libs.ref/sky130_fd_io/cdl/sky130_ef_io.cdl"]
+  # masters LVS compares as black boxes (LEF abstract vs pin-only subcircuit):
+  # the IO cells' ESD/HV devices are outside the standard-cell deck, as in the
+  # Caravel/OpenFrame chip-level LVS, which uses abstract pads too
+  lvs_blackbox: ["sky130_ef_io__*", "sky130_fd_io__*"]
+  drc_deck: ${pdk_root}/${variant}/libs.tech/klayout/drc/${variant}_mr.drc
+  drc_options: {feol: true, beol: true, offgrid: true, floating_met: false, seal: false}
+  lvs_deck: ${here}/sky130/sky130_stdcell.lvs
+  lvs_threads: 8
+  # drawing layer -> text layer, low to high: supply nets get one label on the highest
+  label_layers: {met1: [68, 20, 68, 5], met2: [69, 20, 69, 5], met3: [70, 20, 70, 5], met4: [71, 20, 71, 5],
+                 met5: [72, 20, 72, 5]}
+  device_prefix: sky130_fd_pr__   # device model prefix used in the PDK's CDL
+  # tie cells: outputs shorted to a supply through poly in the layout
+  tie_shorts: {"*__conb_*": {HI: VPWR, LO: VGND}}

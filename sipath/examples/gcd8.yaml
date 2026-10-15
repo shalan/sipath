@@ -1,0 +1,24 @@
+# gcd8: an RTL design (mode 1, embedded soft macro) on Sky130 HD.
+#   python3 -m sipath run sipath/examples/gcd8.yaml [workdir]
+# The synth step lints the RTL and synthesizes it with Yosys; no floorplan
+# DEF: the core is sized from the utilization and the flow places the pins.
+name: gcd8
+top: gcd8
+mode: macro
+pdk: sky130A
+rtl: [rtl/gcd8.v]
+sdc: rtl/gcd8.sdc
+core_utilization: 0.35
+core_margin: 6.0
+is_core: false
+flow:
+- step: synth
+- step: floorplan
+- step: physical
+- step: place
+- step: cts
+- step: route_analog
+- step: route_digital
+- step: route_repair
+- step: extract
+- step: signoff

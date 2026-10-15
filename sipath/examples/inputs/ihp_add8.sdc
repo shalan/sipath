@@ -1,0 +1,6 @@
+create_clock -name clk -period 10.0 [get_ports clk]
+set_clock_uncertainty 0.1 [get_clocks clk]
+set_input_delay 1.0 -clock clk [get_ports {a[*] b[*]}]
+set_output_delay 1.0 -clock clk [get_ports {sum[*]}]
+set_driving_cell -lib_cell sg13g2_buf_2 [get_ports {a[*] b[*]}]
+set_load 0.02 [get_ports {sum[*]}]

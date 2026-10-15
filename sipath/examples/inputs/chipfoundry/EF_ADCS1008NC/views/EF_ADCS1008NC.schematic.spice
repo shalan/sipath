@@ -1,0 +1,343 @@
+.subckt EF_ADCS1008NC VDD DVDD DVSS VSS EN DATA[0] DATA[1] DATA[2] DATA[3] DATA[4] DATA[5] DATA[6]
++ DATA[7] DATA[8] DATA[9] RST VH VL HOLD CMP B[0] B[1] B[2] VIN[0] VIN[1] VIN[2] VIN[3] VIN[4] VIN[5] VIN[6]
++ VIN[7]
+*.PININFO VDD:B DVDD:B DVSS:B VSS:B EN:B DATA[0]:I DATA[1]:I DATA[2]:I DATA[3]:I DATA[4]:I DATA[5]:I
+*+ DATA[6]:I DATA[7]:I DATA[8]:I DATA[9]:I RST:B VH:B VL:B HOLD:B CMP:B B[0]:I B[1]:I B[2]:I VIN[0]:I VIN[1]:I
+*+ VIN[2]:I VIN[3]:I VIN[4]:I VIN[5]:I VIN[6]:I VIN[7]:I
+x2 DATA[0] DATA[1] DATA[2] DATA[3] DATA[4] DATA[5] DATA[6] DATA[7] DATA[8] DATA[9] VDD DVDD DVSS VSS
++ VH VL DAC_OUT RST EN EF_DACSCA1001p
+x3 DVDD DVSS HOLD VDD AHOLD SELVIN EN VSS sample_and_hold
+x1 CMP EN DVDD VDD AHOLD VSS DVSS DAC_OUT EF_R2RVCp
+x5 B[0] VDD VIN[0] B[1] VIN[4] DVDD DVSS VIN[1] B[2] VIN[5] VIN[2] VIN[6] SELVIN VIN[3] VIN[7]
++ EF_AMUX0801WISOp
+.ends
+
+
+.subckt EF_DACSCA1001p SELD0 SELD1 SELD2 SELD3 SELD4 SELD5 SELD6 SELD7 SELD8 SELD9 VDD DVDD DVSS VSS
++ VH VL OUT RST EN
+*.PININFO SELD0:I SELD1:I SELD2:I SELD3:I SELD4:I SELD5:I SELD6:I SELD7:I SELD8:I SELD9:I VDD:B
+*+ DVDD:B DVSS:B VH:B VL:B VSS:B OUT:I RST:I EN:I
+x4 D8 D0 D4 VP1 D9 D5 D1 VP2 D2 D6 VSS D7 D3 EF_BANK_CAP_10_v2
+x3 D0 SELD0 D1 SELD1 SELD2 D2 SELD3 SELD4 D3 SELD5 D4 SELD6 SELD7 D5 SELD8 D6 SELD9 D7 D8 D9 VDD
++ DVDD DVSS VH VL EF_AMUX0201_ARRAY1
+x1 VP1 VP2 VDD DVDD DVSS RST EF_SW_RST
+x2 VDD OUT EN VSS VP2 EF_BUF3V3p
+x5 VDD OUT_vp1 VSS VSS VP1 EF_BUF3V3p
+.ends
+
+
+
+.subckt sample_and_hold dvdd dvss hold vdd out in ena vss
+*.PININFO vdd:I hold:I in:I vss:I out:O dvdd:I dvss:I ena:I
+XC1 holdval vss sky130_fd_pr__cap_mim_m3_1 W=5 L=5 m=80
+XC2 vss holdval sky130_fd_pr__cap_mim_m3_2 W=5 L=5 m=80
+x2 vdd out ena vss holdval follower_amp
+x3 vdd net1 ena vss in follower_amp
+x4 hold dvdd dvss dvss vdd vdd hold3v sky130_fd_sc_hvl__lsbuflv2hv_1
+XD1 dvss hold sky130_fd_pr__diode_pw2nd_05v5 area=1e12 pj=4e6
+x1 hold3v vss holdval net1 vdd balanced_switch
+.ends
+
+.subckt EF_R2RVCp VOUT EN DVDD VDD VINP VSS DVSS VINM
+*.PININFO VOUT:O VINP:I VINM:I VDD:B VSS:B DVSS:B DVDD:B EN:I
+x4 net1 DVDD DVSS DVSS VDD VDD VOUT sky130_fd_sc_hvl__lsbufhv2lv_1
+x1 VDD VSS up down VBP VBN BIASE
+x3 VDD VBP VBN VSS VINP net1 VINM AVOUT COMPARATOR
+XM4 down ENB_C up VDD sky130_fd_pr__pfet_g5v0d10v5 L=2 W=20 nf=1 m=1
+XM27 AVOUT ENB_C VSS VSS sky130_fd_pr__nfet_g5v0d10v5 L=2 W=5 nf=1 m=1
+x2 EN DVDD DVSS DVSS VDD VDD net2 sky130_fd_sc_hvl__lsbuflv2hv_1
+x11 net2 DVSS DVSS VDD VDD ENB_C sky130_fd_sc_hvl__inv_4
+.ends
+
+
+
+.subckt EF_AMUX0801WISOp B0 VDD VIN_0 B1 VIN_4 DVDD DVSS VIN_1 B2 VIN_5 VIN_2 VIN_6 VO VIN_3 VIN_7
+*.PININFO DVDD:I VDD:I DVSS:I VO:O B0:I B1:I B2:I VIN_0:I VIN_1:I VIN_2:I VIN_3:I VIN_4:I VIN_5:I
+*+ VIN_6:I VIN_7:I
+x1 o5l2 DVDD DVSS o4l3 o3l4 o2l5 o1l6 o0l7 o6l1 o7l0 B0 B1 B2 decoder3to8
+x3 VO o3l4 VDD o7l0 VIN_4 DVDD VIN_0 DVSS o2l5 o6l1 VIN_5 VIN_1 o1l6 o5l2 VIN_6 VIN_2 o0l7 o4l3
++ VIN_7 VIN_3 array_8ls_8tgwd_8swp
+.ends
+
+
+
+.subckt EF_BANK_CAP_10_v2 D8 D0 D4 VP1 D9 D5 D1 VP2 D2 D6 VSS D7 D3
+*.PININFO VP2:I VSS:I D0:I D1:I D2:I D3:I D4:I D5:I D6:I D7:I D8:I D9:I VP1:I
+x4 VP1 VSS D0 D1 D2 D3 D4 EF_LSB_CAP_v2
+x1 D8 D5 D9 VP2 D6 VSS D7 EF_MSB_CAP_v2
+x2 VP1 VP2 VSS EF_SC_CAP_v2
+.ends
+
+
+.subckt EF_AMUX0201_ARRAY1 D0 SELD0 D1 SELD1 SELD2 D2 SELD3 SELD4 D3 SELD5 D4 SELD6 SELD7 D5 SELD8
++ D6 SELD9 D7 D8 D9 VDD DVDD DVSS VH VL
+*.PININFO VDD:B DVDD:B DVSS:B VH:B VL:B D0:I D1:I D2:I D3:I D4:I D5:I D6:I D7:I D8:I D9:I SELD0:I
+*+ SELD1:I SELD2:I SELD3:I SELD4:I SELD5:I SELD6:I SELD7:I SELD8:I SELD9:I
+x2 VDD DVDD D0 DVSS VH VL SELD0 EF_AMUX21x
+x1 VDD DVDD D1 DVSS VH VL SELD1 EF_AMUX21x
+x3 VDD DVDD D2 DVSS VH VL SELD2 EF_AMUX21x
+x4 VDD DVDD D3 DVSS VH VL SELD3 EF_AMUX21x
+x5 VDD DVDD D4 DVSS VH VL SELD4 EF_AMUX21x
+x8 VDD DVDD D5 DVSS VH VL SELD5 EF_AMUX21x
+x9 VDD DVDD D6 DVSS VH VL SELD6 EF_AMUX21x
+x10 VDD DVDD D7 DVSS VH VL SELD7 EF_AMUX21x
+x11 VDD DVDD D8 DVSS VH VL SELD8 EF_AMUX21x
+x12 VDD DVDD D9 DVSS VH VL SELD9 EF_AMUX21x
+.ends
+
+
+
+.subckt EF_SW_RST VP1 VP2 VDD DVDD VSS RST
+*.PININFO VP1:I VP2:I VDD:B DVDD:B VSS:B RST:B
+x4 VDD DVDD VSS RST VP1 VSS tg_lsx
+x13 VDD DVDD VSS RST VP2 VSS tg_lsx
+.ends
+
+
+.subckt EF_BUF3V3p VDD OUT EN VSS IN
+*.PININFO IN:I VDD:I VSS:I OUT:O EN:I
+XM4 pdrv1 net1 VDD VDD sky130_fd_pr__pfet_g5v0d10v5 L=0.5 W=2 nf=2 m=1
+XM5 VDD net1 net1 VDD sky130_fd_pr__pfet_g5v0d10v5 L=0.5 W=2 nf=2 m=1
+XM9 vcomn1 nbias VSS VSS sky130_fd_pr__nfet_g5v0d10v5 L=0.5 W=1 nf=1 m=1
+XM10 VSS nbias nbias VSS sky130_fd_pr__nfet_g5v0d10v5 L=0.5 W=4 nf=4 m=1
+XR1 net4 VDD VSS sky130_fd_pr__res_xhigh_po_0p35 W=1 L=100 mult=1 m=1
+XM20 OUT pdrv1 VDD VDD sky130_fd_pr__pfet_g5v0d10v5 L=0.5 W=200 nf=200 m=1
+XM22 OUT ndrv VSS VSS sky130_fd_pr__nfet_g5v0d10v5 L=0.5 W=120 nf=120 m=1
+XM24 pbias nbias VSS VSS sky130_fd_pr__nfet_g5v0d10v5 L=0.5 W=1 nf=1 m=1
+XM25 VDD pbias pbias VDD sky130_fd_pr__pfet_g5v0d10v5 L=0.5 W=1 nf=1 m=1
+XM26 vcomp pbias VDD VDD sky130_fd_pr__pfet_g5v0d10v5 L=0.5 W=2 nf=2 m=1
+XM27 net2 OUT vcomp VDD sky130_fd_pr__pfet_g5v0d10v5 L=0.5 W=2 nf=2 m=1
+XM28 vcomp IN ndrv VDD sky130_fd_pr__pfet_g5v0d10v5 L=0.5 W=2 nf=2 m=1
+XM29 ndrv net2 VSS VSS sky130_fd_pr__nfet_g5v0d10v5 L=0.5 W=1 nf=1 m=1
+XM30 VSS net2 net2 VSS sky130_fd_pr__nfet_g5v0d10v5 L=0.5 W=1 nf=1 m=1
+XM1 net1 OUT vcomn1 VSS sky130_fd_pr__nfet_g5v0d10v5 L=0.5 W=1 nf=1 m=1
+XM2 vcomn1 IN pdrv1 VSS sky130_fd_pr__nfet_g5v0d10v5 L=0.5 W=1 nf=1 m=1
+XM3 pdrv2 net3 VDD VDD sky130_fd_pr__pfet_g5v0d10v5 L=0.5 W=2 nf=2 m=1
+XM6 VDD net3 net3 VDD sky130_fd_pr__pfet_g5v0d10v5 L=0.5 W=2 nf=2 m=1
+XM7 vcomn2 nbias VSS VSS sky130_fd_pr__nfet_g5v0d10v5 L=0.5 W=1 nf=1 m=1
+XM8 net3 OUT vcomn2 VSS sky130_fd_pr__nfet_03v3_nvt L=0.5 W=1 nf=1 m=1
+XM11 vcomn2 IN pdrv2 VSS sky130_fd_pr__nfet_03v3_nvt L=0.5 W=1 nf=1 m=1
+XM12 VDD pdrv2 OUT VDD sky130_fd_pr__pfet_g5v0d10v5 L=0.5 W=200 nf=200 m=1
+XD1 VSS IN sky130_fd_pr__diode_pw2nd_05v5 area=1 pj=4e6
+XM13 net4 EN nbias VSS sky130_fd_pr__nfet_g5v0d10v5 L=0.5 W=1 nf=1 m=1
+XD2 VSS EN sky130_fd_pr__diode_pw2nd_05v5 area=1 pj=4e6
+.ends
+
+
+.subckt follower_amp vdd out ena vss in
+*.PININFO in:I vdd:I vss:I out:O ena:I
+XM4 pdrv1 net1 vdd vdd sky130_fd_pr__pfet_g5v0d10v5 L=0.5 W=2 nf=2 m=1
+XM5 vdd net1 net1 vdd sky130_fd_pr__pfet_g5v0d10v5 L=0.5 W=2 nf=2 m=1
+XM9 vcomn1 nbias vss vss sky130_fd_pr__nfet_g5v0d10v5 L=0.5 W=1 nf=1 m=1
+XM10 vss nbias nbias vss sky130_fd_pr__nfet_g5v0d10v5 L=0.5 W=4 nf=4 m=1
+XR1 net4 vdd vss sky130_fd_pr__res_xhigh_po_0p35 W=1 L=100 mult=1 m=1
+XM20 out pdrv1 vdd vdd sky130_fd_pr__pfet_g5v0d10v5 L=0.5 W=200 nf=200 m=1
+XM22 out ndrv vss vss sky130_fd_pr__nfet_g5v0d10v5 L=0.5 W=120 nf=120 m=1
+XM24 pbias nbias vss vss sky130_fd_pr__nfet_g5v0d10v5 L=0.5 W=1 nf=1 m=1
+XM25 vdd pbias pbias vdd sky130_fd_pr__pfet_g5v0d10v5 L=0.5 W=1 nf=1 m=1
+XM26 vcomp pbias vdd vdd sky130_fd_pr__pfet_g5v0d10v5 L=0.5 W=2 nf=2 m=1
+XM27 net2 out vcomp vdd sky130_fd_pr__pfet_g5v0d10v5 L=0.5 W=2 nf=2 m=1
+XM28 vcomp in ndrv vdd sky130_fd_pr__pfet_g5v0d10v5 L=0.5 W=2 nf=2 m=1
+XM29 ndrv net2 vss vss sky130_fd_pr__nfet_g5v0d10v5 L=0.5 W=1 nf=1 m=1
+XM30 vss net2 net2 vss sky130_fd_pr__nfet_g5v0d10v5 L=0.5 W=1 nf=1 m=1
+XM1 net1 out vcomn1 vss sky130_fd_pr__nfet_g5v0d10v5 L=0.5 W=1 nf=1 m=1
+XM2 vcomn1 in pdrv1 vss sky130_fd_pr__nfet_g5v0d10v5 L=0.5 W=1 nf=1 m=1
+XM3 pdrv2 net3 vdd vdd sky130_fd_pr__pfet_g5v0d10v5 L=0.5 W=2 nf=2 m=1
+XM6 vdd net3 net3 vdd sky130_fd_pr__pfet_g5v0d10v5 L=0.5 W=2 nf=2 m=1
+XM7 vcomn2 nbias vss vss sky130_fd_pr__nfet_g5v0d10v5 L=0.5 W=1 nf=1 m=1
+XM8 net3 out vcomn2 vss sky130_fd_pr__nfet_03v3_nvt L=0.5 W=1 nf=1 m=1
+XM11 vcomn2 in pdrv2 vss sky130_fd_pr__nfet_03v3_nvt L=0.5 W=1 nf=1 m=1
+XM12 vdd pdrv2 out vdd sky130_fd_pr__pfet_g5v0d10v5 L=0.5 W=200 nf=200 m=1
+XD1 vss in sky130_fd_pr__diode_pw2nd_05v5 area=1 pj=4e6
+XM13 net4 ena nbias vss sky130_fd_pr__nfet_g5v0d10v5 L=0.5 W=1 nf=1 m=1
+XD2 vss ena sky130_fd_pr__diode_pw2nd_05v5 area=1 pj=4e6
+.ends
+
+
+
+.subckt balanced_switch hold vss out in vdd
+*.PININFO in:I out:O vss:I vdd:I hold:I
+XM1 in holdb out vss sky130_fd_pr__nfet_g5v0d10v5 L=0.5 W=4 nf=2 m=1
+XM2 in holdp out vdd sky130_fd_pr__pfet_g5v0d10v5 L=0.5 W=10 nf=2 m=1
+XM3 out holdp out vss sky130_fd_pr__nfet_g5v0d10v5 L=0.5 W=2 nf=1 m=1
+XM4 out holdb out vdd sky130_fd_pr__pfet_g5v0d10v5 L=0.5 W=5 nf=1 m=1
+XM5 in holdp in vss sky130_fd_pr__nfet_g5v0d10v5 L=0.5 W=2 nf=1 m=1
+XM6 in holdb in vdd sky130_fd_pr__pfet_g5v0d10v5 L=0.5 W=5 nf=1 m=1
+XM7 holdb hold vdd vdd sky130_fd_pr__pfet_g5v0d10v5 L=0.5 W=5 nf=1 m=1
+XM8 holdb hold vss vss sky130_fd_pr__nfet_g5v0d10v5 L=0.5 W=2 nf=1 m=1
+XM9 holdp holdb vdd vdd sky130_fd_pr__pfet_g5v0d10v5 L=0.5 W=5 nf=1 m=1
+XM10 holdp holdb vss vss sky130_fd_pr__nfet_g5v0d10v5 L=0.5 W=2 nf=1 m=1
+XD1 vss hold sky130_fd_pr__diode_pw2nd_05v5 area=1 pj=4e6
+.ends
+
+
+.subckt BIASE VDD VSS up down VBP VBN
+*.PININFO VBP:O VBN:O VDD:B VSS:B up:B down:B
+XM3 net1 down VDD VDD sky130_fd_pr__pfet_g5v0d10v5 L=2 W=20 nf=1 m=1
+XM4 VBN net1 down VDD sky130_fd_pr__pfet_g5v0d10v5 L=2 W=20 nf=1 m=1
+XM5 VBN VBN down VDD sky130_fd_pr__pfet_g5v0d10v5 L=15 W=1 nf=1 m=1
+XM7 VBP VBP VDD VDD sky130_fd_pr__pfet_g5v0d10v5 L=2 W=5 nf=1 m=1
+XM1 VBN VBN VSS VSS sky130_fd_pr__nfet_g5v0d10v5 L=2 W=5 nf=1 m=1
+XM2 net1 VBN VSS VSS sky130_fd_pr__nfet_g5v0d10v5 L=2 W=5 nf=1 m=1
+XM6 VBP VBN VSS VSS sky130_fd_pr__nfet_g5v0d10v5 L=2 W=5 nf=1 m=1
+XM8 VBN VSS VSS VSS sky130_fd_pr__nfet_g5v0d10v5 L=2 W=5 nf=1 m=1
+XM9 net1 VSS VSS VSS sky130_fd_pr__nfet_g5v0d10v5 L=2 W=5 nf=1 m=1
+XM10 VBP VSS VSS VSS sky130_fd_pr__nfet_g5v0d10v5 L=2 W=5 nf=1 m=1
+XR1 up VDD VDD sky130_fd_pr__res_high_po_1p41 L=141 mult=1 m=1
+.ends
+
+
+
+.subckt COMPARATOR VDD VBP VBN VSS VINP VOUT VINM VOUTANALOG
+*.PININFO VINP:I VINM:I VBN:I VBP:I VDD:B VSS:B VOUT:O VOUTANALOG:O
+XM1 net3 VINM net1 VSS sky130_fd_pr__nfet_g5v0d10v5 L=2 W=5 nf=1 m=4
+XM2 net2 VINP net1 VSS sky130_fd_pr__nfet_g5v0d10v5 L=2 W=5 nf=1 m=4
+XM3 net1 VBN VSS VSS sky130_fd_pr__nfet_g5v0d10v5 L=2 W=5 nf=1 m=2
+XM4 net4 net4 VSS VSS sky130_fd_pr__nfet_g5v0d10v5 L=2 W=5 nf=1 m=2
+XM5 VOUTANALOG net4 VSS VSS sky130_fd_pr__nfet_g5v0d10v5 L=2 W=5 nf=1 m=2
+XM6 net3 net3 VDD VDD sky130_fd_pr__pfet_g5v0d10v5 L=2 W=5 nf=1 m=2
+XM7 net2 net2 VDD VDD sky130_fd_pr__pfet_g5v0d10v5 L=2 W=5 nf=1 m=2
+XM8 net4 net3 VDD VDD sky130_fd_pr__pfet_g5v0d10v5 L=2 W=5 nf=1 m=2
+XM9 VOUTANALOG net2 VDD VDD sky130_fd_pr__pfet_g5v0d10v5 L=2 W=5 nf=1 m=2
+XM10 net6 VINM net5 VDD sky130_fd_pr__pfet_g5v0d10v5 L=2 W=5 nf=1 m=4
+XM11 net7 VINP net5 VDD sky130_fd_pr__pfet_g5v0d10v5 L=2 W=5 nf=1 m=4
+XM12 net5 VBP VDD VDD sky130_fd_pr__pfet_g5v0d10v5 L=2 W=5 nf=1 m=2
+XM13 net8 net8 VDD VDD sky130_fd_pr__pfet_g5v0d10v5 L=2 W=5 nf=1 m=2
+XM14 VOUTANALOG net8 VDD VDD sky130_fd_pr__pfet_g5v0d10v5 L=2 W=5 nf=1 m=2
+XM15 net6 net6 VSS VSS sky130_fd_pr__nfet_g5v0d10v5 L=2 W=5 nf=1 m=2
+XM16 net7 net7 VSS VSS sky130_fd_pr__nfet_g5v0d10v5 L=2 W=5 nf=1 m=2
+XM17 net8 net6 VSS VSS sky130_fd_pr__nfet_g5v0d10v5 L=2 W=5 nf=1 m=2
+XM18 VOUTANALOG net7 VSS VSS sky130_fd_pr__nfet_g5v0d10v5 L=2 W=5 nf=1 m=2
+XM19 voinv1 VOUTANALOG VDD VDD sky130_fd_pr__pfet_g5v0d10v5 L=2 W=10 nf=1 m=1
+XM20 voinv1 VOUTANALOG VSS VSS sky130_fd_pr__nfet_g5v0d10v5 L=2 W=5 nf=1 m=1
+XM21 VOUT voinv1 VDD VDD sky130_fd_pr__pfet_g5v0d10v5 L=2 W=10 nf=1 m=1
+XM22 VOUT voinv1 VSS VSS sky130_fd_pr__nfet_g5v0d10v5 L=2 W=5 nf=1 m=1
+XM23 net1 VSS VSS VSS sky130_fd_pr__nfet_g5v0d10v5 L=2 W=5 nf=1 m=2
+XM24 net5 VDD VDD VDD sky130_fd_pr__pfet_g5v0d10v5 L=2 W=5 nf=1 m=2
+XM25 VSS VSS VSS VSS sky130_fd_pr__nfet_g5v0d10v5 L=2 W=5 nf=1 m=8
+XM26 VDD VDD VDD VDD sky130_fd_pr__pfet_g5v0d10v5 L=2 W=5 nf=1 m=8
+.ends
+
+
+
+.subckt array_8ls_8tgwd_8swp VO DINL4 VDD DINL0 VIN_4 DVDD VIN_0 DVSS DINL5 DINL1 VIN_5 VIN_1 DINL6
++ DINL2 VIN_6 VIN_2 DINL7 DINL3 VIN_7 VIN_3
+*.PININFO DVDD:I VDD:I DVSS:I DINL0:I VO:O VIN_0:I DINL1:I VIN_1:I DINL2:I VIN_2:I DINL3:I VIN_3:I
+*+ DINL4:I VIN_4:I DINL5:I VIN_5:I DINL6:I VIN_6:I DINL7:I VIN_7:I
+x1 VO VDD DVDD DVSS DINL0 VIN_0 single_ls_2tgwd_swp
+x2 VO VDD DVDD DVSS DINL1 VIN_1 single_ls_2tgwd_swp
+x3 VO VDD DVDD DVSS DINL2 VIN_2 single_ls_2tgwd_swp
+x4 VO VDD DVDD DVSS DINL3 VIN_3 single_ls_2tgwd_swp
+x5 VO VDD DVDD DVSS DINL4 VIN_4 single_ls_2tgwd_swp
+x6 VO VDD DVDD DVSS DINL5 VIN_5 single_ls_2tgwd_swp
+x7 VO VDD DVDD DVSS DINL6 VIN_6 single_ls_2tgwd_swp
+x8 VO VDD DVDD DVSS DINL7 VIN_7 single_ls_2tgwd_swp
+.ends
+
+
+
+.subckt EF_LSB_CAP_v2 VP1 VSS D0 D1 D2 D3 D4
+*.PININFO VSS:I D0:I VP1:I D1:I D2:I D3:I D4:I
+XC1 VP1 VSS sky130_fd_pr__cap_mim_m3_1 W=23 L=23 m=1
+XC3 VP1 D1 sky130_fd_pr__cap_mim_m3_1 W=23 L=23 m=2
+XC4 VP1 D2 sky130_fd_pr__cap_mim_m3_1 W=23 L=23 m=4
+XC5 VP1 D3 sky130_fd_pr__cap_mim_m3_1 W=23 L=23 m=8
+XC7 VP1 D4 sky130_fd_pr__cap_mim_m3_1 W=23 L=23 m=16
+XC6 VSS VSS sky130_fd_pr__cap_mim_m3_1 W=10 L=23 m=16
+XC2 VP1 D0 sky130_fd_pr__cap_mim_m3_1 W=23 L=23 m=1
+.ends
+
+
+
+.subckt EF_MSB_CAP_v2 D8 D5 D9 VP2 D6 VSS D7
+*.PININFO VP2:I VSS:I D5:I D6:I D7:I D8:I D9:I
+XC8 VP2 D5 sky130_fd_pr__cap_mim_m3_1 W=23 L=23 m=1
+XC9 VP2 D6 sky130_fd_pr__cap_mim_m3_1 W=23 L=23 m=2
+XC10 VP2 D7 sky130_fd_pr__cap_mim_m3_1 W=23 L=23 m=4
+XC11 VP2 D8 sky130_fd_pr__cap_mim_m3_1 W=23 L=23 m=8
+XC12 VP2 D9 sky130_fd_pr__cap_mim_m3_1 W=23 L=23 m=16
+XC6 VSS VSS sky130_fd_pr__cap_mim_m3_1 W=23 L=23 m=1
+XC1 VSS VSS sky130_fd_pr__cap_mim_m3_1 W=10 L=23 m=16
+XC2 VSS VSS sky130_fd_pr__cap_mim_m3_1 W=10 L=10 m=4
+.ends
+
+
+
+.subckt EF_SC_CAP_v2 VP1 VP2 VSS
+*.PININFO VP2:I VSS:I VP1:I
+XC13 VP2 VP1 sky130_fd_pr__cap_mim_m3_1 W=23.7 L=23 m=1
+XC6 VSS VSS sky130_fd_pr__cap_mim_m3_1 W=10 L=20 m=6
+.ends
+
+
+
+.subckt EF_AMUX21x vdd3p3 vdd1p8 vo vss a b sel
+*.PININFO vdd1p8:I vss:I a:I b:I vdd3p3:I sel:I vo:I
+x2 vdd3p3 vdd1p8 vss sel vo a tg_lsx
+x3 vdd3p3 vdd1p8 vss selp vo b tg_lsx
+x11 sel vss vss vdd1p8 vdd1p8 selp sky130_fd_sc_hvl__inv_2
+.ends
+
+.subckt tg_lsx vdd3p3 vdd1p8 vss l0 vo in0
+*.PININFO vdd1p8:I vdd3p3:I vss:I l0:I vo:O in0:I
+x9 s0 vss vo in0 vdd3p3 tg4dx
+x1 vdd3p3 vdd1p8 vss s0 l0 array_1lsx
+.ends
+
+
+.subckt single_ls_2tgwd_swp VOUT VDD DVDD DVSS DINL VIN
+*.PININFO DVDD:I VDD:I DVSS:I DINL:I VOUT:O VIN:I
+x2 DOHB DOH VDD DVDD DVSS DINL single_lsp
+x1 DOHB DVSS VOUT1 VIN VDD single_tgp
+XM2 VOUT1 DOH DVSS DVSS sky130_fd_pr__nfet_g5v0d10v5 L=8 W=0.5 nf=1 m=1
+x3 DOHB DVSS VOUT VOUT1 VDD single_tgp
+.ends
+
+
+.subckt tg4dx hold vss out in vdd
+*.PININFO in:I out:O vss:I vdd:I hold:I
+XM1 in holdb out vss sky130_fd_pr__nfet_g5v0d10v5 L=0.5 W=4 nf=2 m=1
+XM2 in holdp out vdd sky130_fd_pr__pfet_g5v0d10v5 L=0.5 W=10 nf=2 m=1
+XM3 out holdp out vss sky130_fd_pr__nfet_g5v0d10v5 L=0.5 W=2 nf=1 m=1
+XM4 out holdb out vdd sky130_fd_pr__pfet_g5v0d10v5 L=0.5 W=5 nf=1 m=1
+XM5 in holdp in vss sky130_fd_pr__nfet_g5v0d10v5 L=0.5 W=2 nf=1 m=1
+XM6 in holdb in vdd sky130_fd_pr__pfet_g5v0d10v5 L=0.5 W=5 nf=1 m=1
+XM7 holdb hold vdd vdd sky130_fd_pr__pfet_g5v0d10v5 L=0.5 W=5 nf=1 m=1
+XM8 holdb hold vss vss sky130_fd_pr__nfet_g5v0d10v5 L=0.5 W=2 nf=1 m=1
+XM9 holdp holdb vdd vdd sky130_fd_pr__pfet_g5v0d10v5 L=0.5 W=5 nf=1 m=1
+XM10 holdp holdb vss vss sky130_fd_pr__nfet_g5v0d10v5 L=0.5 W=2 nf=1 m=1
+XD1 vss hold sky130_fd_pr__diode_pw2nd_05v5 area=1 pj=4e6
+.ends
+
+
+.subckt array_1lsx vdd3p3 vdd1p8 vss1p8 h0 l0
+*.PININFO vdd1p8:I vdd3p3:I vss1p8:I l0:I h0:O
+x5 l0 vdd1p8 vss1p8 vss1p8 vdd3p3 vdd3p3 net1 sky130_fd_sc_hvl__lsbuflv2hv_1
+x11 net1 vss1p8 vss1p8 vdd3p3 vdd3p3 h0 sky130_fd_sc_hvl__inv_2
+.ends
+
+
+.subckt single_lsp DOHB DOH VDD DVDD DVSS DINL
+*.PININFO DVDD:I VDD:I DVSS:I DINL:I DOH:O DOHB:O
+x5 DINL DVDD DVSS DVSS VDD VDD DOH sky130_fd_sc_hvl__lsbuflv2hv_1
+x11 DOH DVSS DVSS VDD VDD DOHB sky130_fd_sc_hvl__inv_2
+.ends
+
+
+
+.subckt single_tgp SEL VSS VOUT VIN VDD
+*.PININFO VIN:I VOUT:O VSS:I VDD:I SEL:I
+XM1 VIN SELN VOUT VSS sky130_fd_pr__nfet_g5v0d10v5 L=0.5 W=4 nf=2 m=1
+XM2 VIN SELP VOUT VDD sky130_fd_pr__pfet_g5v0d10v5 L=0.5 W=2 nf=2 m=1
+XM3 VOUT SELP VOUT VSS sky130_fd_pr__nfet_g5v0d10v5 L=0.5 W=2 nf=1 m=1
+XM4 VOUT SELN VOUT VDD sky130_fd_pr__pfet_g5v0d10v5 L=0.5 W=1 nf=1 m=1
+XM5 VIN SELP VIN VSS sky130_fd_pr__nfet_g5v0d10v5 L=0.5 W=2 nf=1 m=1
+XM6 VIN SELN VIN VDD sky130_fd_pr__pfet_g5v0d10v5 L=0.5 W=1 nf=1 m=1
+XM7 SELN SEL VDD VDD sky130_fd_pr__pfet_g5v0d10v5 L=0.5 W=2 nf=1 m=1
+XM8 SELN SEL VSS VSS sky130_fd_pr__nfet_g5v0d10v5 L=0.5 W=2 nf=1 m=1
+XM9 SELP SELN VDD VDD sky130_fd_pr__pfet_g5v0d10v5 L=0.5 W=2 nf=1 m=1
+XM10 SELP SELN VSS VSS sky130_fd_pr__nfet_g5v0d10v5 L=0.5 W=2 nf=1 m=1
+XD1 VSS SEL sky130_fd_pr__diode_pw2nd_05v5 area=1 pj=4e6
+.ends
+
+.end

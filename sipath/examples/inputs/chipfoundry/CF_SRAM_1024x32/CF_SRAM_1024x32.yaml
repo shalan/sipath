@@ -1,0 +1,25 @@
+---
+info:
+  name: CF_SRAM_1024x32
+  description: Commercial 1024x32 SRAM
+  repo: https://github.com/chipfoundry/CF_SRAM_1024x32.git
+  owner: Umbralogic Technologies LLC
+  license:
+  author: Umbralogic Technologies LLC.
+  email: ip-admin@chipfoundry.com
+  version: v1.2.2
+  date: 21-06-2025
+  category: digital
+  tags:
+    - SRAM
+    - memory
+  bus:
+    - WB
+  type: hard
+  status: verified
+  width: 387.87
+  height: 303.315
+  technology: sky130
+  digital_supply_voltage: 1.8
+  analog_supply_voltage: n/a
+registers: []

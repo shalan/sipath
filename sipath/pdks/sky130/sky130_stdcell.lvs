@@ -1,0 +1,324 @@
+# Sky130 standard-cell LVS for KLayout, used by sipath.signoff.
+#
+# Derived from OpenROAD-flow-scripts flow/platforms/sky130hd/lvs/sky130hd.lylvs
+# (BSD 3-Clause License, Copyright (c) The OpenROAD Authors). Changes:
+# - schematic read with a delegate that maps "special_*" and prefixed device
+#   names to the extracted classes and gives valueless resistors a value;
+# - pfet_01v8_lvt extracted (LVTN over the p-gate), for libraries that use it;
+# - tie cells: the layout shorts HI to VPWR and LO to VGND through poly;
+#   sipath.signoff writes the reference netlist the same way (tie cells with
+#   supply pins only, tie nets merged into the supplies);
+# - device-free cells (fill, tap, diode without its tap diode) dropped on
+#   both sides (schematic.simplify), as the layout side already does;
+# - thread count from $threads, quieter log;
+# - black-box macros from $blackbox (see below).
+# Inputs: -rd in_gds=<gds> -rd cdl_file=<cdl> -rd report_file=<lvsdb> [-rd target_netlist=<cir>]
+#         [-rd threads=<n>] [-rd blackbox=<master,...> -rd bb_joins=<n> -rd bb_join_metals=<met1,...>]
+#
+# Extraction for SKY130
+#
+############################
+
+# optionnal for a batch launch :   klayout -b -rd in_gds=my_layout.gds -rd report_file=my_report.lyrdb -rd cdl_file=reference_netlist.cir -rd target_netlist=extracted_netlist.cir -r sky130.lylvs
+if $in_gds
+  source($in_gds)
+end
+
+if $report_file
+  report_lvs($report_file)
+else
+  report_lvs("lvs_report.lvsdb")
+end
+
+# The PDK's standard-cell CDL names some devices "special_*" or with the
+# sky130_fd_pr__ prefix; map them to the extracted device classes.
+class FlowCdlReader < RBA::NetlistSpiceReaderDelegate
+  def element(circuit, el, name, model, value, nets, params)
+    m = model.to_s.downcase.sub(/^sky130_fd_pr__/, "").sub(/^special_/, "")
+    return super(circuit, el, name, m, value, nets, params)
+  end
+end
+schematic($cdl_file, RBA::NetlistSpiceReader::new(FlowCdlReader::new))
+
+# true: use net names instead of numbers
+# false: use numbers for nets
+spice_with_net_names = true
+
+# true: put in comments with details
+# false: no comments
+spice_with_comments = false
+
+if $target_netlist
+  target_netlist($target_netlist)
+else
+   # target_netlist("netlist.cir", write_spice(spice_with_net_names, spice_with_comments), "The netlist comment goes here.") 
+   target_netlist(File.join(File.dirname(RBA::CellView::active.filename), source.cell_name+"_extracted.cir"), write_spice(spice_with_net_names, spice_with_comments),  "Extracted by KLayout on : #{Time.now.strftime("%d/%m/%Y %H:%M")}")
+end
+
+# Hierarchical mode
+deep
+# Use 4 CPU cores
+threads($threads ? $threads.to_i : 4)
+# Print details
+verbose($verbose == "1")  # -rd verbose=1: phase timings in the log
+
+
+# layers definitions
+########################
+BOUND  = polygons(235, 4)
+DNWELL  = polygons(64, 18)
+PWRES  = polygons(64, 13)
+NWELL  = polygons(64, 20)
+NWELLTXT  = input(64, 5)
+NWELLPIN  = polygons(64, 16)
+SUBTXT  = input(122, 5)
+SUBPIN  = input(64, 59)
+DIFF  = polygons(65, 20)
+TAP  = polygons(65, 44)
+PSDM  = polygons(94, 20)
+NSDM  = polygons(93, 44)
+LVTN  = polygons(125, 44)
+HVTR  = polygons(18, 20)
+HVTP  = polygons(78, 44)
+SONOS  = polygons(80, 20)
+COREID  = polygons(81, 2)
+STDCELL  = polygons(81, 4)
+NPNID  = polygons(82, 20)
+PNPID  = polygons(82, 44)
+RPM  = polygons(86, 20)
+URPM  = polygons(79, 20)
+LDNTM  = polygons(11, 44)
+HVNTM  = polygons(125, 20)
+POLY  = polygons(66, 20)
+POLYTXT  = input(66, 5)
+POLYPIN  = polygons(66, 16)
+HVI  = polygons(75, 20)
+LICON  = polygons(66, 44)
+NPC  = polygons(95, 20)
+DIFFRES  = polygons(65, 13)
+POLYRES  = polygons(66, 13)
+POLYSHO  = polygons(66, 15)
+DIODE  = polygons(81, 23)
+LI  = polygons(67, 20)
+LITXT  = input(67, 5)
+LIPIN  = polygons(67, 16)
+LIRES  = polygons(67, 13)
+MCON  = polygons(67, 44)
+MET1  = polygons(68, 20)
+MET1TXT  = input(68, 5)
+MET1PIN  = polygons(68, 16)
+MET1RES  = polygons(68, 13)
+VIA1  = polygons(68, 44)
+MET2  = polygons(69, 20)
+MET2TXT  = input(69, 5)
+MET2PIN  = polygons(69, 16)
+MET2RES  = polygons(69, 13)
+VIA2  = polygons(69, 44)
+MET3  = polygons(70, 20)
+MET3TXT  = input(70, 5)
+MET3PIN  = polygons(70, 16)
+MET3RES  = polygons(70, 13)
+VIA3  = polygons(70, 44)
+MET4  = polygons(71, 20)
+MET4TXT  = input(71, 5)
+MET4PIN  = polygons(71, 16)
+MET4RES  = polygons(71, 13)
+VIA4  = polygons(71, 44)
+MET5  = polygons(72, 20)
+MET5TXT  = input(72, 5)
+MET5PIN  = polygons(72, 16)
+MET5RES  = polygons(72, 13)
+RDL  = polygons(74, 20)
+RDLTXT  = input(74, 5)
+RDLPIN  = polygons(74, 16)
+GLASS  = polygons(76, 20)
+CAPM  = polygons(89, 44)
+CAPM2  = polygons(97, 44)
+LOWTAPD  = polygons(81, 14)
+FILLOBSM1  = polygons(62, 24)
+FILLOBSM2  = polygons(105, 52)
+FILLOBSM3  = polygons(107, 24)
+FILLOBSM4  = polygons(112, 4)
+NCM = polygons(92, 44)
+
+# Bulk layer for terminal provisioning
+SUB = polygons(81, 4) + polygons(236, 0)  # every std cell (taps included) is p-substrate; abutting cells join
+# SUB = polygon_layer
+
+# Computed layers
+PDIFF = DIFF & NWELL & PSDM
+NTAP = TAP & NWELL & NSDM
+PGATE = PDIFF & POLY
+PSD = PDIFF - PGATE
+STD_PGATE = PGATE - HVTP - LVTN - NCM - HVI
+LVT_PGATE = PGATE & LVTN - HVTP - NCM - HVI
+HVT_PGATE = PGATE & HVTP - NCM - HVI
+HV5_PGATE = PGATE - HVTP - NCM & HVI
+  
+NDIFF = DIFF - NWELL & NSDM
+PTAP = TAP - NWELL & PSDM
+NGATE = NDIFF & POLY
+NSD = NDIFF - NGATE
+STD_NGATE = NGATE - NCM - LVTN - HVI
+LVT_NGATE = NGATE - NCM & LVTN - HVI
+HV5_NGATE = NGATE - NCM - LVTN & HVI
+HV5NA_NGATE = NGATE - NCM & LVTN & HVI
+
+# drawing to physical
+device_scaling(1000000)
+
+POLYC = POLY
+
+# PMOS transistor device extraction
+extract_devices(mos4("pfet_01v8"), { "SD" => PSD, "G" => STD_PGATE, "tS" => PSD, "tD" => PSD, "tG" => POLYC, "W" => NWELL })
+extract_devices(mos4("pfet_01v8_lvt"), { "SD" => PSD, "G" => LVT_PGATE, "tS" => PSD, "tD" => PSD, "tG" => POLYC, "W" => NWELL })
+extract_devices(mos4("pfet_01v8_hvt"), { "SD" => PSD, "G" => HVT_PGATE, "tS" => PSD, "tD" => PSD, "tG" => POLYC, "W" => NWELL })
+extract_devices(mos4("pfet_g5v0d10v5"), { "SD" => PSD, "G" => HV5_PGATE, "tS" => PSD, "tD" => PSD, "tG" => POLYC, "W" => NWELL })
+
+# NMOS transistor device extraction
+extract_devices(mos4("nfet_01v8"), { "SD" => NSD, "G" => STD_NGATE, "tS" => NSD, "tD" => NSD, "tG" => POLYC, "W" => SUB })
+extract_devices(mos4("nfet_01v8_lvt"), { "SD" => NSD, "G" => LVT_NGATE, "tS" => NSD, "tD" => NSD, "tG" => POLYC, "W" => SUB })
+extract_devices(mos4("nfet_g5v0d10v5"), { "SD" => NSD, "G" => HV5_NGATE, "tS" => NSD, "tD" => NSD, "tG" => POLYC, "W" => SUB })
+extract_devices(mos4("nfet_01v8_nvt"), { "SD" => NSD, "G" => HV5NA_NGATE, "tS" => NSD, "tD" => NSD, "tG" => POLYC, "W" => SUB })
+
+
+# Define connectivity for netlist extraction
+
+# Inter-layer
+connect(SUB,  PTAP)
+connect(NWELL,  NTAP)
+connect(LICON,   PTAP)
+connect(LICON,   NTAP)
+connect(PSD,    LICON)
+connect(NSD,    LICON)
+connect(POLYC,   LICON)
+connect(LICON,   LI)
+connect(LI, MCON)
+connect(MCON,   MET1)
+connect(MET1,VIA1)
+connect(VIA1,   MET2)
+connect(MET2, VIA2)
+connect(VIA2,   MET3)
+connect(MET3, VIA3)
+connect(VIA3,   MET4)
+connect(MET4, VIA4)
+connect(VIA4,   MET5)
+# Attaching labels
+connect(SUB, SUBTXT)
+connect(SUB, SUBPIN)
+connect(NWELL, NWELLTXT)
+connect(POLYC, POLYTXT)
+connect(LI, LITXT)
+connect(MET1, MET1TXT)
+connect(MET2, MET2TXT)
+connect(MET3, MET3TXT)
+connect(MET4, MET4TXT)
+connect(MET5, MET5TXT)
+
+# Global
+connect_global(SUB, "VNB")
+
+# Black boxes (-rd blackbox=A,B): macros streamed as their LEF abstracts (pin
+# shapes and pin-name labels only), compared against pin-only subcircuits:
+# only the chip's connections to their pins are checked. The pieces of one
+# LEF pin are joined through private layers written by sipath/klayout/stream.py
+# (-rd bb_joins=N -rd bb_join_metals=met1,...): a copy of each piece on
+# 1000+i/k (i: metal index) and the pin's bounding box on 1100/k, connected
+# only to each other and to metal i. (connect_implicit would join them, but
+# it enforces must-connect and crashes KLayout 0.30.7 on the sky130 gpiov2 pad;
+# editing the extracted netlist crashes it too.)
+BLACKBOX = ($blackbox || "").split(",").reject(&:empty?)
+FLOW_METALS = { "li1" => LI, "met1" => MET1, "met2" => MET2, "met3" => MET3, "met4" => MET4, "met5" => MET5 }
+join_metals = ($bb_join_metals || "").split(",").reject(&:empty?)
+(1..($bb_joins || "0").to_i).each do |k|
+  hull = polygons(1100, k)
+  join_metals.each_with_index do |m, i|
+    piece = polygons(1000 + i, k)
+    connect(piece, FLOW_METALS.fetch(m))
+    connect(piece, hull)
+  end
+end
+
+# Actually performs the extraction
+netlist # ... not really required
+
+BLACKBOX.each do |name|
+  blank_circuit(name)
+  blank_circuit(name.upcase) if name != name.upcase  # the SPICE reader upcases names
+end
+
+# Flatten cells which are present in one netlist only
+schematic.simplify
+align
+# SIMPLIFICATION of the netlist
+#netlist.make_top_level_pins
+#netlist.combine_devices
+#netlist.purge
+#netlist.purge_nets
+netlist.simplify
+#schematic.simplify
+
+# Tolerances for the devices extracted parameters
+#  tolerance(device_class_name, parameter_name [, :absolute => absolute_tolerance] [, :relative => relative_tolerance])
+tolerance("pfet_01v8", "W", :absolute => 1.nm, :relative => 0.001)
+tolerance("pfet_01v8", "L", :absolute => 1.nm, :relative => 0.001)
+tolerance("pfet_01v8_lvt", "W", :absolute => 1.nm, :relative => 0.001)
+tolerance("pfet_01v8_lvt", "L", :absolute => 1.nm, :relative => 0.001)
+tolerance("pfet_01v8_hvt", "W", :absolute => 1.nm, :relative => 0.001)
+tolerance("pfet_01v8_hvt", "L", :absolute => 1.nm, :relative => 0.001)
+tolerance("nfet_01v8", "W", :absolute => 1.nm, :relative => 0.001)
+tolerance("nfet_01v8", "L", :absolute => 1.nm, :relative => 0.001)
+tolerance("nfet_01v8_lvt", "W", :absolute => 1.nm, :relative => 0.001)
+tolerance("nfet_01v8_lvt", "L", :absolute => 1.nm, :relative => 0.001)
+
+# NangateOpenCellLibrary Digital gates input equivalence :
+equivalent_pins("*AND2_1", "A", "B")
+equivalent_pins("*AND2_2", "A", "B")
+equivalent_pins("*AND2_4", "A", "B")
+equivalent_pins("*AND3_1", "A", "B", "C")
+equivalent_pins("*AND3_2", "A", "B", "C")
+equivalent_pins("*AND3_4", "A", "B", "C")
+equivalent_pins("*AND4_1", "A", "B", "C", "D")
+equivalent_pins("*AND4_2", "A", "B", "C", "D")
+equivalent_pins("*AND4_4", "A", "B", "C", "D")
+equivalent_pins("*NAND2_1", "A", "B")
+equivalent_pins("*NAND2_2", "A", "B")
+equivalent_pins("*NAND2_4", "A", "B")
+equivalent_pins("*NAND3_1", "A", "B", "C")
+equivalent_pins("*NAND3_2", "A", "B", "C")
+equivalent_pins("*NAND3_4", "A", "B", "C")
+equivalent_pins("*NAND4_X1", "A", "B", "C", "D")
+equivalent_pins("*NAND4_2", "A", "B", "C", "D")
+equivalent_pins("*NAND4_4", "A", "B", "C", "D")
+equivalent_pins("*OR2_1", "A", "B")
+equivalent_pins("*OR2_2", "A", "B")
+equivalent_pins("*OR2_4", "A", "B")
+equivalent_pins("*OR3_1", "A", "B", "C")
+equivalent_pins("*OR3_2", "A", "B", "C")
+equivalent_pins("*OR3_4", "A", "B", "C")
+equivalent_pins("*OR4_1", "A", "B", "C", "D")
+equivalent_pins("*OR4_2", "A", "B", "C", "D")
+equivalent_pins("*OR4_4", "A", "B", "C", "D")
+equivalent_pins("*NOR2_1", "A", "B")
+equivalent_pins("*NOR2_2", "A", "B")
+equivalent_pins("*NOR2_4", "A", "B")
+equivalent_pins("*NOR3_1", "A", "B", "C")
+equivalent_pins("*NOR3_2", "A", "B", "C")
+equivalent_pins("*NOR3_4", "A", "B", "C")
+equivalent_pins("*NOR4_1", "A", "B", "C", "D")
+equivalent_pins("*NOR4_2", "A", "B", "C", "D")
+equivalent_pins("*NOR4_4", "A", "B", "C", "D")
+equivalent_pins("*XOR2_1", "A", "B")
+equivalent_pins("*XOR2_2", "A", "B")
+equivalent_pins("*XNOR2_1", "A", "B")
+equivalent_pins("*XNOR2_2", "A", "B")
+
+#max_res(1000000)
+#min_caps(1e-15)
+
+if ! compare 
+  #raise "ERROR : Netlists don't match"
+  puts "ERROR : Netlists don't match"
+else
+  puts "INFO : Congratulations! Netlists match."
+end

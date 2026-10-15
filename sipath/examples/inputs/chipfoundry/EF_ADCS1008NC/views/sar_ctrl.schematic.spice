@@ -1,0 +1,329 @@
+* NGSPICE file created from sar_ctrl.ext - technology: sky130A
+
+* Black-box entry subcircuit for sky130_fd_sc_hd__a22o_1 abstract view
+.subckt sky130_fd_sc_hd__a22o_1 A1 A2 B1 B2 VGND VNB VPB VPWR X
+.ends
+
+* Black-box entry subcircuit for sky130_fd_sc_hd__dfxtp_1 abstract view
+.subckt sky130_fd_sc_hd__dfxtp_1 CLK D VGND VNB VPB VPWR Q
+.ends
+
+* Black-box entry subcircuit for sky130_fd_sc_hd__a21bo_1 abstract view
+.subckt sky130_fd_sc_hd__a21bo_1 A1 A2 B1_N VGND VNB VPB VPWR X
+.ends
+
+* Black-box entry subcircuit for sky130_fd_sc_hd__dlygate4sd3_1 abstract view
+.subckt sky130_fd_sc_hd__dlygate4sd3_1 A VGND VNB VPB VPWR X
+.ends
+
+* Black-box entry subcircuit for sky130_fd_sc_hd__clkbuf_4 abstract view
+.subckt sky130_fd_sc_hd__clkbuf_4 A VGND VNB VPB VPWR X
+.ends
+
+* Black-box entry subcircuit for sky130_fd_sc_hd__and2_1 abstract view
+.subckt sky130_fd_sc_hd__and2_1 A B VGND VNB VPB VPWR X
+.ends
+
+* Black-box entry subcircuit for sky130_fd_sc_hd__or3b_2 abstract view
+.subckt sky130_fd_sc_hd__or3b_2 A B C_N VGND VNB VPB VPWR X
+.ends
+
+* Black-box entry subcircuit for sky130_fd_sc_hd__buf_2 abstract view
+.subckt sky130_fd_sc_hd__buf_2 A VGND VNB VPB VPWR X
+.ends
+
+* Black-box entry subcircuit for sky130_fd_sc_hd__a21oi_1 abstract view
+.subckt sky130_fd_sc_hd__a21oi_1 A1 A2 B1 VGND VNB VPB VPWR Y
+.ends
+
+* Black-box entry subcircuit for sky130_fd_sc_hd__or3_1 abstract view
+.subckt sky130_fd_sc_hd__or3_1 A B C VGND VNB VPB VPWR X
+.ends
+
+* Black-box entry subcircuit for sky130_fd_sc_hd__a31o_1 abstract view
+.subckt sky130_fd_sc_hd__a31o_1 A1 A2 A3 B1 VGND VNB VPB VPWR X
+.ends
+
+* Black-box entry subcircuit for sky130_fd_sc_hd__or4_1 abstract view
+.subckt sky130_fd_sc_hd__or4_1 A B C D VGND VNB VPB VPWR X
+.ends
+
+* Black-box entry subcircuit for sky130_fd_sc_hd__inv_2 abstract view
+.subckt sky130_fd_sc_hd__inv_2 A VGND VNB VPB VPWR Y
+.ends
+
+* Black-box entry subcircuit for sky130_fd_sc_hd__clkbuf_1 abstract view
+.subckt sky130_fd_sc_hd__clkbuf_1 A VGND VNB VPB VPWR X
+.ends
+
+* Black-box entry subcircuit for sky130_fd_sc_hd__a2bb2o_1 abstract view
+.subckt sky130_fd_sc_hd__a2bb2o_1 A1_N A2_N B1 B2 VGND VNB VPB VPWR X
+.ends
+
+* Black-box entry subcircuit for sky130_fd_sc_hd__a21o_1 abstract view
+.subckt sky130_fd_sc_hd__a21o_1 A1 A2 B1 VGND VNB VPB VPWR X
+.ends
+
+* Black-box entry subcircuit for sky130_fd_sc_hd__xnor2_1 abstract view
+.subckt sky130_fd_sc_hd__xnor2_1 A B VGND VNB VPB VPWR Y
+.ends
+
+* Black-box entry subcircuit for sky130_fd_sc_hd__clkbuf_16 abstract view
+.subckt sky130_fd_sc_hd__clkbuf_16 A VGND VNB VPB VPWR X
+.ends
+
+* Black-box entry subcircuit for sky130_fd_sc_hd__nand2_1 abstract view
+.subckt sky130_fd_sc_hd__nand2_1 A B VGND VNB VPB VPWR Y
+.ends
+
+* Black-box entry subcircuit for sky130_fd_sc_hd__dfrtp_1 abstract view
+.subckt sky130_fd_sc_hd__dfrtp_1 CLK D RESET_B VGND VNB VPB VPWR Q
+.ends
+
+* Black-box entry subcircuit for sky130_fd_sc_hd__and3_1 abstract view
+.subckt sky130_fd_sc_hd__and3_1 A B C VGND VNB VPB VPWR X
+.ends
+
+* Black-box entry subcircuit for sky130_fd_sc_hd__or2_1 abstract view
+.subckt sky130_fd_sc_hd__or2_1 A B VGND VNB VPB VPWR X
+.ends
+
+* Black-box entry subcircuit for sky130_fd_sc_hd__dfrtp_2 abstract view
+.subckt sky130_fd_sc_hd__dfrtp_2 CLK D RESET_B VGND VNB VPB VPWR Q
+.ends
+
+* Black-box entry subcircuit for sky130_fd_sc_hd__dfrtp_4 abstract view
+.subckt sky130_fd_sc_hd__dfrtp_4 CLK D RESET_B VGND VNB VPB VPWR Q
+.ends
+
+* Black-box entry subcircuit for sky130_fd_sc_hd__buf_1 abstract view
+.subckt sky130_fd_sc_hd__buf_1 A VGND VNB VPB VPWR X
+.ends
+
+* Black-box entry subcircuit for sky130_fd_sc_hd__or2_4 abstract view
+.subckt sky130_fd_sc_hd__or2_4 A B VGND VNB VPB VPWR X
+.ends
+
+* Black-box entry subcircuit for sky130_fd_sc_hd__or3b_1 abstract view
+.subckt sky130_fd_sc_hd__or3b_1 A B C_N VGND VNB VPB VPWR X
+.ends
+
+* Black-box entry subcircuit for sky130_fd_sc_hd__dfstp_2 abstract view
+.subckt sky130_fd_sc_hd__dfstp_2 CLK D SET_B VGND VNB VPB VPWR Q
+.ends
+
+* Black-box entry subcircuit for sky130_fd_sc_hd__xor2_1 abstract view
+.subckt sky130_fd_sc_hd__xor2_1 A B VGND VNB VPB VPWR X
+.ends
+
+* Black-box entry subcircuit for sky130_fd_sc_hd__and4_1 abstract view
+.subckt sky130_fd_sc_hd__and4_1 A B C D VGND VNB VPB VPWR X
+.ends
+
+* Black-box entry subcircuit for sky130_fd_sc_hd__o31a_1 abstract view
+.subckt sky130_fd_sc_hd__o31a_1 A1 A2 A3 B1 VGND VNB VPB VPWR X
+.ends
+
+* Black-box entry subcircuit for sky130_fd_sc_hd__nand3_1 abstract view
+.subckt sky130_fd_sc_hd__nand3_1 A B C VGND VNB VPB VPWR Y
+.ends
+
+* Black-box entry subcircuit for sky130_fd_sc_hd__o21a_2 abstract view
+.subckt sky130_fd_sc_hd__o21a_2 A1 A2 B1 VGND VNB VPB VPWR X
+.ends
+
+.subckt sar_ctrl VGND VPWR clk cmp dac_rst data[0] data[1] data[2] data[3] data[4]
++ data[5] data[6] data[7] data[8] data[9] en eoc rst_n sample_n soc swidth[0] swidth[1]
++ swidth[2] swidth[3]
+X_131_ net51 _090_ _030_ _072_ VGND VSUBS _197_/VPB VPWR _010_ sky130_fd_sc_hd__a22o_1
+X_200_ clknet_2_0__leaf_clk _014_ VGND VSUBS _200_/VPB VPWR next\[8\] sky130_fd_sc_hd__dfxtp_1
+X_114_ net53 _086_ _087_ VGND VSUBS _216_/VPB VPWR _001_ sky130_fd_sc_hd__a21bo_1
+Xhold30 next\[4\] VGND VSUBS _197_/VPB VPWR net51 sky130_fd_sc_hd__dlygate4sd3_1
+Xoutput20 net20 VGND VSUBS output20/VPB VPWR eoc sky130_fd_sc_hd__clkbuf_4
+X_130_ next\[5\] _089_ VGND VSUBS hold6/VPB VPWR _030_ sky130_fd_sc_hd__and2_1
+X_113_ _077_ _081_ state\[2\] VGND VSUBS _216_/VPB VPWR _087_ sky130_fd_sc_hd__or3b_2
+Xoutput21 net21 VGND VSUBS input7/VPB VPWR sample_n sky130_fd_sc_hd__buf_2
+Xhold31 next\[0\] VGND VSUBS _200_/VPB VPWR net52 sky130_fd_sc_hd__dlygate4sd3_1
+Xoutput10 net10 VGND VSUBS output10/VPB VPWR data[0] sky130_fd_sc_hd__clkbuf_4
+Xhold20 _054_ VGND VSUBS hold9/VPB VPWR net41 sky130_fd_sc_hd__dlygate4sd3_1
+X_189_ _073_ net9 net37 VGND VSUBS _219_/VPB VPWR _071_ sky130_fd_sc_hd__a21oi_1
+Xhold32 state\[1\] VGND VSUBS _213_/VPB VPWR net53 sky130_fd_sc_hd__dlygate4sd3_1
+Xhold21 _022_ VGND VSUBS _167_/VPB VPWR net42 sky130_fd_sc_hd__dlygate4sd3_1
+X_112_ _083_ _084_ _085_ VGND VSUBS hold2/VPB VPWR _086_ sky130_fd_sc_hd__or3_1
+Xhold10 _040_ VGND VSUBS hold9/VPB VPWR net31 sky130_fd_sc_hd__dlygate4sd3_1
+Xoutput11 net11 VGND VSUBS _101_/VPB VPWR data[1] sky130_fd_sc_hd__clkbuf_4
+Xoutput9 net9 VGND VSUBS output9/VPB VPWR dac_rst sky130_fd_sc_hd__clkbuf_4
+X_188_ next\[8\] _069_ _037_ state\[0\] VGND VSUBS _200_/VPB VPWR _070_ sky130_fd_sc_hd__a31o_1
+X_111_ next\[4\] next\[3\] next\[2\] next\[1\] VGND VSUBS hold2/VPB VPWR _085_ sky130_fd_sc_hd__or4_1
+Xoutput12 net12 VGND VSUBS output12/VPB VPWR data[2] sky130_fd_sc_hd__clkbuf_4
+Xhold33 state\[2\] VGND VSUBS _216_/VPB VPWR net54 sky130_fd_sc_hd__dlygate4sd3_1
+Xhold11 _015_ VGND VSUBS _219_/VPB VPWR net32 sky130_fd_sc_hd__dlygate4sd3_1
+Xhold22 shift\[0\] VGND VSUBS hold22/VPB VPWR net43 sky130_fd_sc_hd__dlygate4sd3_1
+X_187_ net9 VGND VSUBS _200_/VPB VPWR _069_ sky130_fd_sc_hd__inv_2
+Xhold34 state\[0\] VGND VSUBS _217_/VPB VPWR net55 sky130_fd_sc_hd__dlygate4sd3_1
+Xhold12 net12 VGND VSUBS _216_/VPB VPWR net33 sky130_fd_sc_hd__dlygate4sd3_1
+Xhold23 next\[8\] VGND VSUBS _200_/VPB VPWR net44 sky130_fd_sc_hd__dlygate4sd3_1
+X_110_ next\[8\] next\[7\] next\[6\] next\[5\] VGND VSUBS _110_/VPB VPWR _084_ sky130_fd_sc_hd__or4_1
+Xoutput13 net13 VGND VSUBS _204_/VPB VPWR data[3] sky130_fd_sc_hd__clkbuf_4
+X_186_ _068_ VGND VSUBS _218_/VPB VPWR _027_ sky130_fd_sc_hd__clkbuf_1
+Xhold35 _000_ VGND VSUBS _142_/VPB VPWR net56 sky130_fd_sc_hd__dlygate4sd3_1
+Xhold13 _044_ VGND VSUBS _216_/VPB VPWR net34 sky130_fd_sc_hd__dlygate4sd3_1
+Xhold24 next\[1\] VGND VSUBS _200_/VPB VPWR net45 sky130_fd_sc_hd__dlygate4sd3_1
+X_169_ next\[8\] _035_ net28 VGND VSUBS _207_/VPB VPWR _056_ sky130_fd_sc_hd__a21oi_1
+Xoutput14 net14 VGND VSUBS output19/VPB VPWR data[4] sky130_fd_sc_hd__clkbuf_4
+X_185_ _087_ _067_ VGND VSUBS _185_/VPB VPWR _068_ sky130_fd_sc_hd__and2_1
+Xhold36 net20 VGND VSUBS _217_/VPB VPWR net57 sky130_fd_sc_hd__dlygate4sd3_1
+X_099_ _072_ _074_ net9 _075_ VGND VSUBS _217_/VPB VPWR _004_ sky130_fd_sc_hd__a2bb2o_1
+Xhold14 net16 VGND VSUBS _207_/VPB VPWR net35 sky130_fd_sc_hd__dlygate4sd3_1
+X_168_ next\[7\] _037_ _038_ VGND VSUBS hold7/VPB VPWR _055_ sky130_fd_sc_hd__a21o_1
+Xhold25 next\[2\] VGND VSUBS hold2/VPB VPWR net46 sky130_fd_sc_hd__dlygate4sd3_1
+Xoutput15 net15 VGND VSUBS hold3/VPB VPWR data[5] sky130_fd_sc_hd__clkbuf_4
+X_184_ sample_ctr\[3\] _064_ VGND VSUBS _217_/VPB VPWR _067_ sky130_fd_sc_hd__xnor2_1
+X_098_ net2 VGND VSUBS _193_/VPB VPWR _075_ sky130_fd_sc_hd__inv_2
+Xhold15 _052_ VGND VSUBS hold7/VPB VPWR net36 sky130_fd_sc_hd__dlygate4sd3_1
+Xhold26 next\[6\] VGND VSUBS hold7/VPB VPWR net47 sky130_fd_sc_hd__dlygate4sd3_1
+Xhold37 next\[5\] VGND VSUBS hold6/VPB VPWR net58 sky130_fd_sc_hd__dlygate4sd3_1
+X_167_ _036_ _053_ net41 VGND VSUBS _167_/VPB VPWR _022_ sky130_fd_sc_hd__a21oi_1
+X_219_ clknet_2_3__leaf_clk _028_ VGND VSUBS _219_/VPB VPWR net19 sky130_fd_sc_hd__dfxtp_1
+Xclkbuf_0_clk clk VGND VSUBS _193_/VPB VPWR clknet_0_clk sky130_fd_sc_hd__clkbuf_16
+Xoutput16 net16 VGND VSUBS output20/VPB VPWR data[6] sky130_fd_sc_hd__clkbuf_4
+X_097_ _073_ net4 VGND VSUBS _097_/VPB VPWR _074_ sky130_fd_sc_hd__nand2_1
+X_183_ _066_ VGND VSUBS _217_/VPB VPWR _026_ sky130_fd_sc_hd__clkbuf_1
+X_166_ next\[7\] _035_ net40 VGND VSUBS _167_/VPB VPWR _054_ sky130_fd_sc_hd__a21oi_1
+Xoutput17 net17 VGND VSUBS output9/VPB VPWR data[7] sky130_fd_sc_hd__clkbuf_4
+X_218_ clknet_2_3__leaf_clk _027_ net3 VGND VSUBS _218_/VPB VPWR sample_ctr\[3\] sky130_fd_sc_hd__dfrtp_1
+X_149_ _036_ _041_ net39 VGND VSUBS _193_/VPB VPWR _016_ sky130_fd_sc_hd__a21oi_1
+Xhold16 net19 VGND VSUBS _219_/VPB VPWR net37 sky130_fd_sc_hd__dlygate4sd3_1
+Xhold27 next\[5\] VGND VSUBS hold6/VPB VPWR net48 sky130_fd_sc_hd__dlygate4sd3_1
+X_182_ _087_ _064_ _065_ VGND VSUBS _217_/VPB VPWR _066_ sky130_fd_sc_hd__and3_1
+Xclkbuf_2_0__f_clk clknet_0_clk VGND VSUBS _207_/VPB VPWR clknet_2_0__leaf_clk sky130_fd_sc_hd__clkbuf_16
+X_217_ clknet_2_3__leaf_clk _026_ net3 VGND VSUBS _217_/VPB VPWR sample_ctr\[2\] sky130_fd_sc_hd__dfrtp_1
+Xhold17 net11 VGND VSUBS _216_/VPB VPWR net38 sky130_fd_sc_hd__dlygate4sd3_1
+X_148_ next\[1\] _035_ net38 VGND VSUBS _148_/VPB VPWR _042_ sky130_fd_sc_hd__a21oi_1
+X_096_ net2 VGND VSUBS _193_/VPB VPWR _073_ sky130_fd_sc_hd__buf_2
+X_165_ next\[6\] _037_ _038_ VGND VSUBS _199_/VPB VPWR _053_ sky130_fd_sc_hd__a21o_1
+Xhold28 next\[3\] VGND VSUBS hold9/VPB VPWR net49 sky130_fd_sc_hd__dlygate4sd3_1
+Xoutput18 net18 VGND VSUBS _207_/VPB VPWR data[8] sky130_fd_sc_hd__clkbuf_4
+X_181_ sample_ctr\[2\] _060_ VGND VSUBS _217_/VPB VPWR _065_ sky130_fd_sc_hd__or2_1
+X_095_ state\[0\] VGND VSUBS _213_/VPB VPWR _072_ sky130_fd_sc_hd__inv_2
+X_164_ _036_ _051_ net36 VGND VSUBS hold7/VPB VPWR _021_ sky130_fd_sc_hd__a21oi_1
+X_216_ clknet_2_3__leaf_clk _025_ net3 VGND VSUBS _216_/VPB VPWR sample_ctr\[1\] sky130_fd_sc_hd__dfrtp_1
+Xhold18 _042_ VGND VSUBS _193_/VPB VPWR net39 sky130_fd_sc_hd__dlygate4sd3_1
+X_147_ next\[0\] _037_ _038_ VGND VSUBS _193_/VPB VPWR _041_ sky130_fd_sc_hd__a21o_1
+Xoutput19 net19 VGND VSUBS output19/VPB VPWR data[9] sky130_fd_sc_hd__clkbuf_4
+Xhold29 next\[7\] VGND VSUBS hold6/VPB VPWR net50 sky130_fd_sc_hd__dlygate4sd3_1
+X_180_ sample_ctr\[2\] _060_ VGND VSUBS _180_/VPB VPWR _064_ sky130_fd_sc_hd__nand2_1
+X_163_ next\[6\] _035_ net35 VGND VSUBS _207_/VPB VPWR _052_ sky130_fd_sc_hd__a21oi_1
+Xhold19 net17 VGND VSUBS _167_/VPB VPWR net40 sky130_fd_sc_hd__dlygate4sd3_1
+X_215_ clknet_2_3__leaf_clk _024_ net3 VGND VSUBS _216_/VPB VPWR sample_ctr\[0\] sky130_fd_sc_hd__dfrtp_2
+X_129_ net49 _090_ _029_ _072_ VGND VSUBS _199_/VPB VPWR _009_ sky130_fd_sc_hd__a22o_1
+X_146_ _036_ _039_ net31 VGND VSUBS _219_/VPB VPWR _015_ sky130_fd_sc_hd__a21oi_1
+X_162_ net58 _037_ _038_ VGND VSUBS hold8/VPB VPWR _051_ sky130_fd_sc_hd__a21o_1
+Xinput1 cmp VGND VSUBS _142_/VPB VPWR net1 sky130_fd_sc_hd__clkbuf_1
+X_214_ clknet_2_1__leaf_clk _004_ net3 VGND VSUBS _217_/VPB VPWR net9 sky130_fd_sc_hd__dfrtp_4
+X_145_ next\[0\] _035_ net30 VGND VSUBS hold9/VPB VPWR _040_ sky130_fd_sc_hd__a21oi_1
+X_128_ next\[4\] _089_ VGND VSUBS _199_/VPB VPWR _029_ sky130_fd_sc_hd__and2_1
+Xinput2 en VGND VSUBS _197_/VPB VPWR net2 sky130_fd_sc_hd__buf_1
+X_161_ _036_ _049_ net25 VGND VSUBS hold6/VPB VPWR _020_ sky130_fd_sc_hd__a21oi_1
+X_213_ clknet_2_1__leaf_clk _003_ net3 VGND VSUBS _213_/VPB VPWR net20 sky130_fd_sc_hd__dfrtp_1
+X_127_ net46 _090_ _094_ _072_ VGND VSUBS hold2/VPB VPWR _008_ sky130_fd_sc_hd__a22o_1
+X_144_ shift\[0\] _037_ _038_ VGND VSUBS hold9/VPB VPWR _039_ sky130_fd_sc_hd__a21o_1
+Xinput3 rst_n VGND VSUBS input3/VPB VPWR net3 sky130_fd_sc_hd__clkbuf_4
+X_212_ clknet_2_3__leaf_clk _002_ net3 VGND VSUBS _212_/VPB VPWR state\[2\] sky130_fd_sc_hd__dfrtp_1
+X_143_ state\[0\] net9 VGND VSUBS _193_/VPB VPWR _038_ sky130_fd_sc_hd__or2_4
+X_160_ next\[5\] _035_ net24 VGND VSUBS hold3/VPB VPWR _050_ sky130_fd_sc_hd__a21oi_1
+X_126_ next\[3\] _089_ VGND VSUBS hold8/VPB VPWR _094_ sky130_fd_sc_hd__and2_1
+X_109_ next\[0\] _075_ shift\[0\] VGND VSUBS _200_/VPB VPWR _083_ sky130_fd_sc_hd__or3b_1
+Xinput4 soc VGND VSUBS input4/VPB VPWR net4 sky130_fd_sc_hd__clkbuf_1
+Xclkbuf_2_1__f_clk clknet_0_clk VGND VSUBS _193_/VPB VPWR clknet_2_1__leaf_clk sky130_fd_sc_hd__clkbuf_16
+X_142_ net1 VGND VSUBS _142_/VPB VPWR _037_ sky130_fd_sc_hd__inv_2
+X_211_ clknet_2_1__leaf_clk _001_ net3 VGND VSUBS _216_/VPB VPWR state\[1\] sky130_fd_sc_hd__dfrtp_2
+X_125_ net45 _090_ _093_ _072_ VGND VSUBS _200_/VPB VPWR _007_ sky130_fd_sc_hd__a22o_1
+X_108_ _073_ net9 net54 _082_ VGND VSUBS _216_/VPB VPWR _002_ sky130_fd_sc_hd__a22o_1
+X_210_ clknet_2_1__leaf_clk net56 net3 VGND VSUBS _217_/VPB VPWR state\[0\] sky130_fd_sc_hd__dfstp_2
+X_141_ _035_ VGND VSUBS _216_/VPB VPWR _036_ sky130_fd_sc_hd__clkbuf_4
+Xinput5 swidth[0] VGND VSUBS _197_/VPB VPWR net5 sky130_fd_sc_hd__buf_1
+X_124_ next\[2\] _089_ VGND VSUBS _200_/VPB VPWR _093_ sky130_fd_sc_hd__and2_1
+X_107_ _077_ _081_ VGND VSUBS _193_/VPB VPWR _082_ sky130_fd_sc_hd__or2_1
+X_140_ _034_ VGND VSUBS _216_/VPB VPWR _035_ sky130_fd_sc_hd__clkbuf_4
+Xinput6 swidth[1] VGND VSUBS input6/VPB VPWR net6 sky130_fd_sc_hd__buf_1
+X_106_ _075_ _078_ _079_ _080_ VGND VSUBS _193_/VPB VPWR _081_ sky130_fd_sc_hd__or4_1
+X_123_ net52 _090_ _092_ _072_ VGND VSUBS _200_/VPB VPWR _006_ sky130_fd_sc_hd__a22o_1
+Xinput7 swidth[2] VGND VSUBS input7/VPB VPWR net7 sky130_fd_sc_hd__buf_1
+X_199_ clknet_2_2__leaf_clk _013_ VGND VSUBS _199_/VPB VPWR next\[7\] sky130_fd_sc_hd__dfxtp_1
+X_122_ next\[1\] _089_ VGND VSUBS _200_/VPB VPWR _092_ sky130_fd_sc_hd__and2_1
+X_105_ sample_ctr\[3\] net8 VGND VSUBS _212_/VPB VPWR _080_ sky130_fd_sc_hd__xor2_1
+Xinput8 swidth[3] VGND VSUBS _219_/VPB VPWR net8 sky130_fd_sc_hd__clkbuf_1
+X_198_ clknet_2_0__leaf_clk _012_ VGND VSUBS hold7/VPB VPWR next\[6\] sky130_fd_sc_hd__dfxtp_1
+X_104_ sample_ctr\[2\] net7 VGND VSUBS _104_/VPB VPWR _079_ sky130_fd_sc_hd__xor2_1
+X_121_ net43 _090_ _091_ _072_ VGND VSUBS _200_/VPB VPWR _005_ sky130_fd_sc_hd__a22o_1
+X_197_ clknet_2_2__leaf_clk _011_ VGND VSUBS _197_/VPB VPWR next\[5\] sky130_fd_sc_hd__dfxtp_1
+X_120_ next\[0\] _089_ VGND VSUBS _120_/VPB VPWR _091_ sky130_fd_sc_hd__and2_1
+X_103_ net5 sample_ctr\[0\] VGND VSUBS _193_/VPB VPWR _078_ sky130_fd_sc_hd__xor2_1
+Xhold1 net13 VGND VSUBS hold2/VPB VPWR net22 sky130_fd_sc_hd__dlygate4sd3_1
+X_196_ clknet_2_2__leaf_clk _010_ VGND VSUBS hold6/VPB VPWR next\[4\] sky130_fd_sc_hd__dfxtp_1
+X_179_ _063_ VGND VSUBS _179_/VPB VPWR _025_ sky130_fd_sc_hd__clkbuf_1
+X_102_ sample_ctr\[1\] net6 VGND VSUBS _193_/VPB VPWR _077_ sky130_fd_sc_hd__xor2_1
+Xclkbuf_2_2__f_clk clknet_0_clk VGND VSUBS _197_/VPB VPWR clknet_2_2__leaf_clk sky130_fd_sc_hd__clkbuf_16
+Xhold2 _046_ VGND VSUBS hold2/VPB VPWR net23 sky130_fd_sc_hd__dlygate4sd3_1
+X_195_ clknet_2_2__leaf_clk _009_ VGND VSUBS _199_/VPB VPWR next\[3\] sky130_fd_sc_hd__dfxtp_1
+X_101_ _076_ VGND VSUBS _101_/VPB VPWR net21 sky130_fd_sc_hd__clkbuf_1
+X_178_ _087_ _061_ _062_ VGND VSUBS _216_/VPB VPWR _063_ sky130_fd_sc_hd__and3_1
+Xhold3 net15 VGND VSUBS hold3/VPB VPWR net24 sky130_fd_sc_hd__dlygate4sd3_1
+X_194_ clknet_2_0__leaf_clk _008_ VGND VSUBS hold2/VPB VPWR next\[2\] sky130_fd_sc_hd__dfxtp_1
+X_100_ state\[0\] net9 state\[1\] net20 VGND VSUBS _213_/VPB VPWR _076_ sky130_fd_sc_hd__or4_1
+X_177_ _073_ state\[2\] sample_ctr\[0\] sample_ctr\[1\] VGND VSUBS _216_/VPB VPWR
++ _062_ sky130_fd_sc_hd__a31o_1
+Xhold4 _050_ VGND VSUBS hold6/VPB VPWR net25 sky130_fd_sc_hd__dlygate4sd3_1
+X_193_ clknet_2_1__leaf_clk _007_ VGND VSUBS _193_/VPB VPWR next\[1\] sky130_fd_sc_hd__dfxtp_1
+X_176_ _060_ VGND VSUBS _179_/VPB VPWR _061_ sky130_fd_sc_hd__inv_2
+X_159_ next\[4\] _037_ _038_ VGND VSUBS hold6/VPB VPWR _049_ sky130_fd_sc_hd__a21o_1
+Xhold5 net14 VGND VSUBS hold6/VPB VPWR net26 sky130_fd_sc_hd__dlygate4sd3_1
+X_192_ clknet_2_0__leaf_clk _006_ VGND VSUBS _200_/VPB VPWR next\[0\] sky130_fd_sc_hd__dfxtp_1
+X_175_ net2 state\[2\] sample_ctr\[0\] sample_ctr\[1\] VGND VSUBS _216_/VPB VPWR _060_
++ sky130_fd_sc_hd__and4_1
+X_158_ _036_ _047_ net27 VGND VSUBS hold6/VPB VPWR _019_ sky130_fd_sc_hd__a21oi_1
+Xhold6 _048_ VGND VSUBS hold6/VPB VPWR net27 sky130_fd_sc_hd__dlygate4sd3_1
+X_191_ clknet_2_2__leaf_clk _005_ VGND VSUBS hold9/VPB VPWR shift\[0\] sky130_fd_sc_hd__dfxtp_1
+X_174_ _059_ VGND VSUBS _216_/VPB VPWR _024_ sky130_fd_sc_hd__clkbuf_1
+X_157_ next\[4\] _035_ net26 VGND VSUBS hold3/VPB VPWR _048_ sky130_fd_sc_hd__a21oi_1
+X_209_ clknet_2_0__leaf_clk _023_ VGND VSUBS hold7/VPB VPWR net18 sky130_fd_sc_hd__dfxtp_1
+Xhold7 net18 VGND VSUBS hold7/VPB VPWR net28 sky130_fd_sc_hd__dlygate4sd3_1
+X_173_ _087_ _057_ _058_ VGND VSUBS _193_/VPB VPWR _059_ sky130_fd_sc_hd__and3_1
+X_190_ _036_ _070_ _071_ VGND VSUBS _219_/VPB VPWR _028_ sky130_fd_sc_hd__a21oi_1
+X_156_ next\[3\] _037_ _038_ VGND VSUBS hold6/VPB VPWR _047_ sky130_fd_sc_hd__a21o_1
+Xhold8 _056_ VGND VSUBS hold8/VPB VPWR net29 sky130_fd_sc_hd__dlygate4sd3_1
+X_139_ state\[0\] net9 state\[1\] _073_ VGND VSUBS _216_/VPB VPWR _034_ sky130_fd_sc_hd__o31a_1
+Xclkbuf_2_3__f_clk clknet_0_clk VGND VSUBS _193_/VPB VPWR clknet_2_3__leaf_clk sky130_fd_sc_hd__clkbuf_16
+X_208_ clknet_2_2__leaf_clk net42 VGND VSUBS hold9/VPB VPWR net17 sky130_fd_sc_hd__dfxtp_1
+X_172_ _073_ state\[2\] sample_ctr\[0\] VGND VSUBS _216_/VPB VPWR _058_ sky130_fd_sc_hd__a21o_1
+X_155_ _036_ _045_ net23 VGND VSUBS hold2/VPB VPWR _018_ sky130_fd_sc_hd__a21oi_1
+X_207_ clknet_2_0__leaf_clk _021_ VGND VSUBS _207_/VPB VPWR net16 sky130_fd_sc_hd__dfxtp_1
+X_138_ state\[0\] _073_ _090_ net44 VGND VSUBS hold2/VPB VPWR _014_ sky130_fd_sc_hd__a22o_1
+Xhold9 net10 VGND VSUBS hold9/VPB VPWR net30 sky130_fd_sc_hd__dlygate4sd3_1
+X_171_ _073_ state\[2\] sample_ctr\[0\] VGND VSUBS _218_/VPB VPWR _057_ sky130_fd_sc_hd__nand3_1
+X_154_ next\[3\] _035_ net22 VGND VSUBS hold2/VPB VPWR _046_ sky130_fd_sc_hd__a21oi_1
+X_206_ clknet_2_2__leaf_clk _020_ VGND VSUBS hold3/VPB VPWR net15 sky130_fd_sc_hd__dfxtp_1
+X_137_ net50 _090_ _033_ _072_ VGND VSUBS _199_/VPB VPWR _013_ sky130_fd_sc_hd__a22o_1
+X_170_ _036_ _055_ net29 VGND VSUBS hold7/VPB VPWR _023_ sky130_fd_sc_hd__a21oi_1
+X_205_ clknet_2_2__leaf_clk _019_ VGND VSUBS hold6/VPB VPWR net14 sky130_fd_sc_hd__dfxtp_1
+X_136_ next\[8\] _089_ VGND VSUBS _199_/VPB VPWR _033_ sky130_fd_sc_hd__and2_1
+X_153_ next\[2\] _037_ _038_ VGND VSUBS hold2/VPB VPWR _045_ sky130_fd_sc_hd__a21o_1
+X_119_ _089_ VGND VSUBS _200_/VPB VPWR _090_ sky130_fd_sc_hd__inv_2
+X_152_ _036_ _043_ net34 VGND VSUBS _193_/VPB VPWR _017_ sky130_fd_sc_hd__a21oi_1
+X_118_ state\[0\] state\[1\] _073_ VGND VSUBS _193_/VPB VPWR _089_ sky130_fd_sc_hd__o21a_2
+X_135_ net47 _090_ _032_ _072_ VGND VSUBS hold7/VPB VPWR _012_ sky130_fd_sc_hd__a22o_1
+X_204_ clknet_2_0__leaf_clk _018_ VGND VSUBS _204_/VPB VPWR net13 sky130_fd_sc_hd__dfxtp_1
+X_203_ clknet_2_1__leaf_clk _017_ VGND VSUBS _216_/VPB VPWR net12 sky130_fd_sc_hd__dfxtp_1
+X_151_ next\[2\] _035_ net33 VGND VSUBS _193_/VPB VPWR _044_ sky130_fd_sc_hd__a21oi_1
+X_134_ next\[7\] _089_ VGND VSUBS hold8/VPB VPWR _032_ sky130_fd_sc_hd__and2_1
+X_117_ _073_ net20 _074_ net55 VGND VSUBS _142_/VPB VPWR _000_ sky130_fd_sc_hd__a22o_1
+X_150_ next\[1\] _037_ _038_ VGND VSUBS _193_/VPB VPWR _043_ sky130_fd_sc_hd__a21o_1
+X_202_ clknet_2_1__leaf_clk _016_ VGND VSUBS _216_/VPB VPWR net11 sky130_fd_sc_hd__dfxtp_1
+X_133_ net48 _090_ _031_ _072_ VGND VSUBS hold6/VPB VPWR _011_ sky130_fd_sc_hd__a22o_1
+X_116_ _088_ _086_ net57 _075_ VGND VSUBS _213_/VPB VPWR _003_ sky130_fd_sc_hd__a2bb2o_1
+X_132_ next\[6\] _089_ VGND VSUBS hold6/VPB VPWR _031_ sky130_fd_sc_hd__and2_1
+X_201_ clknet_2_3__leaf_clk net32 VGND VSUBS hold9/VPB VPWR net10 sky130_fd_sc_hd__dfxtp_1
+X_115_ state\[1\] VGND VSUBS _213_/VPB VPWR _088_ sky130_fd_sc_hd__inv_2
+.ends
+

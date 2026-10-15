@@ -1,0 +1,6 @@
+# Sky130 (sky130B: the ReRAM-capable metal stack variant) from an open_pdks
+# tree; everything as sky130A.yaml with the sky130B views.
+extends: sky130A
+name: sky130B
+vars:
+  variant: {default: sky130B, must_exist: false}

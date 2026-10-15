@@ -1,0 +1,79 @@
+# dp8: an embedded soft macro (mode 1) on Sky130 HD.
+#   python3 -m sipath run sipath/examples/dp8.yaml [workdir]
+# Floorplan (die, rows, pins) from a DEF; bit-slice adder (a/b registers + full
+# adder per bit, stage columns aligned) and an array multiplier as datapath
+# structures; a fence and a cluster; two analog feed-through nets routed first
+# with an NDR and frozen; embedded macro: routing and straps up to met4.
+name: dp8
+top: dp8
+mode: macro
+pdk: sky130A
+inputs:
+  generate: sipath.examples.designs:write_dp8
+netlist: inputs/dp8_flat.v
+sdc: inputs/dp8.sdc
+floorplan_def: inputs/dp8_floorplan.def
+is_core: false
+pdn:
+  straps:
+  - layer: met4
+    width: 1.6
+    pitch: 27.14
+    offset: 13.57
+  connects:
+  - [met1, met4]
+  rings: false
+analog_nets: ['ana_in[0]', 'ana_in[1]']
+datapaths:
+- name: adder
+  kind: slices
+  cells:
+  - [u_in.ra_0, u_in.rb_0, u_add.fa_0]
+  - [u_in.ra_1, u_in.rb_1, u_add.fa_1]
+  - [u_in.ra_2, u_in.rb_2, u_add.fa_2]
+  - [u_in.ra_3, u_in.rb_3, u_add.fa_3]
+  - [u_in.ra_4, u_in.rb_4, u_add.fa_4]
+  - [u_in.ra_5, u_in.rb_5, u_add.fa_5]
+  - [u_in.ra_6, u_in.rb_6, u_add.fa_6]
+  - [u_in.ra_7, u_in.rb_7, u_add.fa_7]
+  origin: [30.0, 30.0]
+- name: mult
+  kind: array
+  cells:
+  - [u_mul.pp_0_0, u_mul.pp_0_1, u_mul.pp_0_2, u_mul.pp_0_3]
+  - [u_mul.pp_1_0, u_mul.add_1_0, u_mul.pp_1_1, u_mul.add_1_1, u_mul.pp_1_2, u_mul.add_1_2, u_mul.pp_1_3, u_mul.add_1_3]
+  - [u_mul.pp_2_0, u_mul.add_2_0, u_mul.pp_2_1, u_mul.add_2_1, u_mul.pp_2_2, u_mul.add_2_2, u_mul.pp_2_3, u_mul.add_2_3]
+  - [u_mul.pp_3_0, u_mul.add_3_0, u_mul.pp_3_1, u_mul.add_3_1, u_mul.pp_3_2, u_mul.add_3_2, u_mul.pp_3_3, u_mul.add_3_3]
+  origin: [70.0, 30.0]
+groups:
+- name: out_fence
+  prefix: u_out.
+  kind: fence
+  box: [118.0, 20.0, 150.0, 140.0]
+- name: acc_cluster
+  prefix: u_acc.
+  kind: cluster
+  utilization: 0.9
+flow:
+- step: floorplan
+- step: physical
+- step: place
+  variants:
+  - density: 0.45
+    seed: 1
+  - density: 0.6
+    seed: 2
+    routability_driven: true
+  score: routability_then_wns
+  parallel: 2
+- step: cts
+- step: route_analog
+- step: route_digital
+  variants:
+  - iters: 64
+  - iters: 32
+  score: drc_then_slack
+  parallel: 2
+- step: route_repair
+- step: extract
+- step: signoff

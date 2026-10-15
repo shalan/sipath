@@ -1,0 +1,133 @@
+# Sky130 HD standard cells + sky130_ef_io pads, from an OpenROAD-flow-scripts
+# platform tree. Variables: ${platforms} (ORFS flow/platforms, from the runner),
+# ${sky130a} (optional open_pdks sky130A tree: adds the ss and ff corners),
+# ${here} (this file's directory).
+name: sky130hd
+vars:
+  sky130a: {env: SIPATH_SKY130A, default: "~/.ciel/sky130A"}   # optional; must be a directory
+tech_lef: ${platforms}/sky130hd/lef/sky130_fd_sc_hd.tlef
+cell_lef: ${platforms}/sky130hd/lef/sky130_fd_sc_hd_merged.lef
+liberty: ${platforms}/sky130hd/lib/sky130_fd_sc_hd__tt_025C_1v80.lib
+rcx_rules: ${platforms}/sky130hd/rcx_patterns.rules
+site: unithd
+
+# routing layers bottom to top (li1 is below the stack: cell-local only)
+layers: [met1, met2, met3, met4, met5]
+local_layers: [li1]
+route:
+  min_layer: met1
+  max_layer_core: met5      # a die / DESIGN_IS_CORE true
+  max_layer_macro: met4     # an embedded macro (DESIGN_IS_CORE false)
+  pin_layers: [met3, met2]
+  layer_adjustments: {}
+
+cells:
+  tap: sky130_fd_sc_hd__tapvpwrvgnd_1
+  tap_distance: 14.0
+  endcap: sky130_fd_sc_hd__decap_3
+  fill: [sky130_fd_sc_hd__fill_1, sky130_fd_sc_hd__fill_2, sky130_fd_sc_hd__fill_4, sky130_fd_sc_hd__fill_8]
+  tie_hi: [sky130_fd_sc_hd__conb_1, HI]
+  tie_lo: [sky130_fd_sc_hd__conb_1, LO]
+  synth_buffer: [sky130_fd_sc_hd__buf_2, A, X]
+  diode: sky130_fd_sc_hd__diode_2
+  cts_buffers: [sky130_fd_sc_hd__clkbuf_4, sky130_fd_sc_hd__clkbuf_8]
+  cts_root_buffer: sky130_fd_sc_hd__clkbuf_16
+  dont_use: [sky130_fd_sc_hd__probe_p_*, sky130_fd_sc_hd__probec_p_*, sky130_fd_sc_hd__lpflow_*,
+             sky130_fd_sc_hd__clkdlybuf4s*]
+  # cells with known layout (DRC) problems: open_pdks libs.tech/openlane/sky130_fd_sc_hd/drc_exclude.cells
+  exclude: [sky130_fd_sc_hd__a2111oi_0, sky130_fd_sc_hd__a21boi_0, sky130_fd_sc_hd__and2_0, sky130_fd_sc_hd__buf_16,
+            sky130_fd_sc_hd__clkdlybuf4s15_1, sky130_fd_sc_hd__clkdlybuf4s18_1, sky130_fd_sc_hd__fa_4, sky130_fd_sc_hd__lpflow_bleeder_1,
+            sky130_fd_sc_hd__lpflow_clkbufkapwr_1, sky130_fd_sc_hd__lpflow_clkbufkapwr_16, sky130_fd_sc_hd__lpflow_clkbufkapwr_2, sky130_fd_sc_hd__lpflow_clkbufkapwr_4,
+            sky130_fd_sc_hd__lpflow_clkbufkapwr_8, sky130_fd_sc_hd__lpflow_clkinvkapwr_1, sky130_fd_sc_hd__lpflow_clkinvkapwr_16, sky130_fd_sc_hd__lpflow_clkinvkapwr_2,
+            sky130_fd_sc_hd__lpflow_clkinvkapwr_4, sky130_fd_sc_hd__lpflow_clkinvkapwr_8, sky130_fd_sc_hd__lpflow_decapkapwr_12, sky130_fd_sc_hd__lpflow_decapkapwr_3,
+            sky130_fd_sc_hd__lpflow_decapkapwr_4, sky130_fd_sc_hd__lpflow_decapkapwr_6, sky130_fd_sc_hd__lpflow_decapkapwr_8, sky130_fd_sc_hd__lpflow_inputiso0n_1,
+            sky130_fd_sc_hd__lpflow_inputiso0p_1, sky130_fd_sc_hd__lpflow_inputiso1n_1, sky130_fd_sc_hd__lpflow_inputiso1p_1, sky130_fd_sc_hd__lpflow_inputisolatch_1,
+            sky130_fd_sc_hd__lpflow_isobufsrc_1, sky130_fd_sc_hd__lpflow_isobufsrc_16, sky130_fd_sc_hd__lpflow_isobufsrc_2, sky130_fd_sc_hd__lpflow_isobufsrc_4,
+            sky130_fd_sc_hd__lpflow_isobufsrc_8, sky130_fd_sc_hd__lpflow_isobufsrckapwr_16, sky130_fd_sc_hd__lpflow_lsbuf_lh_hl_isowell_tap_1, sky130_fd_sc_hd__lpflow_lsbuf_lh_hl_isowell_tap_2,
+            sky130_fd_sc_hd__lpflow_lsbuf_lh_hl_isowell_tap_4, sky130_fd_sc_hd__lpflow_lsbuf_lh_isowell_4, sky130_fd_sc_hd__lpflow_lsbuf_lh_isowell_tap_1, sky130_fd_sc_hd__lpflow_lsbuf_lh_isowell_tap_2,
+            sky130_fd_sc_hd__lpflow_lsbuf_lh_isowell_tap_4, sky130_fd_sc_hd__mux4_4, sky130_fd_sc_hd__o21ai_0, sky130_fd_sc_hd__o311ai_0,
+            sky130_fd_sc_hd__or2_0, sky130_fd_sc_hd__probe_p_8, sky130_fd_sc_hd__probec_p_8, sky130_fd_sc_hd__xor3_1,
+            sky130_fd_sc_hd__xor3_2, sky130_fd_sc_hd__xor3_4, sky130_fd_sc_hd__xnor3_1, sky130_fd_sc_hd__xnor3_2,
+            sky130_fd_sc_hd__xnor3_4]
+
+power:
+  # standard-cell supply pins -> nets (global connections)
+  pins:
+    - {pin: "^VPWR$", net: VDD, kind: power}
+    - {pin: "^VPB$", net: VDD}
+    - {pin: "^VGND$", net: VSS, kind: ground}
+    - {pin: "^VNB$", net: VSS}
+  voltages: {core: 1.8, analog: 3.3}   # IR analysis source voltages
+
+pdn:  # defaults for PdnSpec fields a design leaves out
+  rail_layer: met1
+  rail_width: 0.48
+  straps: [{layer: met4, width: 1.6, pitch: 27.14, offset: 13.57}]
+  connects: [[met1, met4]]
+  ring_layers: [met4, met5]
+  via_pitch: 1.6        # um, via arrays of supply straps drawn by sipath.powerconnect
+  via_inset: 0.8
+
+analog:  # defaults for the analog-net fields of a design
+  ndr:
+    width: {met2: 0.28, met3: 0.6, met4: 0.6}
+    spacing: {met2: 0.28, met3: 0.6, met4: 0.6}
+  row_blocked_layers: [met1, met2]   # analog wires keep off these over standard-cell rows
+  supply_layers: [met3, met5]
+  supply_ndr:
+    width: {met3: 2.0, met4: 2.0, met5: 2.0}
+    spacing: {met3: 0.6, met4: 0.6, met5: 1.6}
+  launch_layer: met4      # temporary launch pin for supply routing from a pad tab
+
+rc: |
+  set_layer_rc -layer li1 -capacitance 1.499e-04 -resistance 7.176e-02
+  set_layer_rc -layer met1 -capacitance 1.72375E-04 -resistance 1.20565E-03
+  set_layer_rc -layer met2 -capacitance 1.36233E-04 -resistance 1.22132E-03
+  set_layer_rc -layer met3 -capacitance 2.14962E-04 -resistance 1.66281E-04
+  set_layer_rc -layer met4 -capacitance 1.48128E-04 -resistance 1.68093E-04
+  set_layer_rc -layer met5 -capacitance 1.54087E-04 -resistance 1.83558E-05
+  set_layer_rc -via mcon -resistance 9.249146E-3
+  set_layer_rc -via via -resistance 4.5E-3
+  set_layer_rc -via via2 -resistance 3.368786E-3
+  set_layer_rc -via via3 -resistance 0.376635E-3
+  set_layer_rc -via via4 -resistance 0.00580E-3
+  set_wire_rc -signal -layer met2
+  set_wire_rc -clock -layer met3
+tracks: |
+  make_tracks li1 -x_offset 0.23 -x_pitch 0.46 -y_offset 0.17 -y_pitch 0.34
+  make_tracks met1 -x_offset 0.17 -x_pitch 0.34 -y_offset 0.17 -y_pitch 0.34
+  make_tracks met2 -x_offset 0.23 -x_pitch 0.46 -y_offset 0.23 -y_pitch 0.46
+  make_tracks met3 -x_offset 0.34 -x_pitch 0.68 -y_offset 0.34 -y_pitch 0.68
+  make_tracks met4 -x_offset 0.46 -x_pitch 0.92 -y_offset 0.46 -y_pitch 0.92
+  make_tracks met5 -x_offset 1.70 -x_pitch 3.40 -y_offset 1.70 -y_pitch 3.40
+
+# analysis corners; an entry whose variables are not set is left out
+corners:
+  - {name: ss, liberty: "${sky130a}/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__ss_100C_1v60.lib",
+     rcx_rules: "${sky130a}/libs.tech/openlane/rules.openrcx.sky130A.max.calibre"}
+  - {name: tt, liberty: "${platforms}/sky130hd/lib/sky130_fd_sc_hd__tt_025C_1v80.lib",
+     rcx_rules: "${platforms}/sky130hd/rcx_patterns.rules"}
+  - {name: ff, liberty: "${sky130a}/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__ff_n40C_1v95.lib",
+     rcx_rules: "${sky130a}/libs.tech/openlane/rules.openrcx.sky130A.min.calibre"}
+
+io:
+  lef_dir: ${platforms}/sky130io/lef
+  # master -> LEF (one file per master in this library)
+  masters: [sky130_ef_io__gpiov2_pad_wrapped, sky130_ef_io__corner_pad, sky130_ef_io__vccd_hvc_pad,
+            sky130_ef_io__vssd_hvc_pad, sky130_ef_io__vdda_hvc_pad, sky130_ef_io__vssa_hvc_pad,
+            sky130_ef_io__vddio_hvc_pad, sky130_ef_io__vssio_hvc_pad, sky130_ef_io__com_bus_slice_1um,
+            sky130_ef_io__com_bus_slice_5um, sky130_ef_io__com_bus_slice_10um, sky130_ef_io__com_bus_slice_20um]
+  lef_pattern: "${lef_dir}/${master}.lef"
+  roles: {"*gpiov2*": signal, "*vccd*": vccd, "*vssd*": vssd, "*vddio*": vddio, "*vssio*": vssio,
+          "*vdda*": vdda, "*vssa*": vssa}
+  corner: sky130_ef_io__corner_pad
+  fill: [sky130_ef_io__com_bus_slice_20um, sky130_ef_io__com_bus_slice_10um, sky130_ef_io__com_bus_slice_5um,
+         sky130_ef_io__com_bus_slice_1um]
+
+sram:
+  sky130_sram_1rw1r_44x64_8:
+    lef: ${platforms}/sky130ram/sky130_sram_1rw1r_44x64_8/sky130_sram_1rw1r_44x64_8.lef
+    lib: ${platforms}/sky130ram/sky130_sram_1rw1r_44x64_8/sky130_sram_1rw1r_44x64_8_TT_1p8V_25C.lib
+  sky130_sram_1rw1r_64x256_8:
+    lef: ${platforms}/sky130ram/sky130_sram_1rw1r_64x256_8/sky130_sram_1rw1r_64x256_8.lef
+    lib: ${platforms}/sky130ram/sky130_sram_1rw1r_64x256_8/sky130_sram_1rw1r_64x256_8_TT_1p8V_25C.lib

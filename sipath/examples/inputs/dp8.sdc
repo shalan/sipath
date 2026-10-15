@@ -1,0 +1,6 @@
+create_clock -name clk -period 10.0 [get_ports clk]
+set_clock_uncertainty 0.1 [get_clocks clk]
+set_input_delay 1.0 -clock clk [get_ports {a[*] b[*] x[*] y[*]}]
+set_output_delay 1.0 -clock clk [get_ports {sum[*] prod[*] acc[*]}]
+set_driving_cell -lib_cell sky130_fd_sc_hd__buf_2 [get_ports {a[*] b[*] x[*] y[*]}]
+set_load 0.02 [get_ports {sum[*] prod[*] acc[*]}]

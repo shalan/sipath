@@ -1,0 +1,106 @@
+# IHP SG13G2 (130 nm BiCMOS) standard cells + sg13g2 IO pads, from an
+# OpenROAD-flow-scripts platform tree. Variables: ${platforms}, ${here}.
+# Values follow the ORFS platform (config.mk, pdn.tcl, setRC.tcl, make_tracks.tcl).
+name: ihp-sg13g2
+tech_lef: ${platforms}/ihp-sg13g2/lef/sg13g2_tech.lef
+cell_lef: ${platforms}/ihp-sg13g2/lef/sg13g2_stdcell.lef
+liberty: ${platforms}/ihp-sg13g2/lib/sg13g2_stdcell_typ_1p20V_25C.lib
+rcx_rules: ${platforms}/ihp-sg13g2/rcx_patterns.rules
+site: CoreSite
+
+layers: [Metal1, Metal2, Metal3, Metal4, Metal5, TopMetal1, TopMetal2]
+local_layers: []
+route:
+  min_layer: Metal2         # ORFS MIN_ROUTING_LAYER (Metal1 carries the rails and cell pins)
+  max_layer_core: Metal5    # ORFS MAX_ROUTING_LAYER; TopMetal1/2 are for power
+  max_layer_macro: Metal4   # an embedded macro leaves Metal5 and up to its parent
+  pin_layers: [Metal3, Metal2]
+  layer_adjustments: {}
+
+cells:
+  tap: ""                   # no well taps in this library (ORFS tapcell.tcl only cuts rows)
+  tap_distance: 0
+  endcap: ""
+  fill: [sg13g2_fill_1, sg13g2_fill_2, sg13g2_decap_4, sg13g2_decap_8]
+  tie_hi: [sg13g2_tiehi, L_HI]
+  tie_lo: [sg13g2_tielo, L_LO]
+  synth_buffer: [sg13g2_buf_1, A, X]
+  diode: sg13g2_antennanp
+  cts_buffers: [sg13g2_buf_4, sg13g2_buf_8]
+  cts_root_buffer: sg13g2_buf_16
+  dont_use: [sg13g2_lgcp_1, sg13g2_sighold, sg13g2_slgcp_1, sg13g2_dfrbp_2]
+
+power:
+  pins:
+    - {pin: "^VDD$", net: VDD, kind: power}
+    - {pin: "^VSS$", net: VSS, kind: ground}
+  voltages: {core: 1.2, analog: 3.3}
+
+pdn:
+  rail_layer: Metal1
+  rail_width: 0.44
+  straps: [{layer: Metal4, width: 1.8, pitch: 25.2, offset: 12.6}]
+  connects: [[Metal1, Metal4]]
+  ring_layers: [TopMetal1, TopMetal2]
+  via_pitch: 1.6
+  via_inset: 0.8
+
+analog:
+  ndr:
+    width: {Metal2: 0.4, Metal3: 0.4, Metal4: 0.4}
+    spacing: {Metal2: 0.4, Metal3: 0.4, Metal4: 0.4}
+  row_blocked_layers: [Metal1, Metal2]
+  supply_layers: [Metal4, TopMetal1]
+  supply_ndr:
+    width: {Metal4: 2.0, Metal5: 2.0, TopMetal1: 2.0}
+    spacing: {Metal4: 0.6, Metal5: 0.6, TopMetal1: 1.6}
+  launch_layer: Metal4
+
+rc: |
+  set_layer_rc -layer Metal1 -resistance 8.54576E-03 -capacitance 1e-10
+  set_layer_rc -layer Metal2 -resistance 4.40000E-04 -capacitance 1.69121E-04
+  set_layer_rc -layer Metal3 -resistance 4.40000E-04 -capacitance 1.82832E-04
+  set_layer_rc -layer Metal4 -resistance 4.39998E-04 -capacitance 1.66454E-04
+  set_layer_rc -layer Metal5 -resistance 4.40004E-04 -capacitance 8.57431E-05
+  set_wire_rc -signal -resistance 2.07259E-03 -capacitance 1.73072E-04
+  set_wire_rc -clock -resistance 2.48603E-03 -capacitance 1.44812E-04
+  set_layer_rc -via Via1 -resistance 2.0E-3
+  set_layer_rc -via Via2 -resistance 2.0E-3
+  set_layer_rc -via Via3 -resistance 2.0E-3
+  set_layer_rc -via Via4 -resistance 2.0E-3
+  set_layer_rc -via TopVia1 -resistance 0.4E-3
+  set_layer_rc -via TopVia2 -resistance 0.22E-3
+tracks: |
+  make_tracks Metal1 -x_offset 0.0 -x_pitch 0.48 -y_offset 0.0 -y_pitch 0.42
+  make_tracks Metal2 -x_offset 0.0 -x_pitch 0.48 -y_offset 0.0 -y_pitch 0.42
+  make_tracks Metal3 -x_offset 0.0 -x_pitch 0.48 -y_offset 0.0 -y_pitch 0.42
+  make_tracks Metal4 -x_offset 0.0 -x_pitch 0.48 -y_offset 0.0 -y_pitch 0.42
+  make_tracks Metal5 -x_offset 0.0 -x_pitch 0.48 -y_offset 0.0 -y_pitch 0.42
+  make_tracks TopMetal1 -x_offset 1.64 -x_pitch 3.28 -y_offset 1.64 -y_pitch 3.28
+  make_tracks TopMetal2 -x_offset 2.0 -x_pitch 4.0 -y_offset 2.0 -y_pitch 4.0
+
+# the ORFS tree has one RCX rule file: all three corners use it (Liberty differs)
+corners:
+  - {name: ss, liberty: "${platforms}/ihp-sg13g2/lib/sg13g2_stdcell_slow_1p08V_125C.lib",
+     rcx_rules: "${platforms}/ihp-sg13g2/rcx_patterns.rules"}
+  - {name: tt, liberty: "${platforms}/ihp-sg13g2/lib/sg13g2_stdcell_typ_1p20V_25C.lib",
+     rcx_rules: "${platforms}/ihp-sg13g2/rcx_patterns.rules"}
+  - {name: ff, liberty: "${platforms}/ihp-sg13g2/lib/sg13g2_stdcell_fast_1p32V_m40C.lib",
+     rcx_rules: "${platforms}/ihp-sg13g2/rcx_patterns.rules"}
+
+io:
+  lef_dir: ${platforms}/ihp-sg13g2/lef
+  masters: [sg13g2_Corner, sg13g2_Filler200, sg13g2_Filler400, sg13g2_Filler1000, sg13g2_Filler2000,
+            sg13g2_Filler4000, sg13g2_Filler10000, sg13g2_IOPadIn, sg13g2_IOPadOut4mA, sg13g2_IOPadOut16mA,
+            sg13g2_IOPadOut30mA, sg13g2_IOPadTriOut4mA, sg13g2_IOPadTriOut16mA, sg13g2_IOPadTriOut30mA,
+            sg13g2_IOPadInOut4mA, sg13g2_IOPadInOut16mA, sg13g2_IOPadInOut30mA, sg13g2_IOPadAnalog,
+            sg13g2_IOPadIOVss, sg13g2_IOPadIOVdd, sg13g2_IOPadVss, sg13g2_IOPadVdd]
+  lef_pattern: "${lef_dir}/sg13g2_io.lef"     # one LEF holds every IO master
+  roles: {"*IOPadIn*": signal, "*IOPadOut*": signal, "*IOPadTriOut*": signal, "*IOPadInOut*": signal,
+          "*IOPadAnalog*": signal, "*IOPadIOVdd*": vddio, "*IOPadIOVss*": vssio, "*IOPadVdd*": vccd,
+          "*IOPadVss*": vssd}
+  corner: sg13g2_Corner
+  fill: [sg13g2_Filler10000, sg13g2_Filler4000, sg13g2_Filler2000, sg13g2_Filler1000, sg13g2_Filler400,
+         sg13g2_Filler200]
+
+sram: {}

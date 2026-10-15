@@ -1,0 +1,29 @@
+# Sky130 (sky130A) with the high-speed standard cells, sky130_fd_sc_hs, from an
+# open_pdks tree. Everything not set here comes from sky130A.yaml (metal stack,
+# RC, corners, IO, SRAM): the views follow ${scl}. Cell choices follow the PDK's
+# reference configuration (libs.tech/openlane/sky130_fd_sc_hs/config.tcl).
+extends: sky130A
+name: sky130A_hs
+vars:
+  scl: {default: sky130_fd_sc_hs, must_exist: false}
+
+cell_lef: ["${pdk_root}/${variant}/libs.ref/${scl}/lef/sky130_fd_sc_hs.lef"]
+site: unit                 # 0.48 x 3.33 um
+
+cells:
+  tap: sky130_fd_sc_hs__tapvpwrvgnd_1
+  tap_distance: 13.0
+  endcap: sky130_fd_sc_hs__decap_4
+  fill: [sky130_fd_sc_hs__decap_8, sky130_fd_sc_hs__decap_4, sky130_fd_sc_hs__fill_8, sky130_fd_sc_hs__fill_4,
+         sky130_fd_sc_hs__fill_2, sky130_fd_sc_hs__fill_1]
+  tie_hi: [sky130_fd_sc_hs__conb_1, HI]
+  tie_lo: [sky130_fd_sc_hs__conb_1, LO]
+  synth_buffer: [sky130_fd_sc_hs__buf_2, A, X]
+  diode: sky130_fd_sc_hs__diode_2
+  cts_buffers: [sky130_fd_sc_hs__clkbuf_8, sky130_fd_sc_hs__clkbuf_4, sky130_fd_sc_hs__clkbuf_2]
+  cts_root_buffer: sky130_fd_sc_hs__clkbuf_16
+  dont_use: [sky130_fd_sc_hs__lpflow_*, sky130_fd_sc_hs__clkdlybuf4s*]
+
+constraints:
+  driving_cell: [sky130_fd_sc_hs__inv_2, Y]
+  output_load: 0.04339       # pF (OUTPUT_CAP_LOAD: hs inv_16 input)

@@ -1,0 +1,257 @@
+"""Step parameters, declared once: type, default, unit, allowed values, doc.
+
+Every parameter a step reads is declared here. The declarations are used to
+
+* check a variant before anything runs (unknown name, wrong type, value not
+  allowed or out of range -> ValueError naming the step and the parameter);
+* resolve the parameters an attempt sees: the variant's value, else the
+  design file's ``step_defaults``, else the PDK description's
+  ``step_defaults``, else the declared default (``ctx.params`` holds every
+  declared parameter; the attempt records only what the variant gave);
+* generate the reference documentation (``python3 -m sipath docs``) and the
+  MCP ``describe_step`` schema.
+
+A default of ``None`` means "not set": the step then uses what the doc says
+(e.g. the design's own value).
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
+TYPES = {"int": int, "float": (int, float), "bool": bool, "str": str, "list": list, "dict": dict}
+
+
+@dataclass(frozen=True)
+class Param:
+    name: str
+    type: str  # int | float | bool | str | list[str] | list[dict]
+    default: Any
+    doc: str
+    unit: str = ""
+    choices: tuple = ()  # allowed values (for a list: allowed items)
+    min: float | None = None
+    max: float | None = None
+
+    def check(self, step: str, value) -> None:
+        where = f"{step}.{self.name}"
+        if value is None:
+            return
+        base, _, item = self.type.partition("[")
+        want = TYPES[base]
+        if isinstance(value, bool) and base in ("int", "float"):
+            raise ValueError(f"{where}: expected {self.type}, got a bool ({value!r})")
+        if not isinstance(value, want):
+            raise ValueError(f"{where}: expected {self.type}, got {type(value).__name__} ({value!r})")
+        values = value if base == "list" else [value]
+        if item:
+            it = TYPES[item.rstrip("]")]
+            bad = [v for v in values if not isinstance(v, it)]
+            if bad:
+                raise ValueError(f"{where}: items must be {item.rstrip(']')}, got {bad[:3]!r}")
+        if self.choices:
+            bad = [v for v in values if v not in self.choices]
+            if bad:
+                raise ValueError(f"{where}: {bad[0]!r} is not one of {list(self.choices)}")
+        for v in values:
+            if self.min is not None and v < self.min:
+                raise ValueError(f"{where}: {v!r} is below the minimum {self.min}")
+            if self.max is not None and v > self.max:
+                raise ValueError(f"{where}: {v!r} is above the maximum {self.max}")
+
+    def schema(self) -> dict:
+        base, _, item = self.type.partition("[")
+        js = {"int": "integer", "float": "number", "bool": "boolean", "str": "string", "list": "array",
+              "dict": "object"}
+        out = {"type": js[base], "description": self.doc + (f" [{self.unit}]" if self.unit else "")}
+        if item:
+            out["items"] = {"type": js[item.rstrip("]")]}
+            if self.choices:
+                out["items"]["enum"] = list(self.choices)
+        elif self.choices:
+            out["enum"] = list(self.choices)
+        if self.min is not None:
+            out["minimum"] = self.min
+        if self.max is not None:
+            out["maximum"] = self.max
+        if self.default is not None:
+            out["default"] = list(self.default) if isinstance(self.default, tuple) else self.default
+        return out
+
+
+SIGNOFF_CHECKS = ("drc", "lvs", "antenna", "setup", "hold", "drv", "annotation", "unconstrained")
+SIGNOFF_REQUIRED = ("drc", "lvs", "antenna", "setup", "hold", "drv", "annotation")
+
+_ITERS = "detailed-router iterations"
+_FAIL = "fail the attempt when setup or hold is not met after the step"
+
+STEP_PARAMS: dict[str, list[Param]] = {
+    "synth": [
+        Param("abc", "str", "delay", "ABC mapping goal: delay (the SDC clock period as target) or area",
+              choices=("delay", "area")),
+        Param("abc_period_ps", "float", None, "ABC delay target; default: the SDC's first create_clock period",
+              unit="ps", min=1),
+        Param("lint", "bool", True, "lint the RTL first (implicit nets, hierarchy, undriven / multiply driven "
+              "nets, combinational loops are errors)"),
+        Param("lint_strict", "bool", False, "fail on any lint warning"),
+    ],
+    "floorplan": [],
+    "macros": [
+        Param("method", "str", "random", "macro placement: seeded random search with orientation search (random) "
+              "or OpenROAD's rtl_macro_placer (mpl)", choices=("random", "mpl")),
+        Param("seed", "int", 0, "random seed of the search"),
+        Param("samples", "int", 40, "candidate locations tried per autoplaced macro", min=1),
+        Param("orients", "list[str]", None, "orientations to try; default: each macro's orients, else its orient",
+              choices=("R0", "R90", "R180", "R270", "MX", "MY", "MXR90", "MYR90")),
+        Param("channel", "float", None, "minimum space between facing macros; default: the design's "
+              "macro_channel", unit="um", min=0),
+        Param("pin_clearance", "float", None, "free space in front of a macro edge with signal pins; default: "
+              "the design's macro_pin_clearance", unit="um", min=0),
+        Param("analog_guard", "float", None, "extra space around analog macros; default: the design's "
+              "analog_guard", unit="um", min=0),
+        Param("analog_weight", "float", 4.0, "weight of analog-net wirelength in the search objective", min=0),
+        Param("evaluate", "bool", True, "score the result with a quick place + route (macro_quick score)"),
+        Param("quick_density", "float", 0.6, "placement density of the quick evaluation", min=0.05, max=1.0),
+        Param("target_util", "float", 0.25, "target utilization given to rtl_macro_placer (method mpl)",
+              min=0.01, max=1.0),
+    ],
+    "physical": [],
+    "place": [
+        Param("density", "float", 0.55, "global placement target density", min=0.05, max=1.0),
+        Param("seed", "int", None, "global placement random seed; default: the tool's"),
+        Param("routability_driven", "bool", False, "routability-driven global placement"),
+        Param("repair_tie_fanout", "bool", True, "one tie cell per load, placed next to it"),
+        Param("remove_buffers", "bool", False, "remove the netlist's buffers before placement"),
+        Param("max_util", "float", None, "utilization limit for repair_design / repair_timing", min=0.01, max=1.0),
+        Param("congestion_check", "bool", True, "global route after placement and record the congestion"),
+        Param("congestion_margin", "float", 0.0, "extra layer capacity reduction for the congestion check",
+              min=0, max=1),
+    ],
+    "cts": [],
+    "route_analog": [
+        Param("iters", "int", 20, _ITERS + " for the analog nets", min=1),
+    ],
+    "route_digital": [
+        Param("iters", "int", 64, _ITERS, min=1),
+        Param("max_drc", "int", 0, "routing DRC violations allowed", min=0),
+        Param("antenna_rounds", "int", 3, "antenna repair rounds", min=0),
+        Param("max_antenna", "int", 0, "antenna violations allowed", min=0),
+        Param("repair_after_grt", "bool", True, "repair timing on global-route parasitics, then re-route "
+              "incrementally"),
+        Param("fail_on_violation", "bool", False, _FAIL),
+    ],
+    "route_repair": [
+        Param("rounds", "int", 2, "post-route timing repair rounds on extracted parasitics", min=0),
+        Param("max_patch_nets", "int", 40, "nets changed by repair above which the design is routed again "
+              "instead of patched", min=0),
+        Param("antenna_rounds", "int", 3, "antenna repair rounds", min=0),
+        Param("max_antenna", "int", 0, "antenna violations allowed", min=0),
+        Param("iters", "int", 64, _ITERS, min=1),
+        Param("max_drc", "int", 0, "routing DRC violations allowed", min=0),
+        Param("fail_on_violation", "bool", False, _FAIL),
+    ],
+    "extract": [
+        Param("require_grid_connected", "bool", False, "fail when check_power_grid finds a supply net not "
+              "connected to its terminals"),
+        Param("fail_on_violation", "bool", False, _FAIL),
+    ],
+    "signoff": [
+        Param("checks", "list[str]", SIGNOFF_CHECKS, "checks to run", choices=SIGNOFF_CHECKS),
+        Param("require", "list[str]", SIGNOFF_REQUIRED, "checks whose failure fails signoff (of those run)",
+              choices=SIGNOFF_CHECKS),
+        Param("fail_on_violation", "bool", True, "fail the attempt when a required check fails (signoff.json "
+              "is written either way)"),
+    ],
+    "eco": [
+        Param("ops", "list[dict]", None, "ECO operations: {op: resize, inst, master} or {op: buffer, net, "
+              "master, loads?, name?}"),
+        Param("max_patch_nets", "int", 25, "touched nets above which the design is routed again instead of "
+              "patched", min=0),
+        Param("iters", "int", 64, _ITERS + " for the patch route", min=1),
+        Param("max_drc", "int", 0, "routing DRC violations allowed after the ECO", min=0),
+    ],
+}
+DECLARED = {step: {p.name: p for p in ps} for step, ps in STEP_PARAMS.items()}
+
+
+def check(step: str, variant: dict | None) -> None:
+    """Raise ValueError for a parameter the step does not declare, or a value
+    of the wrong type, not allowed or out of range."""
+    if step not in DECLARED:
+        raise ValueError(f"unknown step {step!r}; known: {sorted(DECLARED)}")
+    if variant is None:
+        return
+    if not isinstance(variant, dict):
+        raise ValueError(f"{step}: parameters must be a dict, not {variant!r}")
+    decl = DECLARED[step]
+    bad = sorted(set(variant) - set(decl))
+    if bad:
+        raise ValueError(f"{step}: unknown parameter(s) {bad}; known: {sorted(decl) or 'none'}")
+    for k, v in variant.items():
+        decl[k].check(step, v)
+
+
+def check_defaults(where: str, table: dict | None) -> None:
+    """Check a ``step_defaults`` table ({step: {param: value}})."""
+    if not table:
+        return
+    if not isinstance(table, dict):
+        raise ValueError(f"{where}: step_defaults must be a mapping of step -> parameters")
+    for step, vals in table.items():
+        try:
+            check(step, vals)
+        except ValueError as e:
+            raise ValueError(f"{where} step_defaults: {e}") from e
+
+
+def resolve(step: str, given: dict, pdk=None, design=None) -> dict:
+    """Every declared parameter of ``step``: the given value, else the
+    design's step_defaults, else the PDK's, else the declared default. A step
+    that declares nothing (or an unknown function name) gets ``given``."""
+    decl = DECLARED.get(step)
+    if not decl:
+        return dict(given)
+    out = {}
+    layers = [given, (getattr(design, "step_defaults", None) or {}).get(step, {}),
+              (getattr(pdk, "step_defaults", None) or {}).get(step, {})]
+    for name, p in decl.items():
+        for layer in layers:
+            if name in layer:
+                out[name] = layer[name]
+                break
+        else:
+            out[name] = list(p.default) if isinstance(p.default, tuple) else p.default
+    out.update({k: v for k, v in given.items() if k not in decl})
+    return out
+
+
+def step_schema(step: str) -> dict:
+    """JSON Schema of one variant of ``step``."""
+    return {"type": "object", "additionalProperties": False,
+            "properties": {p.name: p.schema() for p in STEP_PARAMS[step]}}
+
+
+def markdown() -> str:
+    """Reference tables of every step's parameters."""
+    out = ["## Step parameters", "",
+           "Set per attempt in `variants` (design file `flow:` or MCP `run_step`), or as defaults in a design "
+           "file's or PDK description's `step_defaults: {step: {param: value}}`. Resolution: variant, then "
+           "design, then PDK, then the default below.", ""]
+    for step, ps in STEP_PARAMS.items():
+        out.append(f"### {step}")
+        out.append("")
+        if not ps:
+            out += ["No parameters.", ""]
+            continue
+        out += ["| parameter | type | default | allowed | description |", "|---|---|---|---|---|"]
+        for p in ps:
+            d = "–" if p.default is None else (", ".join(p.default) if isinstance(p.default, tuple)
+                                               else str(p.default).lower() if isinstance(p.default, bool)
+                                               else str(p.default))
+            allowed = ", ".join(map(str, p.choices)) if p.choices else (
+                f"{'' if p.min is None else p.min}..{'' if p.max is None else p.max}"
+                if p.min is not None or p.max is not None else "")
+            unit = f" [{p.unit}]" if p.unit else ""
+            out.append(f"| `{p.name}` | {p.type} | {d} | {allowed} | {p.doc}{unit} |")
+        out.append("")
+    return "\n".join(out)

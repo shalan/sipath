@@ -1,0 +1,17 @@
+EF_ADCS1008NC f619810a0f0cf3f5cba7765f30033aff51e993b6 layout/lef/EF_ADCS1008NC.lef     7319 bytes
+EF_ADCS1008NC f619810a0f0cf3f5cba7765f30033aff51e993b6 verify/beh_model/EF_ADCS1008NC.v     2016 bytes
+sky130_ef_ip__rdac3v_8bit 51a71b1af27fbb5e328536fa7c55e97698676015 lef/sky130_ef_ip__rdac3v_8bit.lef     5204 bytes
+sky130_ef_ip__rdac3v_8bit 51a71b1af27fbb5e328536fa7c55e97698676015 verilog/sky130_ef_ip__rdac3v_8bit.v     2016 bytes
+CF_SRAM_1024x32 472472220211cf21908955cfa705809d29959191 copied from local clone /Users/shalan/work/codex/ubersoc/vendor/CF_SRAM_1024x32 (lef, tt_180V_25C lib, stub, LICENSE)
+CF_SRAM_1024x32 ss_160V_100C and ff_195V_n40C Liberty copied from the same local clone (corners)
+# signoff views (2026-10-14), fetched with `gh api` from github.com/chipfoundry at the pinned commits;
+# sha256 in views/SHA256SUMS
+EF_ADCS1008NC f619810a0f0cf3f5cba7765f30033aff51e993b6 layout/gds/EF_ADCS1008NC.gds -> views/EF_ADCS1008NC.gds     3277340 bytes
+EF_ADCS1008NC f619810a0f0cf3f5cba7765f30033aff51e993b6 spice/schematic/EF_ADCS1008NC.spice -> views/EF_ADCS1008NC.schematic.spice     16222 bytes
+EF_ADCS1008NC f619810a0f0cf3f5cba7765f30033aff51e993b6 spice/schematic/sar_ctrl.spice -> views/sar_ctrl.schematic.spice     20573 bytes
+  (the repository has no LICENSE file at this commit; see its README.md)
+sky130_ef_ip__rdac3v_8bit 51a71b1af27fbb5e328536fa7c55e97698676015 gds/sky130_ef_ip__rdac3v_8bit.gds.gz -> views/     253400 bytes
+sky130_ef_ip__rdac3v_8bit 51a71b1af27fbb5e328536fa7c55e97698676015 LICENSE -> views/LICENSE     11357 bytes
+  (no schematic SPICE at this commit: lvs/run_lvs.tcl reads ../netlist/, which is not in the repository)
+CF_SRAM_1024x32 472472220211cf21908955cfa705809d29959191 gds/CF_SRAM_1024x32.gds -> views/     9388884 bytes, copied from the same local clone
+  (no CDL/SPICE in the repository)

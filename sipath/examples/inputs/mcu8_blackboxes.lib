@@ -1,0 +1,97 @@
+library (mcu8_blackboxes) {
+  delay_model : table_lookup;
+  time_unit : "1ns";
+  voltage_unit : "1V";
+  current_unit : "1mA";
+  capacitive_load_unit (1, pf);
+  pulling_resistance_unit : "1kohm";
+  nom_voltage : 1.8; nom_temperature : 25; nom_process : 1;
+  default_max_transition : 1.5;
+  type (bus3) { base_type : array; data_type : bit; bit_width : 3; bit_from : 2; bit_to : 0; downto : true; }
+  type (bus8) { base_type : array; data_type : bit; bit_width : 8; bit_from : 7; bit_to : 0; downto : true; }
+  type (bus10) { base_type : array; data_type : bit; bit_width : 10; bit_from : 9; bit_to : 0; downto : true; }
+  cell ("EF_ADCS1008NC") {
+    area : 180576;
+    dont_touch : true; dont_use : true;
+    pin ("HOLD") { direction : input; capacitance : 0.005;  }
+
+    pin ("RST") { direction : input; capacitance : 0.005;  }
+
+    pin ("EN") { direction : input; capacitance : 0.005;  }
+
+    pin ("CMP") { direction : output; capacitance : 0.005;  }
+
+    bus (B) { bus_type : bus3; direction : input; capacitance : 0.005; }
+
+    bus (DATA) { bus_type : bus10; direction : input; capacitance : 0.005; }
+
+    bus (VIN) { bus_type : bus8; direction : inout; capacitance : 0.1; }
+
+    pin ("VH") { direction : inout; capacitance : 0.1;  }
+
+    pin ("VL") { direction : inout; capacitance : 0.1;  }
+
+  }
+  cell ("sky130_ef_ip__rdac3v_8bit") {
+    area : 13221;
+    dont_touch : true; dont_use : true;
+    pin ("ena") { direction : input; capacitance : 0.005;  }
+
+    bus (b) { bus_type : bus8; direction : input; capacitance : 0.005; }
+
+    pin ("out") { direction : inout; capacitance : 0.1;  }
+
+    pin ("Vhigh") { direction : inout; capacitance : 0.1;  }
+
+    pin ("Vlow") { direction : inout; capacitance : 0.1;  }
+
+  }
+  cell ("sky130_ef_io__gpiov2_pad_wrapped") {
+    area : 16877;
+    dont_touch : true; dont_use : true;
+    pin ("PAD") { direction : inout; capacitance : 5.0; timing () { related_pin : "OUT"; timing_sense : positive_unate; cell_rise (scalar) { values ("0.5"); } cell_fall (scalar) { values ("0.5"); } rise_transition (scalar) { values ("0.2"); } fall_transition (scalar) { values ("0.2"); } } }
+
+    pin ("IN") { direction : output; capacitance : 0.005; timing () { related_pin : "PAD"; timing_sense : positive_unate; cell_rise (scalar) { values ("0.5"); } cell_fall (scalar) { values ("0.5"); } rise_transition (scalar) { values ("0.2"); } fall_transition (scalar) { values ("0.2"); } } }
+
+    pin ("OUT") { direction : input; capacitance : 0.005;  }
+
+    pin ("OE_N") { direction : input; capacitance : 0.005;  }
+
+    pin ("PAD_A_ESD_0_H") { direction : inout; capacitance : 0.5;  }
+
+    pin ("TIE_HI_ESD") { direction : output; capacitance : 0.005;  }
+
+    pin ("TIE_LO_ESD") { direction : output; capacitance : 0.005;  }
+
+    bus (DM) { bus_type : bus3; direction : input; capacitance : 0.005; }
+
+    pin ("ANALOG_EN") { direction : input; capacitance : 0.005;  }
+
+    pin ("ANALOG_POL") { direction : input; capacitance : 0.005;  }
+
+    pin ("ANALOG_SEL") { direction : input; capacitance : 0.005;  }
+
+    pin ("ENABLE_H") { direction : input; capacitance : 0.005;  }
+
+    pin ("ENABLE_INP_H") { direction : input; capacitance : 0.005;  }
+
+    pin ("ENABLE_VDDA_H") { direction : input; capacitance : 0.005;  }
+
+    pin ("ENABLE_VDDIO") { direction : input; capacitance : 0.005;  }
+
+    pin ("ENABLE_VSWITCH_H") { direction : input; capacitance : 0.005;  }
+
+    pin ("HLD_H_N") { direction : input; capacitance : 0.005;  }
+
+    pin ("HLD_OVR") { direction : input; capacitance : 0.005;  }
+
+    pin ("IB_MODE_SEL") { direction : input; capacitance : 0.005;  }
+
+    pin ("INP_DIS") { direction : input; capacitance : 0.005;  }
+
+    pin ("SLOW") { direction : input; capacitance : 0.005;  }
+
+    pin ("VTRIP_SEL") { direction : input; capacitance : 0.005;  }
+
+  }
+}
