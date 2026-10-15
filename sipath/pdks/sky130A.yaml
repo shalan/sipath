@@ -45,7 +45,8 @@ cells:
   dont_use: [sky130_fd_sc_hd__probe_p_*, sky130_fd_sc_hd__probec_p_*, sky130_fd_sc_hd__lpflow_*,
              sky130_fd_sc_hd__clkdlybuf4s*]
   # cells with known layout (DRC) problems, as listed by the PDK: never used
-  exclude_files: ["${pdk_root}/${variant}/libs.tech/openlane/${scl}/drc_exclude.cells"]
+  exclude_files: ["${pdk_root}/${variant}/libs.tech/openlane/${scl}/drc_exclude.cells",
+                  "${here}/sky130/lvs_exclude_${scl}.cells"]   # cells the KLayout LVS deck cannot pair
 
 power:
   pins:  # STD_CELL_POWER_PINS / STD_CELL_GROUND_PINS

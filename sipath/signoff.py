@@ -397,6 +397,24 @@ def drc(ctx, gds: str, owners: dict | None = None, top: str | None = None) -> di
             "groups": [{"options": n, "count": p["count"]} for n, p in zip(names, parts)]}
 
 
+def density(ctx, gds: str) -> dict:
+    """The PDK's metal density deck (signoff.density_deck) on the GDS: its
+    markers fail the check for a top-level layout (die, harness wrapper,
+    is_core); for an embedded macro they are reported only (the rule is the
+    chip's). The per-layer densities it logs are reported."""
+    so = _cfg(ctx)
+    rpt = ctx.path("density.lyrdb")
+    log = run_tool(ctx, ["klayout", "-b", "-r", so["density_deck"], "-rd", f"input={gds}",
+                         "-rd", f"top_cell={ctx.design.top}", "-rd", f"report={rpt}"], ctx.path("density.log"))
+    if not os.path.isfile(rpt):
+        raise SignoffError(f"density check wrote no report at {rpt}")
+    text = log or ""
+    # "<layer>_ca_density is <clear area fraction>": metal density = 1 - clear area
+    dens = {m.group(1): round(1 - float(m.group(2)), 4)
+            for m in re.finditer(r"(\w+?)_ca_density is (-?[\d.eE+-]+)", text)}
+    return {**parse_lyrdb(rpt, None, ctx.design.top), "report": rpt, "metal_density": dens}
+
+
 # ----------------------------------------------------------------- Magic
 XOR = os.path.join(HERE, "klayout", "xor.py")
 

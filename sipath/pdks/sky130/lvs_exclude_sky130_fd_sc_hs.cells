@@ -1,0 +1,2 @@
+# Cells the KLayout standard-cell LVS deck cannot pair with their CDL subcircuit
+# (see lvs_exclude_sky130_fd_sc_hd.cells). None found yet for this library.

@@ -669,7 +669,7 @@ class Exclusions(unittest.TestCase):
     def test_lists_loaded_and_enforced(self):
         from sipath.eco import check_ops
         hd, hs = load_pdk("sky130A", platforms="/p"), load_pdk("sky130A_hs", platforms="/p")
-        self.assertEqual((len(hd.exclude), len(hs.exclude)), (53, 51))
+        self.assertEqual((len(hd.exclude), len(hs.exclude)), (54, 51))  # hd: + a21oi_2 (LVS)
         self.assertIn("sky130_fd_sc_hd__buf_16", hd.exclude)
         self.assertIn("sky130_fd_sc_hs__mux4_4", hs.exclude)
         self.assertTrue(hd.exclude_sources[0].endswith("sky130_fd_sc_hd/drc_exclude.cells"))
@@ -1197,6 +1197,33 @@ class Templates(unittest.TestCase):
             t.values({"inputs": "many"})
         with self.assertRaisesRegex(ValueError, "below 1"):
             t.values({"outputs": 0})
+
+
+class UndefinedNames(unittest.TestCase):
+    """Every global name a function of the package uses exists (a deleted or
+    renamed helper is found here, not in a two-hour live run)."""
+
+    def test_globals_referenced_by_functions_exist(self):
+        import builtins
+        import importlib
+        import symtable
+        here = os.path.join(os.path.dirname(__file__), "..")
+        bad = []
+        for f in sorted(os.listdir(here)):
+            if not f.endswith(".py") or f == "__main__.py":
+                continue
+            mod = importlib.import_module(f"sipath.{f[:-3]}")
+            with open(os.path.join(here, f)) as fh:
+                table = symtable.symtable(fh.read(), f, "exec")
+            stack = list(table.get_children())
+            while stack:
+                scope = stack.pop()
+                stack.extend(scope.get_children())
+                for s in scope.get_symbols():
+                    if s.is_global() and s.is_referenced() and not hasattr(mod, s.get_name()) \
+                            and not hasattr(builtins, s.get_name()):
+                        bad.append(f"{f}: {scope.get_name()} uses {s.get_name()}")
+        self.assertEqual(bad, [])
 
 
 class SignoffUnits(unittest.TestCase):

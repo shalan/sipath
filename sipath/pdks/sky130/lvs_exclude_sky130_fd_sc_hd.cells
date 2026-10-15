@@ -1,0 +1,8 @@
+# Cells the KLayout standard-cell LVS deck (sky130_stdcell.lvs) cannot pair with
+# their CDL subcircuit, kept out of synthesis, sizing and CTS so every design's
+# LVS stays meaningful (found by signoff; checked by hand).
+#
+# a21oi_2: the layout draws the A1/A2 pull-down as two series chains with their
+# own inner nodes; the CDL writes one chain with m=2. The engine merges parallel
+# devices but not parallel series chains (2026-10-15, gcd at 1.1 ns).
+sky130_fd_sc_hd__a21oi_2
