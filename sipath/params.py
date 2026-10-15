@@ -97,6 +97,13 @@ STEP_PARAMS: dict[str, list[Param]] = {
         Param("lint", "bool", True, "lint the RTL first (implicit nets, hierarchy, undriven / multiply driven "
               "nets, combinational loops are errors)"),
         Param("lint_strict", "bool", False, "fail on any lint warning"),
+        Param("equiv", "str", "bounded", "check the netlist against the RTL: bounded (equal outputs for "
+              "equiv_depth cycles from reset, every input sequence) or off", choices=("bounded", "off")),
+        Param("equiv_depth", "int", 10, "cycles from reset the equivalence covers", min=1),
+        Param("equiv_reset", "str", None, "reset port and active level, e.g. rst_n:0 (default: found among "
+              "rst_n, resetn, reset_n, rstn, nrst (active 0), rst, reset (active 1))"),
+        Param("equiv_timeout", "int", 600, "SAT time limit; reached: inconclusive (reported, not passed)",
+              unit="s", min=1),
         Param("port_buffers", "bool", True, "buffer assignments between ports (off: a port-to-port assignment "
               "stays one net with two pins, e.g. a wrapper output tied to a frame loopback input)"),
     ],

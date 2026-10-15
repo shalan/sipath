@@ -560,6 +560,11 @@ class Flow:
             with open(tmp, "w") as f:
                 json.dump(data, f, indent=1, default=str)
             os.replace(tmp, os.path.join(self.workdir, "graph.json"))
+            try:  # the run's report page follows the graph; it never fails the run
+                from . import report
+                report.write(self.workdir)
+            except Exception as e:  # noqa: BLE001
+                log.warning("run report not written: %s", e)
 
 
 def _slowest(session, n: int = 8) -> list:

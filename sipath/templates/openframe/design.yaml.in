@@ -17,7 +17,7 @@ config:
   tool_timeout: 21600        # LVS of the strip (fill and decap cells) is long under emulation
 flow:
 - step: synth
-  variants: [{port_buffers: false}]   # pad controls stay wires to the frame's loopback inputs
+  variants: [{port_buffers: false, equiv_reset: "resetb_l:0"}]   # pad controls stay wires to the frame's loopback inputs
 - step: floorplan
 - step: physical
 - step: place

@@ -178,6 +178,7 @@ YAML or JSON; relative paths are relative to the file. Keys not listed are error
 | `container_memory` | str |  | memory limit per container (e.g. 8g) |
 | `image` | str |  | ORFS image (name@sha256:... pins it) |
 | `magic_image` | str |  | image with Magic for the signoff checks magic_drc and xor (docker/magic) |
+| `native_tools` | list[str] |  | tools run on the host instead of the image (klayout, yosys, magic): faster than emulation |
 | `tool_timeout` | number |  | seconds one signoff tool run (KLayout DRC/LVS, Magic) may take |
 | `require_digest` | bool |  | refuse an image not pinned by digest |
 | `debug_failed` | bool |  | write a debug checkpoint for a failed attempt |
@@ -211,6 +212,10 @@ Set per attempt in `variants` (design file `flow:` or MCP `run_step`), or as def
 | `abc_period_ps` | float | – | 1.. | ABC delay target; default: the SDC's first create_clock period [ps] |
 | `lint` | bool | true |  | lint the RTL first (implicit nets, hierarchy, undriven / multiply driven nets, combinational loops are errors) |
 | `lint_strict` | bool | false |  | fail on any lint warning |
+| `equiv` | str | bounded | bounded, off | check the netlist against the RTL: bounded (equal outputs for equiv_depth cycles from reset, every input sequence) or off |
+| `equiv_depth` | int | 10 | 1.. | cycles from reset the equivalence covers |
+| `equiv_reset` | str | – |  | reset port and active level, e.g. rst_n:0 (default: found among rst_n, resetn, reset_n, rstn, nrst (active 0), rst, reset (active 1)) |
+| `equiv_timeout` | int | 600 | 1.. | SAT time limit; reached: inconclusive (reported, not passed) [s] |
 | `port_buffers` | bool | true |  | buffer assignments between ports (off: a port-to-port assignment stays one net with two pins, e.g. a wrapper output tied to a frame loopback input) |
 
 ### floorplan
@@ -343,6 +348,7 @@ Design file `config:`, a `--config` file, or `SIPATH_<KEY>` environment variable
 | `container_memory` | str | memory limit per container (e.g. 8g) |
 | `image` | str | ORFS image (name@sha256:... pins it) |
 | `magic_image` | str | image with Magic for the signoff checks magic_drc and xor (docker/magic) |
+| `native_tools` | list[str] | tools run on the host instead of the image (klayout, yosys, magic): faster than emulation |
 | `tool_timeout` | number | seconds one signoff tool run (KLayout DRC/LVS, Magic) may take |
 | `require_digest` | bool | refuse an image not pinned by digest |
 | `debug_failed` | bool | write a debug checkpoint for a failed attempt |

@@ -18,6 +18,7 @@
     python3 -m sipath schema [out.json] JSON Schema of a design file (stdout without a file)
     python3 -m sipath draw <odb> <svg> [--ring]   schematic SVG of a checkpoint (--ring: IO ring only)
     python3 -m sipath render <odb> <png>          OpenROAD layout render of a checkpoint (save_image)
+    python3 -m sipath report <workdir> [--render]   run report (report.md, report.html; --render: layout.png)
     python3 -m sipath mcp               MCP server on stdio (tools: open_run, run_step, run_eco, ...)
 """
 from __future__ import annotations
@@ -96,6 +97,20 @@ def main(argv) -> int:
     if cmd == "render":
         from .viz import render
         print(render(argv[1], argv[2]))
+        return 0
+    if cmd == "report":
+        import json as _json
+        from . import report
+        wd = os.path.abspath(argv[1]) if len(argv) > 1 else os.getcwd()
+        if "--render" in argv:  # the last selected checkpoint that is a database
+            from .viz import render
+            with open(os.path.join(wd, "graph.json")) as f:
+                g = _json.load(f)
+            sel = {a["id"] for a in g["attempts"] if a.get("status") == "selected"}
+            odbs = [a["checkpoint"] for a in g["attempts"] if a["id"] in sel and str(a.get("checkpoint")).endswith(".odb")]
+            if odbs:
+                print(render(odbs[-1], os.path.join(wd, "layout.png")))
+        print("\n".join(report.write(wd)))
         return 0
     if cmd == "mcp":
         from .mcp_server import serve

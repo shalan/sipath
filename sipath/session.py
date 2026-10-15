@@ -97,10 +97,13 @@ class DockerRunner:
 
     def __init__(self, image: str = ORFS_IMAGE, binary: str = ORFS_OPENROAD, mounts: list[str] | None = None,
                  platform: str = "linux/amd64", threads: int = 2, cpus: float | None = None,
-                 memory: str | None = None):
+                 memory: str | None = None, native_tools: dict | None = None):
         self.image, self.binary, self.platform = image, binary, platform
         self.threads, self.cpus, self.memory = threads, cpus, memory
         self.mounts = list(mounts or [])
+        # tool -> host binary run instead of the image's (config.native_tools): host paths are
+        # the container's, so the same command line works
+        self.native_tools = dict(native_tools or {})
 
     def limits(self) -> list[str]:
         out = []
@@ -119,8 +122,11 @@ class DockerRunner:
         return {"image": self.image, "id": parts[0] if parts else None, "digest": parts[1] if len(parts) > 1 else None}
 
     def provenance(self) -> dict:
-        return {"kind": self.kind, **self.image_id(), "threads": self.threads, "cpus": self.cpus,
-                "memory": self.memory}
+        out = {"kind": self.kind, **self.image_id(), "threads": self.threads, "cpus": self.cpus,
+               "memory": self.memory}
+        if self.native_tools:
+            out["native_tools"] = {t: {"binary": b, "version": tool_version(b)} for t, b in self.native_tools.items()}
+        return out
 
     def command(self, workdir: str, name: str) -> list[str]:
         cmd = ["docker", "run", "-i", "--rm", "--init", "--name", name, "--platform", self.platform, *self.limits()]
@@ -148,7 +154,11 @@ class DockerRunner:
                      env: dict | None = None) -> list[str]:
         """Command line running another tool of the image (e.g. klayout) with
         the same mounts as an OpenROAD session; ``image``: another image (e.g.
-        one with Magic), ``env``: environment variables in the container."""
+        one with Magic), ``env``: environment variables in the container. A
+        tool in ``native_tools`` runs on the host instead (no image)."""
+        if args and args[0] in self.native_tools:
+            return (["env", *[f"{k}={v}" for k, v in env.items()]] if env else []) + \
+                [self.native_tools[args[0]], *args[1:]]
         cmd = ["docker", "run", "--rm", "--platform", self.platform, *self.limits()]
         for k, v in (env or {}).items():
             cmd += ["-e", f"{k}={v}"]
@@ -179,6 +189,32 @@ class DockerRunner:
         return (os.path.dirname(ORFS_PLATFORMS.rstrip("/")),)
 
 
+def tool_version(binary: str) -> str:
+    """First line of ``<binary> -v`` / ``-V`` / ``--version`` (provenance)."""
+    for flag in ("-v", "-V", "--version"):
+        try:
+            r = subprocess.run([binary, flag], capture_output=True, text=True, timeout=30)
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        line = (r.stdout or r.stderr).strip().splitlines()
+        if r.returncode == 0 and line:
+            return line[0][:120]
+    return "?"
+
+
+def native_tools(config: Config) -> dict:
+    """config.native_tools that exist on the host: {tool: binary}. A tool
+    asked for and not found is an error (silently falling back to the image
+    would hide which build ran)."""
+    out = {}
+    for name in config.native_tools or []:
+        b = shutil.which(name)
+        if not b:
+            raise FileNotFoundError(f"native_tools: {name} is not on PATH")
+        out[name] = b
+    return out
+
+
 def find_openroad(config: Config | None = None):
     """Return a runner for an available OpenROAD, or None.
 
@@ -202,7 +238,8 @@ def find_openroad(config: Config | None = None):
         except (OSError, subprocess.TimeoutExpired):
             ok = False
         if ok:
-            return DockerRunner(cfg.image, threads=cfg.threads, cpus=cfg.container_cpus, memory=cfg.container_memory)
+            return DockerRunner(cfg.image, threads=cfg.threads, cpus=cfg.container_cpus, memory=cfg.container_memory,
+                                native_tools=native_tools(cfg))
     return None
 
 

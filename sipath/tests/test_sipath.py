@@ -853,6 +853,24 @@ class SynthUnits(unittest.TestCase):
                 f.step("synth2", broken)
 
 
+class RtlEquivalence(unittest.TestCase):
+    """The synth step's RTL-vs-netlist check (script and reset choice; the SAT
+    run itself is in the live RTL test)."""
+
+    def test_script_and_reset(self):
+        from sipath import synth
+        pdk = load_pdk("sky130A") if SKY130A else None
+        if pdk is None:
+            self.skipTest("no sky130A")
+        d = Design("t", "t", None, "s.sdc", "macro", rtl=["/r/t.v"])
+        s = synth.equiv_script(pdk, d, "/n/t.v", 7, ("rst_n", 0), 99)
+        self.assertLess(s.index("rename t gold"), s.index("read_verilog /n/t.v"))
+        self.assertIn("miter -equiv -flatten -make_assert -ignore_gold_x gold gate miter", s)
+        self.assertIn("-set-at 1 in_rst_n 0 -seq 7 -prove-skip 1 -timeout 99 miter", s)
+        self.assertNotIn("-set-at", synth.equiv_script(pdk, d, "/n/t.v", 7, None, 99))
+        self.assertEqual([n for n, _ in synth.RESET_NAMES][:2], ["rst_n", "resetn"])
+
+
 class BlackboxModels(unittest.TestCase):
     """Black-box Liberty models written from a macro's LEF (opt-in)."""
     DAC = os.path.join(os.path.dirname(__file__), "..", "examples", "inputs", "chipfoundry",
@@ -1382,6 +1400,28 @@ class LiveRtl(unittest.TestCase):
         self.assertEqual(sy.metrics["lint_warnings"], 0)
         self.assertGreater(sy.metrics["synth_cells"], 50)
         self.assertGreater(sy.metrics["synth_flops"], 20)
+        self.assertEqual(sy.metrics["equiv"], "equivalent for 10 cycles from reset")  # P0.3
+        # a netlist with one gate changed is refused
+        from sipath import synth
+        from sipath.signoff import run_tool
+        with open(sy.outputs["netlist"]) as fh:
+            good = fh.read()
+        bad = re.sub(r"sky130_fd_sc_hd__nand2_1 ", "sky130_fd_sc_hd__nor2_1 ", good, count=1)
+        self.assertNotEqual(bad, good)
+        bad_v = os.path.join(sy.dir, "bad.v")
+        with open(bad_v, "w") as fh:
+            fh.write(bad)
+        script = os.path.join(sy.dir, "bad_equiv.ys")
+        with open(script, "w") as fh:
+            fh.write(synth.equiv_script(f.pdk, f.design, bad_v, 10, ("rst_n", 0), 600))
+        ctx = types.SimpleNamespace(dir=sy.dir, runner=f.runner, config=None, path=lambda n: os.path.join(sy.dir, n))
+        try:
+            run_tool(ctx, ["yosys", "-q", "-l", os.path.join(sy.dir, "bad_equiv.log"), "-s", script],
+                     os.path.join(sy.dir, "bad_equiv.out"))
+        except Exception:
+            pass
+        with open(os.path.join(sy.dir, "bad_equiv.log")) as fh:
+            self.assertIn("FAIL", fh.read())
         self.assertEqual(sy.metrics["abc_period_ps"], 10000.0)
         self.assertTrue(f.steps["floorplan"].selected.outputs.get("auto_pins"))
         self.assertTrue(f.steps["physical"].selected.outputs.get("pdn_straps_scaled"))
@@ -1699,6 +1739,23 @@ class Scheduler(unittest.TestCase):
             self.assertEqual(len({a.session_id for a in run.attempts}), 6)  # one session each
             for a in run.attempts:
                 self.assertTrue(os.path.isfile(a.checkpoint))
+
+    def test_every_step_leaves_a_run_report(self):
+        with tempfile.TemporaryDirectory() as td:
+            f = self.flow(td)
+            a = f.step("place", demo.fake_step(), variants=[{"d": 1}, {"d": 2}], score="setup_wns")
+            try:
+                f.step("cts", demo.fake_step(fail_if=lambda p: True), parent=a.selected)
+            except StepFailed:
+                pass
+            with open(os.path.join(td, "report.md")) as fh:
+                md = fh.read()
+            self.assertIn("| place | 2/2 | place.", md)
+            self.assertIn("| cts | 0/1 | none |", md)
+            self.assertIn("## Failures", md)
+            self.assertIn("**cts.0**", md)
+            with open(os.path.join(td, "report.html")) as fh:
+                self.assertIn("<table>", fh.read())
 
     def test_failure_writes_no_checkpoint_and_parent_rules(self):
         with tempfile.TemporaryDirectory() as td:

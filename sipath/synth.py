@@ -93,6 +93,70 @@ def synth_script(pdk, d, out: str, period_ps: float | None, abc: str, port_buffe
     return "\n".join(lines) + "\n"
 
 
+# reset port names and their active level, tried in order when equiv_reset is not given
+RESET_NAMES = (("rst_n", 0), ("resetn", 0), ("reset_n", 0), ("rstn", 0), ("nrst", 0), ("rst", 1), ("reset", 1))
+
+
+def equiv_script(pdk, d, netlist: str, depth: int, reset: tuple[str, int] | None, timeout: int) -> str:
+    """Yosys script: the RTL (as synthesis reads it) against the gate-level
+    netlist (cell functions from the Liberty file), as a miter checked from
+    reset for ``depth`` clock cycles (bounded: equal outputs in every cycle of
+    every input sequence from reset)."""
+    std, _ = _libs(pdk, d)
+    rst = f" -set-at 1 in_{reset[0]} {reset[1]}" if reset else ""
+    return "\n".join([
+        *_read_rtl(d, True), f"hierarchy -check -top {d.top}", "proc", "flatten", "opt_clean",
+        f"rename {d.top} gold", "design -stash gold",
+        f"read_liberty -ignore_miss_func {std}", f"read_verilog {netlist}", f"hierarchy -check -top {d.top}",
+        "proc", "flatten", "opt_clean", f"rename {d.top} gate", "design -stash gate",
+        "design -copy-from gold -as gold gold", "design -copy-from gate -as gate gate",
+        "miter -equiv -flatten -make_assert -ignore_gold_x gold gate miter", "hierarchy -top miter",
+        "async2sync", "opt_clean",
+        f"sat -verify -prove-asserts -set-init-undef -set-def-inputs{rst} -seq {depth} -prove-skip 1 "
+        f"-timeout {timeout} miter", ""])
+
+
+def equivalence(ctx, netlist: str) -> dict:
+    """The synthesized netlist against the RTL (bounded from reset); a
+    mismatch fails the step, a timeout is inconclusive (reported)."""
+    d, pdk, p = ctx.design, ctx.pdk, ctx.params
+    if d.macros:
+        return {"result": "skipped", "reason": "macros are black boxes to the check"}
+    from .netlist import read_verilog
+    ports = {pt.name for pt in read_verilog(netlist, d.top).ports}
+    given = p.get("equiv_reset")
+    if given:
+        name, _, level = given.partition(":")
+        if name not in ports:
+            raise ValueError(f"synth: equiv_reset port {name!r} is not a port of {d.top}")
+        reset = (name, int(level or 0))
+    else:
+        reset = next(((n, lvl) for n, lvl in RESET_NAMES if n in ports), None)
+    depth, timeout = int(p.get("equiv_depth", 10)), int(p.get("equiv_timeout", 600))
+    script = ctx.path("equiv.ys")
+    with open(script, "w") as f:
+        f.write(equiv_script(pdk, d, netlist, depth, reset, timeout))
+    log = ctx.path("equiv.log")
+    try:
+        run_tool(ctx, ["yosys", "-q", "-l", log, "-s", script], ctx.path("equiv.out"))
+    except Exception:
+        pass  # the log tells: a counterexample (FAIL) or a timeout
+    text = open(log, errors="replace").read() if os.path.isfile(log) else ""
+    res = {"depth": depth, "reset": f"{reset[0]}={reset[1]}" if reset else None, "log": log}
+    if "SAT proof finished - no model found: SUCCESS" in text:
+        res["result"] = f"equivalent for {depth} cycles from reset"
+    elif "FAIL" in text and "model found" in text:
+        res["result"] = "mismatch"
+        tail = text[text.rfind("Time Signal Name"):][:3000] if "Time Signal Name" in text else text[-3000:]
+        raise RuntimeError(f"synth: the netlist differs from the RTL within {depth} cycles from reset "
+                           f"(log {log}):\n{tail}")
+    elif "timeout" in text.lower() or "Interrupted" in text:
+        res["result"] = "inconclusive (timeout)"
+    else:
+        raise RuntimeError(f"synth: equivalence check did not run to a result (log {log})")
+    return res
+
+
 def _liberty_cells(paths) -> dict[str, bool]:
     """{cell: sequential} of the Liberty files (sequential: has an ff or latch group)."""
     cells = {}
@@ -108,8 +172,10 @@ def _liberty_cells(paths) -> dict[str, bool]:
 
 
 def synth(ctx):
-    """RTL to a flat gate-level netlist (Yosys). params: abc (delay|area),
-    abc_period_ps, lint, lint_strict."""
+    """RTL to a flat gate-level netlist (Yosys), then the netlist checked
+    against the RTL (equivalence from reset, bounded). params: abc
+    (delay|area), abc_period_ps, lint, lint_strict, equiv, equiv_depth,
+    equiv_reset, equiv_timeout."""
     from .netlist import read_verilog
     from .signoff import lef_macro
     d, pdk, p = ctx.design, ctx.pdk, ctx.params
@@ -166,6 +232,10 @@ def synth(ctx):
                        synth_flops=sum(1 for i in insts if lib_cells.get(i.cell)),
                        abc_period_ps=period if p.get("abc", "delay") == "delay" else None)
     ctx.outputs.update(checkpoint=out, netlist=out, synth_log=log, synth_script=script)
+    if p.get("equiv", "bounded") != "off":
+        eq = equivalence(ctx, out)
+        ctx.outputs["equiv"] = eq
+        ctx.metrics["equiv"] = eq["result"]
 
 
 synth.tool = True  # the scheduler runs it without an OpenROAD process
