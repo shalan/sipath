@@ -459,7 +459,7 @@ week or more. "Owner" marks items that need a decision or approval first.
 
 | # | Item | Size | Done when |
 |---|------|------|-----------|
-| P0.1 | Version control: `git init`, `.gitignore` (runs/), first local commit; nothing pushed. **Owner** | S | `git log` shows the tree |
+| ~~P0.1~~ | **DONE 2026-10-15.** Version control: renamed SiPath (`sipath`), git repo, pushed to github.com/shalan/sipath (public, Apache-2.0), commits as shalan. | S | done |
 | P0.2 | Metal fill and density: a `finish` step (OpenROAD `density_fill` or KLayout fill, PDK fill rules), density checks in signoff DRC, fill in the written GDS. | M | dp8, gcd8 and mcu8 signoff with fill: DRC 0 including density |
 | P0.3 | RTL vs netlist equivalence: `eqy` (in the image) on the synth step's netlist against the RTL, with the PDK Liberty cell functions. | M | gcd8 proven; a deliberately wrong netlist is refused |
 | P0.4 | Full-device LVS: the PDK-maintained KLayout LVS deck (or Magic extraction + Netgen) with hv devices, MIM caps and poly resistors, beside the standard-cell deck. | M-L | dp8 still matches; a macro-level LVS of the ADC against its schematic runs |
@@ -486,7 +486,7 @@ week or more. "Owner" marks items that need a decision or approval first.
 | P2.4 | Run report: one HTML/Markdown page per run (metrics per step, failures with report links, pictures). | S-M | report written by every run |
 | P2.5 | Real pad timing (old I7): gpiov2 Liberty instead of the black-box pad Liberty in mcu8. | S-M | mcu8 timing paths through pad delays |
 | P2.6 | Mixed hs/ms/ls libraries (old I5). | M | a netlist mixing them signs off; ms->hs ECO passes equivalence |
-| P2.7 | Front end: Verilator lint (needs the tool), SystemVerilog through slang, synthesis variants (abc scripts, retiming) as attempts. | M | an SV design synthesizes; a sweep over abc goals picks by score |
+| P2.7 | Front end: Verilator lint (needs the tool), SystemVerilog through slang, synthesis variants (abc scripts, retiming) as attempts. (Done 2026-10-15: Yosys lint + synthesis step, black-box Liberty models for macros without a lib.) | M | an SV design synthesizes; a sweep over abc goals picks by score |
 | P2.8 | Tests without open_pdks (old I2): skip with a reason or fall back to the ORFS sky130 copy. **Owner** | S | suite on a host without `~/.ciel` skips, never errors |
 
 ### P3: polish and follow-ups
