@@ -31,7 +31,115 @@ python3 -m sipath validate      # inputs + scheduler rules (stand-in sessions, n
 python3 -m sipath draw <odb> <svg> [--ring]   # schematic SVG of a checkpoint
 python3 -m sipath render <odb> <png>          # OpenROAD's own layout render
 python3 -m sipath mcp           # MCP server on stdio
+python3 -m sipath harden gcd8 sipath/examples/hardened/gcd8   # a design's hardened-macro views
+python3 -m sipath templates     # design templates; `new <dir> --template openframe` writes a project
+python3 -m sipath report runs/gcd8 --render   # the run's report page (report.md / report.html)
 ```
+
+## Features
+
+**Inputs and configuration**
+- Design files in YAML or JSON, checked against a schema (every unknown key
+  and wrong type listed at once); the JSON Schema and `docs/reference.md` are
+  generated from the same declarations.
+- Typed step parameters, resolved variant > design `step_defaults` > PDK
+  `step_defaults` > declared default; `describe_step` lists them.
+- PDKs as data: sky130A/B, sky130A_hs, sky130hd (ORFS platform files), IHP
+  SG13G2; sky130 the most complete (corners, routing, power grid, IO, signoff
+  decks, fill rules, Magic rc file, cell exclusions, LVS black boxes).
+- Run configuration from a file or `SIPATH_*` variables: threads, timeouts,
+  parallel cap, container limits, image and digest pinning, Magic image,
+  native tools, OpenROAD binary, platform.
+- Plugins (`plugins:` or the `sipath.plugins` entry points) add steps,
+  scores, signoff checks, harnesses, design templates and design-file
+  extensions.
+
+**Front end**
+- `synth`: Yosys lint and synthesis (ABC delay or area goal, optional port
+  buffering, the PDK's excluded cells respected).
+- Black-box Liberty models from a macro's LEF when it has no Liberty (opt-in).
+- RTL-to-netlist equivalence after synthesis: bounded, from reset (10 cycles
+  by default); a mismatch fails the step with the counterexample.
+
+**Physical design** (`floorplan`, `macros`, `physical`, `place`, `cts`,
+`route_analog`, `route_digital`, `route_repair`, `fill`, `extract`,
+`signoff`, `views`, `integrate`)
+- Soft macro (floorplan from a DEF, a die box or a target utilization; pins
+  placed automatically) or full die (pad ring generated from rules, every IO
+  control pin tied).
+- Hard macros: placed by the design or automatically (halos, cut rows),
+  per-macro supply connections and grids, abstract or full-layout signoff;
+  hardened views reused with `views: <dir>`.
+- Power grid (rings, straps scaled to the design) and a power connector for
+  pins the grid generator cannot reach (pad tabs, analog macro tabs, harness
+  supply pins); 3.3 V analog supplies routed with a non-default rule.
+- Placement: timing-driven, optionally routability-driven; fences and
+  clusters; structured datapaths (column, array, bit-slice) with well-tap
+  slots; tie-cell fanout repair.
+- CTS, then routing: analog nets first and frozen; digital routing with
+  repair on global-route parasitics, antenna repair loops, incremental patch
+  routes; post-route timing repair on extracted parasitics, checked for
+  equivalence; zero-extension corners squared.
+- Metal fill with the PDK's rules, up to the design's top routing layer.
+- OpenRCX extraction per corner, power-grid checks, IR drop; timing at nine
+  sky130 corners (tt/ss/ff x min/nom/max interconnect).
+
+**Signoff**
+- KLayout DRC (the deck's rule groups run in parallel), metal density
+  (gating for top-level layouts, reported for embedded macros), KLayout LVS
+  against a reference netlist (tie cells and supplies handled; macros and IO
+  cells as black boxes when asked), antennas, independent STA (setup, hold,
+  slew/cap/fanout, parasitic coverage, unconstrained endpoints), harness
+  conformance.
+- Opt-in Magic DRC and a Magic-vs-KLayout stream-out XOR.
+- One summary (`signoff.json`); a required check that fails fails the run.
+
+**Frames and chips**
+- Harnesses (OpenFrame, Caravel): the design is the frame's wrapper (template
+  die and pins, every frame supply pin, power grid, routing limits). Pins that
+  overhang the boundary are clipped for routing and restored at signoff;
+  loopback nets are never buffered; the routed wrapper is checked against the
+  template pin by pin.
+- `integrate`: the hardened wrapper placed in the frame's layout by Magic and
+  the chip GDS checked (die, wrapper position, contents unchanged); the seal
+  ring is left to tape-out.
+- Hardened macro views (`views`, `sipath harden`): abstract LEF, Liberty per
+  corner, GDS, LVS subcircuit, SPEF, netlists, `macro.yaml`.
+- Design templates (`sipath templates`, `sipath new --template openframe`):
+  wrapper, starter core, SDC and design file, ready to run.
+
+**Exploration and execution**
+- Attempt graph: variants per step run in parallel, named scores choose,
+  resume, cancel, provenance; a failed attempt writes no checkpoint.
+- ECOs (resize, buffer) checked for structural equivalence and timing
+  regression.
+- MCP server for agents (runs, steps, ECOs, jobs, step descriptions).
+- A run report (`report.md` / `report.html`) after every step;
+  `sipath report --render` adds a layout picture.
+
+**Runtimes**
+- OpenROAD from the ORFS image (amd64, the default), any image with OpenROAD
+  on PATH (e.g. LibreLane's arm64 image), or a native binary; Yosys, KLayout
+  and Magic can run on the host while OpenROAD stays in the container.
+- Provenance records the image digest, platform, binary and tool versions.
+
+**Benchmark and tests**
+- `bench/orfs_compare.py`: ORFS's reference designs through ORFS and SiPath
+  from the same inputs, both measured by the same code (results below, gcd
+  and aes).
+- 146 tests (offline and live); offline checks include undefined names, the
+  examples' step parameters and PDK names kept out of the library code.
+
+**Known limits**
+- RTL equivalence is bounded, not a full proof.
+- Six sky130 HD cells are kept out of synthesis: the KLayout LVS deck cannot
+  pair them (`sipath/pdks/sky130/lvs_exclude_sky130_fd_sc_hd.cells`).
+- The arm64 image's OpenROAD crashes in the repair after global routing on
+  the OpenFrame wrapper.
+- dp8's XOR shows two sub-0.1 µm² differences on wide analog wires (Magic
+  reads their wire-end extensions differently).
+- No SystemVerilog front end yet; full-device LVS (P0.4) not done; half
+  OpenFrame waits on ChipFoundry's licence.
 
 The MCP server exposes `open_run` (an example name or any design file;
 `resume` picks up a workdir), `run_step`, `run_eco`, `job_status`,
@@ -62,11 +170,11 @@ The MCP server exposes `open_run` (an example name or any design file;
   result; attempts of an interrupted sweep that finished are kept and only
   the rest run. A selected attempt's directory is never deleted, and no
   attempt directory is reused.
-- `sipath.config` (file, `FLOW_*` environment, a design file's `config:`
+- `sipath.config` (file, `SIPATH_*` environment, a design file's `config:`
   section): threads, command timeout, parallel cap, container CPU/memory,
   image (`name@sha256:...` pins it; `require_digest` refuses anything else),
   debug checkpoints for failed attempts, log level. The library logs to the
-  `flow` logger and is silent unless the caller configures logging.
+  `sipath` logger and is silent unless the caller configures logging.
 
 ## Where OpenROAD comes from
 
@@ -622,7 +730,7 @@ macro_channel: 20                   # also macro_pin_clearance, analog_guard
 dont_use: ["*_16"]                  # extra cell patterns; allow_excluded waives PDK exclusions
 extra_lefs: [ip/blackboxes.lef]
 extra_libs: [ip/blackboxes.lib]
-config: {threads: 8, parallel_cap: 4}   # run configuration (also FLOW_* env, --config)
+config: {threads: 8, parallel_cap: 4}   # run configuration (also SIPATH_* env, --config)
 inputs: {generate: "mypkg.gen:write"}   # optional hook that writes generated inputs first
 flow:                               # steps in order; each continues from the previous selection
 - step: floorplan
