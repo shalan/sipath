@@ -54,6 +54,11 @@ python3 -m sipath report runs/gcd8 --render   # the run's report page (report.md
   attempts running at once), timeouts,
   parallel cap, container limits, image and digest pinning, Magic image,
   native tools, OpenROAD binary, platform.
+- Reproducible toolchain: the images are locked by digest with their tool
+  versions (`sipath/toolchain.json`; `python3 -m sipath toolchain --check`
+  compares the configured images), and an unpinned image is refused by
+  default. `pyproject.toml` packages it (`sipath` console script); the
+  example inputs are committed and their generators leave current files alone.
 - Plugins (`plugins:` or the `sipath.plugins` entry points) add steps,
   scores, signoff checks, harnesses, design templates and design-file
   extensions.
@@ -190,15 +195,16 @@ The MCP server exposes `open_run` (an example name or any design file;
   attempt directory is reused.
 - `sipath.config` (file, `SIPATH_*` environment, a design file's `config:`
   section): threads, command timeout, parallel cap, container CPU/memory,
-  image (`name@sha256:...` pins it; `require_digest` refuses anything else),
+  image (pinned by digest by default; an unpinned image is refused unless
+  `SIPATH_REQUIRE_DIGEST=0`),
   debug checkpoints for failed attempts, log level. The library logs to the
   `sipath` logger and is silent unless the caller configures logging.
 
 ## Where OpenROAD comes from
 
 `find_openroad()` uses, in order: `$SIPATH_OPENROAD`, `openroad` on PATH, then
-the ORFS docker image (`openroad/orfs:latest`, or `$SIPATH_OPENROAD_IMAGE`) if
-it is already pulled. With docker, the host directories are mounted at the
+the ORFS docker image (the digest locked in `sipath/toolchain.json`, or
+`$SIPATH_OPENROAD_IMAGE`) if it is already pulled. With docker, the host directories are mounted at the
 same path, so file names in Tcl are the same inside and outside.
 
 **Sky130 is first class** (`pdk: sky130A` or `sky130B`, `sipath/pdks/sky130A.yaml`):
@@ -338,7 +344,7 @@ On this machine there is no native `openroad`; runs use the image's
 OpenROAD `26Q3-1867-g84e3ff1eb2` (linux/amd64 under emulation).
 
 
-**Runtimes (P1.1).** The default is the ORFS image (`openroad/orfs:latest`,
+**Runtimes (P1.1).** The default is the ORFS image (`openroad/orfs`, locked by digest,
 amd64: under Rosetta on Apple silicon). Two ways to avoid the emulation:
 - an arm64 image with the tools on PATH, e.g. LibreLane's multi-arch image:
   `SIPATH_OPENROAD_IMAGE=ghcr.io/librelane/librelane:3.0.16

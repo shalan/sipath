@@ -1,0 +1,23 @@
+{
+ "about": "Tool images and versions SiPath is tested with (P1.6). Config defaults come from here; `python3 -m sipath toolchain --check` compares the configured images against it.",
+ "images": {
+  "orfs": {
+   "ref": "openroad/orfs@sha256:751a77afcade9882b51427e6d9d079b8e270e7a8f4aa66df2d0659457d1c29fd",
+   "tag": "openroad/orfs:latest (2026-09-04)",
+   "platform": "linux/amd64",
+   "tools": {"openroad": "26Q3-1867-g84e3ff1eb2", "yosys": "0.68", "klayout": "0.30.7"}
+  },
+  "magic": {
+   "ref": "sipath/orfs-magic@sha256:fb8376f639217c3d402e3da3cda93e36bc788efd361ceb4df7e748ca579d664f",
+   "tag": "sipath/orfs-magic:8.3.685 (docker/magic/Dockerfile on the orfs image)",
+   "platform": "linux/amd64",
+   "tools": {"magic": "8.3.685", "openroad": "26Q3-1867-g84e3ff1eb2", "klayout": "0.30.7"}
+  },
+  "librelane_arm64": {
+   "ref": "ghcr.io/librelane/librelane@sha256:02d50f259d483979e126ef188a50f5b61e1d285b9d538312f280b087439b0302",
+   "tag": "ghcr.io/librelane/librelane:3.0.16 (optional native arm64 runtime)",
+   "platform": "linux/arm64",
+   "tools": {"openroad": "dcf36133a369abc8f3c5e5738cd4d82e4903c0e0", "yosys": "0.62", "klayout": "0.30.7", "magic": "8.3.623"}
+  }
+ }
+}

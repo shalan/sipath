@@ -49,7 +49,9 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 BENCH = os.path.join(ROOT, "runs", "bench")
-IMAGE = "openroad/orfs:latest"
+from sipath.toolchain import image as _locked  # noqa: E402
+
+IMAGE = _locked("orfs")  # the locked ORFS image (sipath/toolchain.json)
 ORFS = "/OpenROAD-flow-scripts/flow"
 
 

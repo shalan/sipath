@@ -182,7 +182,7 @@ YAML or JSON; relative paths are relative to the file. Keys not listed are error
 | `platform` | str |  | image platform: linux/amd64, or linux/arm64 for a native arm64 image |
 | `native_tools` | list[str] |  | tools run on the host instead of the image (klayout, yosys, magic): faster than emulation |
 | `tool_timeout` | number |  | seconds one signoff tool run (KLayout DRC/LVS, Magic) may take |
-| `require_digest` | bool |  | refuse an image not pinned by digest |
+| `require_digest` | bool |  | refuse an image not pinned by digest (default on) |
 | `debug_failed` | bool |  | write a debug checkpoint for a failed attempt |
 | `log_level` | str |  | flow logger level (one of: DEBUG, INFO, WARNING, ERROR) |
 
@@ -380,7 +380,7 @@ Design file `config:`, a `--config` file, or `SIPATH_<KEY>` environment variable
 | `platform` | str | image platform: linux/amd64, or linux/arm64 for a native arm64 image |
 | `native_tools` | list[str] | tools run on the host instead of the image (klayout, yosys, magic): faster than emulation |
 | `tool_timeout` | number | seconds one signoff tool run (KLayout DRC/LVS, Magic) may take |
-| `require_digest` | bool | refuse an image not pinned by digest |
+| `require_digest` | bool | refuse an image not pinned by digest (default on) |
 | `debug_failed` | bool | write a debug checkpoint for a failed attempt |
 | `log_level` | str | flow logger level |
 

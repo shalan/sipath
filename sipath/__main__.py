@@ -22,6 +22,8 @@
     python3 -m sipath render <odb> <png>          OpenROAD layout render of a checkpoint (save_image)
     python3 -m sipath report <workdir> [--render]   run report (report.md, report.html; --render: layout.png)
     python3 -m sipath mcp               MCP server on stdio (tools: open_run, run_step, run_eco, ...)
+    python3 -m sipath toolchain [--check]   locked images and tool versions (--check: the configured
+                                      images against the lock, sipath/toolchain.json)
 """
 from __future__ import annotations
 
@@ -207,6 +209,9 @@ def main(argv) -> int:
         registry.load_plugins(argv[1:])
         print(json.dumps(registry.loaded(), indent=1))
         return 0
+    if cmd == "toolchain":
+        from .toolchain import main as tc
+        return tc(argv[1:])
     if cmd == "docs":
         from .reference import write
         out = argv[1] if len(argv) > 1 else os.path.join(os.path.dirname(os.path.dirname(
@@ -228,5 +233,10 @@ def main(argv) -> int:
     return 2
 
 
-if __name__ == "__main__":
+def cli():
+    """Console script ``sipath`` (pyproject.toml)."""
     sys.exit(main(sys.argv[1:]))
+
+
+if __name__ == "__main__":
+    cli()

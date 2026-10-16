@@ -433,7 +433,8 @@ def _magic(ctx, script: str, name: str) -> str:
     with open(path, "w") as f:
         f.write(script)
     cfg = getattr(ctx, "config", None)
-    image = getattr(cfg, "magic_image", None) or "sipath/orfs-magic:8.3.685"
+    from .config import MAGIC_IMAGE
+    image = getattr(cfg, "magic_image", None) or MAGIC_IMAGE
     try:
         return run_tool(ctx, ["magic", "-dnull", "-noconsole", "-rcfile", rc, path], ctx.path(f"{name}.log"),
                         image=image, env={"PDK_ROOT": root})

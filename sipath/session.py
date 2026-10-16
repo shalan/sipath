@@ -219,7 +219,7 @@ def find_openroad(config: Config | None = None):
     """Return a runner for an available OpenROAD, or None.
 
     Order: $SIPATH_OPENROAD (path), ``openroad`` on PATH, then the ORFS docker
-    image (``config.image``: $SIPATH_OPENROAD_IMAGE, default openroad/orfs:latest,
+    image (``config.image``: $SIPATH_OPENROAD_IMAGE, default the locked ORFS digest (toolchain.json),
     ``name@sha256:...`` to pin it) if docker is present and the image is
     already pulled. Threads and container limits come from ``config``
     (default: ``Config.load()``).

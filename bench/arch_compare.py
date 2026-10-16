@@ -31,9 +31,12 @@ import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "runs", "arch")
-LIBRELANE = "ghcr.io/librelane/librelane:3.0.16"
+sys.path.insert(0, ROOT)
+from sipath.toolchain import image as _locked  # noqa: E402
+
+LIBRELANE = _locked("librelane_arm64")  # ghcr.io/librelane/librelane:3.0.16, pinned
 ARCHES = {
-    "amd64": {"SIPATH_OPENROAD_IMAGE": "openroad/orfs:latest", "SIPATH_PLATFORM": "linux/amd64",
+    "amd64": {"SIPATH_OPENROAD_IMAGE": _locked("orfs"), "SIPATH_PLATFORM": "linux/amd64",
               "SIPATH_OPENROAD_BINARY": ""},
     "arm64": {"SIPATH_OPENROAD_IMAGE": LIBRELANE, "SIPATH_PLATFORM": "linux/arm64",
               "SIPATH_OPENROAD_BINARY": "openroad", "SIPATH_MAGIC_IMAGE": LIBRELANE},

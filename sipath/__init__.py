@@ -9,6 +9,8 @@ Public API:
     steps (synth, floorplan, macros, physical, place, cts, route_analog,
            route_digital, route_repair, extract, signoff), eco.run_eco
 """
+__version__ = "0.1.0"  # pyproject.toml
+
 from .design import Datapath, Design, Group, Macro, MissingInput, Pad, PdnSpec, Strap
 from .pdk import load as load_pdk
 from .scheduler import Attempt, Ctx, EcoRefused, Flow, StepFailed, StepRun

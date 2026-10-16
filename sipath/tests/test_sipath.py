@@ -2061,6 +2061,54 @@ class ConfigTests(unittest.TestCase):
         self.assertIn("img@sha256:abc", cmd)
         self.assertEqual(NativeRunner("/bin/or", threads=5).command("/tmp", "n")[-1], "5")
 
+    def test_images_pinned_by_default(self):
+        from sipath import toolchain
+        from sipath.config import Config, ConfigError
+        c = Config()
+        self.assertTrue(c.require_digest)
+        self.assertEqual((c.image, c.magic_image), (toolchain.image("orfs"), toolchain.image("magic")))
+        self.assertTrue(toolchain.pinned(c.image) and toolchain.pinned(c.magic_image))
+        with self.assertRaises(ConfigError):  # an unpinned image is refused by default
+            Config(image="openroad/orfs:latest")
+        with self.assertRaises(ConfigError):
+            Config(magic_image="sipath/orfs-magic:8.3.685")
+        old = os.environ.get("SIPATH_REQUIRE_DIGEST")
+        os.environ["SIPATH_REQUIRE_DIGEST"] = "0"
+        try:  # unless asked
+            self.assertEqual(Config.load(image="openroad/orfs:latest").image, "openroad/orfs:latest")
+        finally:
+            os.environ.pop("SIPATH_REQUIRE_DIGEST")
+            if old is not None:
+                os.environ["SIPATH_REQUIRE_DIGEST"] = old
+        for name, e in toolchain.lock()["images"].items():  # every locked image names its tools
+            self.assertTrue(toolchain.pinned(e["ref"]), name)
+            self.assertTrue(e["tools"], name)
+
+    def test_generators_leave_current_inputs_alone(self):
+        import time
+        from sipath.examples import designs, ihp_add8
+        files = [os.path.join(designs.INPUTS, f) for f in ("dp8_flat.v", "dp8_floorplan.def", "ihp_add8.v")]
+        before = [os.path.getmtime(f) for f in files]
+        time.sleep(0.05)
+        designs.write_dp8()
+        ihp_add8.write_inputs()
+        self.assertEqual([os.path.getmtime(f) for f in files], before)
+        with tempfile.TemporaryDirectory() as td:  # a new place still gets every file
+            out = designs.write_dp8(td)
+            self.assertTrue(all(os.path.isfile(out[k]) for k in ("netlist", "floorplan_def", "sdc")))
+
+    def test_package_metadata(self):
+        import tomllib
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        with open(os.path.join(root, "pyproject.toml"), "rb") as fh:
+            meta = tomllib.load(fh)
+        import sipath
+        self.assertEqual(meta["project"]["version"], sipath.__version__)
+        self.assertEqual(meta["project"]["scripts"]["sipath"], "sipath.__main__:cli")
+        data = meta["tool"]["setuptools"]["package-data"]["sipath"]
+        for needed in ("toolchain.json", "pdks/**/*", "examples/**/*", "templates/**/*", "harnesses/**/*"):
+            self.assertIn(needed, data)
+
     def test_flow_caps_parallel(self):
         from sipath.config import Config
         with tempfile.TemporaryDirectory() as td:
