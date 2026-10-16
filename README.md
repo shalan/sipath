@@ -81,7 +81,7 @@ python3 -m sipath report runs/gcd8 --render   # the run's report page (report.md
   `improve_placement` and `optimize_mirroring`; fences and clusters;
   structured datapaths (column, array, bit-slice) with well-tap slots;
   tie-cell fanout repair.
-- CTS, then routing: analog nets first and frozen; `pin_access`, digital
+- CTS, then routing: analog nets first and frozen; digital
   routing with repair on global-route parasitics, antenna repair loops,
   incremental patch routes; post-route timing repair on extracted parasitics
   re-routes only the nets it changed (a full re-route past a quarter of the
@@ -654,7 +654,8 @@ aes by stage (seconds; SiPath's current defaults against the earlier ones and OR
 
 The gap was mostly corners (in-flow repair on nine) and threads (2 against
 ORFS's every core); placement now also routes like ORFS's (routability-driven,
-`improve_placement`, `optimize_mirroring`, `pin_access`). What remains is work
+`improve_placement`, `optimize_mirroring`; that aes run also had `pin_access`, now
+off by default, see below). What remains is work
 ORFS's make does not do: the equivalence check (ORFS: `LEC_CHECK=0`),
 post-route repair on extracted parasitics at three corners, and signoff (DRC,
 LVS, nine-corner STA). SiPath's signoff of this run: DRC 0, LVS match, hold met
@@ -675,12 +676,52 @@ run's LVS matches. *That wall time includes a 1,800 s re-route lost to a fixed
 limit since removed. ORFS's equivalence check (kepler-formal) is disabled
 (`LEC_CHECK=0`): its binary dies under Rosetta.
 
+### SiPath's own designs through ORFS
+
+`python3 bench/orfs_compare.py sipath/examples/gcd8.yaml sipath/examples/dp8.yaml ...`
+goes the other way: ORFS gets a generated `config.mk` with the design's netlist
+(`SYNTH_NETLIST_FILES`) or RTL, SDC, floorplan DEF (or utilization and margin)
+and top routing layer, on its platform for the PDK. It also gets what SiPath
+reads from the design file, in ORFS's own terms: the analog nets
+do-not-touch (`POST_FLOORPLAN_TCL`; without it ORFS's repair fails on dp8's
+input-to-output analog net, RSZ-0074) and, where the design fixes its straps or
+on IHP (the platform's core ring does not fit a macro's margin, PDN-0351),
+SiPath's power grid (`PDN_TCL`). SiPath runs the design's own flow with
+signoff added (sky130; IHP has no signoff decks here). Same measurement as
+above; 12 threads, Rosetta, while another project's jobs shared the machine.
+
+| design | flow | WNS (ns) | wirelength (µm) | cells | cell area (µm²) | DRT / KLayout DRC | wall (s) |
+|---|---|---|---|---|---|---|---|
+| gcd8 (RTL) | ORFS | 7.165 | 4,220 | 211 | 1,973 | 0 / 0 | 168 (tools 54) |
+| gcd8 (RTL) | SiPath | 6.831 | 3,413 | 190 | 1,667 | 0 / 0 | 64 |
+| dp8 | ORFS | 5.984 | 5,576 | 151 | 2,185 | 0 / 0 | 147 (tools 33) |
+| dp8 | SiPath | 5.818 | 7,218 | 111 | 1,791 | 0 / 0 | 67 |
+| dp8_hs | ORFS | 7.658 | 5,816 | 151 | 2,610 | 0 / 0 | 150 (tools 34) |
+| dp8_hs | SiPath | 7.514 | 7,339 | 111 | 2,442 | 0 / 0 | 83 |
+| ihp_add8 | ORFS | 8.412 | 2,252 | 117 | 2,097 | 0 / – | 138 (tools 18) |
+| ihp_add8 | SiPath | 8.487 | 2,743 | 89 | 2,054 | 0 / – | 20 |
+
+Timing is met with similar slack everywhere (TNS 0). SiPath uses 2–18% less
+cell area: ORFS buffers every port (49 port buffers on dp8, which ends with 40
+more cells than SiPath's) and SiPath does not for an embedded macro.
+On gcd8 (plain placement) SiPath's wire is 19% shorter; on the datapath designs
+it is 22–29% longer, the cost of the structured placement the design file asks
+for (slices and arrays at a fixed origin, a cluster) and of the analog nets on
+a wider non-default rule. ORFS's wall time is mostly per-stage process start-up
+under Rosetta (its own stage times add up to 18–54 s); SiPath's includes
+signoff (KLayout DRC, LVS, nine-corner STA: 19–24 s). mcu8 and ihp_ring (pad
+rings, hard macros, analog supplies) are not compared: they would need ORFS
+footprint scripts written for them.
+
 ## Workarounds for this OpenROAD build (found by running it)
 
 - `place_pins -random` is obsolete (a no-op with a warning): automatic pins
   are placed provisionally at floorplan without it, and again after global
   placement.
 - `write_timing_model` takes `-scene`, not `-corner`.
+- After `pin_access`, a `repair_antennas` following a second detailed route
+  segfaults (`grt::GlobalRouter::findNets`, mcu8, any thread count):
+  `route_digital`'s `pin_access` is off by default.
 - A second `global_route` in one process fails (GRT-0229, edge usage 65535: the
   first route's usage is kept): post-route repair re-routes once per process.
 - `clock_tree_synthesis -clk_nets` splits its value on spaces: names are passed

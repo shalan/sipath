@@ -155,8 +155,8 @@ STEP_PARAMS: dict[str, list[Param]] = {
         Param("max_drc", "int", 0, "routing DRC violations allowed", min=0),
         Param("antenna_rounds", "int", 3, "antenna repair rounds", min=0),
         Param("max_antenna", "int", 0, "antenna violations allowed", min=0),
-        Param("pin_access", "bool", True, "pin access analysis on the routing layers before global routing, "
-              "as ORFS"),
+        Param("pin_access", "bool", False, "pin access analysis before global routing, as ORFS (off: with it "
+              "this OpenROAD build segfaults in a post-route repair_antennas after a re-route, mcu8)"),
         Param("repair_after_grt", "bool", True, "repair timing on global-route parasitics, then re-route "
               "incrementally"),
         Param("fail_on_violation", "bool", False, _FAIL),

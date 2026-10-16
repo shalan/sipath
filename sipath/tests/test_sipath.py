@@ -2353,7 +2353,9 @@ class LiveSoftMacro(unittest.TestCase):
         self.assertEqual(f.pdk.name, "sky130A")
         for c, path in corners.items():
             self.assertGreater(os.path.getsize(path), 1000, c)
-            self.assertIn(f"wns_{c}", ex.metrics)
+        for c in f.pdk.analysis_corners():  # timed in the flow on the optimize corners; signoff times all nine
+            self.assertIn(f"wns_{c.name}", ex.metrics)
+        self.assertEqual([c.name for c in f.pdk.analysis_corners()], ["tt_nom", "ss_max", "ff_min"])
         for name in ("signoff_timing_setup", "signoff_timing_hold", "signoff_clock_skew", "signoff_power"):
             with open(ex.outputs["reports"][name]) as fh:
                 self.assertNotIn("failed:", fh.read(200), name)
