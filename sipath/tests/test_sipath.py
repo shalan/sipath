@@ -309,6 +309,9 @@ violation type: Vertical congestion
         self.assertEqual(c["nets"][0], "a")
         self.assertEqual(c["by_kind"], {"Horizontal congestion": 1, "Vertical congestion": 1})
         self.assertEqual(congestion.parse(os.path.join(d, "none.rpt"))["gcells"], 0)  # no file: no congestion
+        with open(p, "w") as f:  # older OpenROAD (LibreLane's 2026-02 build) says overflow:
+            f.write(self.REPORT.replace("congestion:", "overflow:"))
+        self.assertEqual(congestion.parse(p)["overflow"], 5)
         with open(p, "w") as f:
             f.write("violation type: something new\n")
         with self.assertRaises(ValueError):

@@ -49,7 +49,7 @@ python3 -m sipath report runs/gcd8 --render   # the run's report page (report.md
   SG13G2; sky130 the most complete (corners, routing, power grid, IO, signoff
   decks, fill rules, Magic rc file, cell exclusions, LVS black boxes).
 - Run configuration from a file or `SIPATH_*` variables: threads (default:
-  every core, as ORFS), timeouts,
+  every core, as ORFS; two thirds of them on macOS), timeouts,
   parallel cap, container limits, image and digest pinning, Magic image,
   native tools, OpenROAD binary, platform.
 - Plugins (`plugins:` or the `sipath.plugins` entry points) add steps,
@@ -341,19 +341,46 @@ amd64: under Rosetta on Apple silicon). Two ways to avoid the emulation:
 - an arm64 image with the tools on PATH, e.g. LibreLane's multi-arch image:
   `SIPATH_OPENROAD_IMAGE=ghcr.io/librelane/librelane:3.0.16
   SIPATH_OPENROAD_BINARY=openroad SIPATH_PLATFORM=linux/arm64` (and
-  `SIPATH_MAGIC_IMAGE` the same image for the Magic checks). gcd8, synthesis to
-  signoff on an Apple M5 Max: 136 s on the ORFS image, 70 s on the arm64 image
-  (signoff 30 s to 11 s: DRC 16.7 s to 5.4 s, LVS 13.0 s to 4.4 s), both signing
-  off clean. Its tool versions differ (OpenROAD 2026-02-17, KLayout 0.30.7,
-  Yosys 0.62): results differ slightly (158 vs 165 cells).
+  `SIPATH_MAGIC_IMAGE` the same image for the Magic checks). Its tool versions
+  differ (OpenROAD 2026-02-17, KLayout 0.30.7, Yosys 0.62), so results differ
+  slightly (gcd8: 158 vs 165 cells). Measurements below.
 - `native_tools` (`SIPATH_NATIVE_TOOLS=yosys,klayout`): those tools run on the
   host while OpenROAD stays in the image (gcd8 synthesis 10.0 s to 4.4 s with
   Homebrew's Yosys).
 Each run's provenance records the image, platform, binary and native tool
-versions. `bench/arch_compare.py` times the same flows (full and `--explore`)
-on the amd64 image and the arm64 image, step by step.
+versions.
 
-**Exploration mode.** `--explore` on gcd8 (ORFS image, Rosetta): 47 s from RTL
+**Rosetta (amd64) vs native arm64.** `bench/arch_compare.py gcd8 aes` runs the
+same flows on the ORFS image (amd64, Rosetta) and LibreLane's (arm64), one
+after the other on an idle 18-core Apple M5 Max, 12 threads (wall seconds):
+
+| run | amd64 (Rosetta) | arm64 (native) | arm64 gain |
+|---|---|---|---|
+| gcd8 explore | 17.5 | 11.0 | 1.59x |
+| gcd8 full, to signoff | 63.5 | 34.0 | 1.87x |
+| aes explore | 197.7 | 137.1 | 1.44x |
+| aes full | 3,723 | crashed in post-route repair (2,061 s in) | — |
+
+- Per step (gcd8 and the explore runs), arm64 is 1.3–2.7x faster on
+  OpenROAD work and 2.7–4.8x on signoff tools (KLayout GDS 4.8x, density, LVS
+  and DRC ~3x). In the full aes run its CTS is slower (71 s against 46 s).
+- One detailed-routing iteration on aes is 1.5x faster natively (225 s
+  against 341 s); the whole aes route takes the same time (1,169 s against
+  1,160 s) because the older router converges more slowly (662 violations left
+  after its 5th iteration against 288).
+- aes synthesis is ~650 s on both: the RTL equivalence check runs to its
+  timeout (inconclusive).
+- LibreLane's OpenROAD segfaults in post-route `repair_timing` on aes
+  (`grt::GlobalRouter::addDirtyNet` from a cell swap), the same family as its
+  crash on the OpenFrame example: a bug of that build. The amd64 image stays
+  the default.
+- Threads: with all 18 cores, Docker's VM leaves the host none; LibreLane's
+  arm64 OpenROAD then takes 50 s for an aes global placement it does in 1.9 s
+  at 12 threads (amd64: 3.2 s against 1.2 s), and detailed routing gains under
+  5% past 12. On macOS the default is two thirds of the cores (`threads`);
+  12 threads also made the amd64 runs 3–34% faster than 18.
+
+**Exploration mode.** `--explore` on gcd8 (ORFS image, Rosetta, while another run used the machine): 47 s from RTL
 to a PPA first cut at global routing; achievable period 3.52 ns (285 MHz)
 against the SDC's 10 ns, suggested `create_clock -period 3.7`, 1,630 µm² of
 cells, 0.71 mW.

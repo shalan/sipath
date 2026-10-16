@@ -115,9 +115,11 @@ def table(designs: list[str]) -> str:
             checks = list(dict.fromkeys([*(a or {}).get("signoff", {}), *(b or {}).get("signoff", {})]))
             rows += [(f"signoff: {c}", (a or {}).get("signoff", {}).get(c), (b or {}).get("signoff", {}).get(c))
                      for c in checks]
+            failed = not (a and b) or a["failed"] or b["failed"]
             rows.append(("**wall**", (a or {}).get("seconds"), (b or {}).get("seconds")))
             for name, x, y in rows:
-                sp = f"{x / y:.2f}x" if x and y else "-"
+                # a failed run's wall time stops early: no speed-up from it
+                sp = "-" if (name == "**wall**" and failed) else (f"{x / y:.2f}x" if x and y else "-")
                 lines.append(f"| {name} | {fmt(x)} | {fmt(y)} | {sp} |")
             lines.append("")
             for arch, r in (("amd64", a), ("arm64", b)):

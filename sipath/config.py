@@ -7,7 +7,8 @@ variables, the ``config:`` section of a design file, and keyword overrides.
 =====================  ======================  =====================================
 field                  environment             meaning
 =====================  ======================  =====================================
-threads                SIPATH_THREADS            OpenROAD ``-threads`` per process (default: all cores, as ORFS)
+threads                SIPATH_THREADS            OpenROAD ``-threads`` per process (default: all cores, as ORFS;
+                                                 two thirds of them on macOS, see default_threads)
 command_timeout        SIPATH_TIMEOUT            seconds one Tcl command may take
 tool_timeout           SIPATH_TOOL_TIMEOUT       seconds one signoff tool run (KLayout DRC/LVS, Magic) may take
 parallel_cap           SIPATH_PARALLEL_CAP       most attempts alive at once (0: none)
@@ -39,13 +40,23 @@ ENV = {"threads": "SIPATH_THREADS", "command_timeout": "SIPATH_TIMEOUT", "tool_t
        "log_level": "SIPATH_LOG_LEVEL"}
 
 
+def default_threads() -> int:
+    """Every core (ORFS's NUM_CORES), except on macOS, where Docker's VM shares
+    the cores with the host: two thirds of them. Measured on an 18-core M5 Max:
+    LibreLane's arm64 OpenROAD takes 50 s for an aes global placement with 18
+    threads and 1.9 s with 12; detailed routing gains under 5% past 12."""
+    import sys
+    n = os.cpu_count() or 2
+    return max(1, n * 2 // 3) if sys.platform == "darwin" else n
+
+
 class ConfigError(ValueError):
     pass
 
 
 @dataclass
 class Config:
-    threads: int = field(default_factory=lambda: os.cpu_count() or 2)  # all cores (ORFS NUM_CORES)
+    threads: int = field(default_factory=lambda: default_threads())
     command_timeout: float = 3600.0
     tool_timeout: float = 7200.0
     parallel_cap: int = 0

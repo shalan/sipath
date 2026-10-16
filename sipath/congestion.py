@@ -17,7 +17,7 @@ import re
 from collections import Counter
 
 ENTRY = re.compile(r"violation type: (?P<kind>[^\n]*)\n\s*srcs:(?P<srcs>[^\n]*)\n\s*comment: capacity:(?P<cap>-?\d+) "
-                   r"usage:(?P<use>-?\d+) congestion:(?P<over>-?\d+)\n\s*bbox = \((?P<x0>[-\d.]+), (?P<y0>[-\d.]+)\) - "
+                   r"usage:(?P<use>-?\d+) (?:congestion|overflow):(?P<over>-?\d+)\n\s*bbox = \((?P<x0>[-\d.]+), (?P<y0>[-\d.]+)\) - "
                    r"\((?P<x1>[-\d.]+), (?P<y1>[-\d.]+)\)")
 
 
