@@ -222,7 +222,9 @@ Set per attempt in `variants` (design file `flow:` or MCP `run_step`), or as def
 
 ### floorplan
 
-No parameters.
+| parameter | type | default | allowed | description |
+|---|---|---|---|---|
+| `threads` | int | – | 1.. | OpenROAD threads for this step's attempts (set_thread_count; signoff: also KLayout DRC); unset: the run's threads, shared among the attempts running at once |
 
 ### macros
 
@@ -239,10 +241,13 @@ No parameters.
 | `evaluate` | bool | true |  | score the result with a quick place + route (macro_quick score) |
 | `quick_density` | float | 0.6 | 0.05..1.0 | placement density of the quick evaluation |
 | `target_util` | float | 0.25 | 0.01..1.0 | target utilization given to rtl_macro_placer (method mpl) |
+| `threads` | int | – | 1.. | OpenROAD threads for this step's attempts (set_thread_count; signoff: also KLayout DRC); unset: the run's threads, shared among the attempts running at once |
 
 ### physical
 
-No parameters.
+| parameter | type | default | allowed | description |
+|---|---|---|---|---|
+| `threads` | int | – | 1.. | OpenROAD threads for this step's attempts (set_thread_count; signoff: also KLayout DRC); unset: the run's threads, shared among the attempts running at once |
 
 ### place
 
@@ -258,16 +263,20 @@ No parameters.
 | `max_util` | float | – | 0.01..1.0 | utilization limit for repair_design / repair_timing |
 | `congestion_check` | bool | true |  | global route after placement and record the congestion |
 | `congestion_margin` | float | 0.0 | 0..1 | extra layer capacity reduction for the congestion check |
+| `threads` | int | – | 1.. | OpenROAD threads for this step's attempts (set_thread_count; signoff: also KLayout DRC); unset: the run's threads, shared among the attempts running at once |
 
 ### cts
 
-No parameters.
+| parameter | type | default | allowed | description |
+|---|---|---|---|---|
+| `threads` | int | – | 1.. | OpenROAD threads for this step's attempts (set_thread_count; signoff: also KLayout DRC); unset: the run's threads, shared among the attempts running at once |
 
 ### route_analog
 
 | parameter | type | default | allowed | description |
 |---|---|---|---|---|
 | `iters` | int | 20 | 1.. | detailed-router iterations for the analog nets |
+| `threads` | int | – | 1.. | OpenROAD threads for this step's attempts (set_thread_count; signoff: also KLayout DRC); unset: the run's threads, shared among the attempts running at once |
 
 ### route_digital
 
@@ -281,6 +290,7 @@ No parameters.
 | `pin_access` | bool | true |  | pin access analysis on the routing layers before global routing, as ORFS |
 | `repair_after_grt` | bool | true |  | repair timing on global-route parasitics, then re-route incrementally |
 | `fail_on_violation` | bool | false |  | fail the attempt when setup or hold is not met after the step |
+| `threads` | int | – | 1.. | OpenROAD threads for this step's attempts (set_thread_count; signoff: also KLayout DRC); unset: the run's threads, shared among the attempts running at once |
 
 ### route_repair
 
@@ -294,6 +304,7 @@ No parameters.
 | `iters` | int | 64 | 1.. | detailed-router iterations |
 | `max_drc` | int | 0 | 0.. | routing DRC violations allowed |
 | `fail_on_violation` | bool | false |  | fail the attempt when setup or hold is not met after the step |
+| `threads` | int | – | 1.. | OpenROAD threads for this step's attempts (set_thread_count; signoff: also KLayout DRC); unset: the run's threads, shared among the attempts running at once |
 
 ### fill
 
@@ -301,6 +312,7 @@ No parameters.
 |---|---|---|---|---|
 | `layers` | list[str] | – |  | layers to fill (default: the fill rules' layers up to the design's top routing layer) |
 | `area` | list[float] | – |  | fill only inside [x0, y0, x1, y1] (default: the die) [um] |
+| `threads` | int | – | 1.. | OpenROAD threads for this step's attempts (set_thread_count; signoff: also KLayout DRC); unset: the run's threads, shared among the attempts running at once |
 
 ### integrate
 
@@ -313,6 +325,7 @@ No parameters.
 | parameter | type | default | allowed | description |
 |---|---|---|---|---|
 | `margin` | float | 0.05 | 0..1 | margin added to the achievable clock period in the suggested one |
+| `threads` | int | – | 1.. | OpenROAD threads for this step's attempts (set_thread_count; signoff: also KLayout DRC); unset: the run's threads, shared among the attempts running at once |
 
 ### views
 
@@ -320,6 +333,7 @@ No parameters.
 |---|---|---|---|---|
 | `corners` | list[str] | – |  | analysis corners to write a timing Liberty for (default: all) |
 | `bloat_occupied_layers` | bool | true |  | abstract LEF: layers the design uses are blocked whole (a parent routes over the macro only on layers it leaves free) |
+| `threads` | int | – | 1.. | OpenROAD threads for this step's attempts (set_thread_count; signoff: also KLayout DRC); unset: the run's threads, shared among the attempts running at once |
 
 ### extract
 
@@ -327,6 +341,7 @@ No parameters.
 |---|---|---|---|---|
 | `require_grid_connected` | bool | false |  | fail when check_power_grid finds a supply net not connected to its terminals |
 | `fail_on_violation` | bool | false |  | fail the attempt when setup or hold is not met after the step |
+| `threads` | int | – | 1.. | OpenROAD threads for this step's attempts (set_thread_count; signoff: also KLayout DRC); unset: the run's threads, shared among the attempts running at once |
 
 ### signoff
 
@@ -336,6 +351,7 @@ No parameters.
 | `require` | list[str] | drc, density, lvs, antenna, setup, hold, drv, annotation, harness, magic_drc, xor | drc, density, lvs, antenna, setup, hold, drv, annotation, unconstrained, harness, magic_drc, xor | checks whose failure fails signoff (of those run) |
 | `fail_on_violation` | bool | true |  | fail the attempt when a required check fails (signoff.json is written either way) |
 | `drc_split` | bool | true |  | run the PDK's DRC rule groups (signoff.drc_groups) as concurrent processes and merge their reports |
+| `threads` | int | – | 1.. | OpenROAD threads for this step's attempts (set_thread_count; signoff: also KLayout DRC); unset: the run's threads, shared among the attempts running at once |
 
 ### eco
 
@@ -345,6 +361,7 @@ No parameters.
 | `max_patch_nets` | int | 25 | 0.. | touched nets above which the design is routed again instead of patched |
 | `iters` | int | 64 | 1.. | detailed-router iterations for the patch route |
 | `max_drc` | int | 0 | 0.. | routing DRC violations allowed after the ECO |
+| `threads` | int | – | 1.. | OpenROAD threads for this step's attempts (set_thread_count; signoff: also KLayout DRC); unset: the run's threads, shared among the attempts running at once |
 
 ## Run configuration
 

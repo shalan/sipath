@@ -1805,6 +1805,48 @@ class Scheduler(unittest.TestCase):
             with open(os.path.join(td, "report.html")) as fh:
                 self.assertIn("<table>", fh.read())
 
+    def test_threads_per_step_and_shared_among_parallel_attempts(self):
+        from sipath.config import Config
+        with tempfile.TemporaryDirectory() as td:
+            sessions = []
+            def factory(d):
+                s = FakeSession(d, responses={"::flow_timing_prep": "placement"})
+                sessions.append(s)
+                return s
+            f = Flow(Design("fake", "fake", "x.v", "x.sdc", "macro", floorplan_def="x.def"), sky130hd("/p"), td,
+                     factory, validate_inputs=False, config=Config(threads=12))
+            seen = {}
+            def place(ctx):
+                demo.fake_step(delay=0)(ctx)
+                seen[ctx.attempt.id] = ctx.threads
+            set_count = lambda s: [x for x in s.scripts if x.startswith("set_thread_count")]  # noqa: E731
+            f.step("place", place, score="setup_wns")  # one attempt: the run's threads, nothing to change
+            self.assertEqual(seen["place.0"], 12)
+            self.assertEqual(set_count(sessions[0]), [])
+            r = f.step("cts", place, parent=f.steps["place"].selected, variants=[{"threads": 4}], score="setup_wns")
+            self.assertEqual(seen[r.attempts[0].id], 4)
+            self.assertEqual(set_count(sessions[1]), ["set_thread_count 4"])
+            # three attempts at once share the run's 12
+            r = f.step("route_digital", place, parent=r.selected, variants=[{"iters": i} for i in (1, 2, 3)],
+                       parallel=3, score="setup_wns")
+            self.assertEqual({seen[a.id] for a in r.attempts}, {4})
+            self.assertEqual([set_count(s) for s in sessions[2:]], [["set_thread_count 4"]] * 3)
+
+    def test_threads_param_on_openroad_steps_only(self):
+        from sipath import params, registry, steps
+        params.check("place", {"threads": 8})
+        params.check("signoff", {"threads": 8})
+        with self.assertRaises(ValueError):
+            params.check("place", {"threads": 0})
+        with self.assertRaises(ValueError):  # Yosys: no OpenROAD threads
+            params.check("synth", {"threads": 8})
+        def mine(ctx):
+            pass
+        registry.register_step("my_threads_step", mine)
+        self.addCleanup(lambda: (steps.STEPS.pop("my_threads_step"), params.STEP_PARAMS.pop("my_threads_step"),
+                                 params.DECLARED.pop("my_threads_step")))
+        params.check("my_threads_step", {"threads": 2})
+
     def test_report_shows_the_ppa_first_cut(self):
         ppa = {"parasitics": "global routing", "corner": "tt_nom",
                "area": {"std_cell_um2": 812.5, "macro_um2": 0.0, "cells": 140, "core_um2": 2000.0, "utilization": 0.41},

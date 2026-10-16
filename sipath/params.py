@@ -215,6 +215,13 @@ STEP_PARAMS: dict[str, list[Param]] = {
         Param("max_drc", "int", 0, "routing DRC violations allowed after the ECO", min=0),
     ],
 }
+# every OpenROAD step (not the tool steps synth and integrate) takes these
+COMMON = (Param("threads", "int", None, "OpenROAD threads for this step's attempts (set_thread_count; signoff: "
+                "also KLayout DRC); unset: the run's threads, shared among the attempts running at once", min=1),)
+TOOL_STEPS = ("synth", "integrate")
+for _step, _ps in STEP_PARAMS.items():
+    if _step not in TOOL_STEPS:
+        _ps.extend(p for p in COMMON if p.name not in {q.name for q in _ps})
 DECLARED = {step: {p.name: p for p in ps} for step, ps in STEP_PARAMS.items()}
 BUILTIN = {step: list(ps) for step, ps in STEP_PARAMS.items()}  # before any plugin registers (for the reference)
 

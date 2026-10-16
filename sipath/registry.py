@@ -57,7 +57,10 @@ def register_step(name: str, fn: Callable, params=(), tool: bool | None = None, 
     if tool is not None:
         fn.tool = bool(tool)
     steps.STEPS[name] = fn
-    _params.STEP_PARAMS[name] = list(params)
+    params = list(params)
+    if not getattr(fn, "tool", False):  # an OpenROAD step: threads like the built-in ones
+        params += [p for p in _params.COMMON if p.name not in {q.name for q in params}]
+    _params.STEP_PARAMS[name] = params
     _params.DECLARED[name] = {p.name: p for p in params}
     return fn
 

@@ -378,7 +378,7 @@ def drc(ctx, gds: str, owners: dict | None = None, top: str | None = None) -> di
     together are the deck's, each process reads the layout itself."""
     so = _cfg(ctx)
     base = dict(so.get("drc_options") or {})
-    total = max(4, int(getattr(_runner(ctx), "threads", 1) or 1))
+    total = max(4, int(getattr(ctx, "threads", None) or getattr(_runner(ctx), "threads", 1) or 1))
     groups = list(so.get("drc_groups") or []) if (ctx.params or {}).get("drc_split", True) else []
     if len(groups) < 2:
         base.setdefault("thr", total)  # the open_pdks decks read $thr

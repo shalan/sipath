@@ -156,6 +156,7 @@ class Ctx:
     outputs: dict = field(default_factory=dict)
     runner: object = None  # how the installation's tools run (tool steps, signoff)
     config: object = None  # sipath.config.Config of the run (e.g. the Magic image)
+    threads: int | None = None  # OpenROAD threads of this attempt (see Flow._threads)
 
     def path(self, name: str) -> str:
         return os.path.join(self.dir, name)
@@ -325,8 +326,9 @@ class Flow:
         todo = [a for a in attempts if a.status != "ok"]
         log.info("step %s: %d attempts (%d to run, %d recorded), parallel %d", name, len(attempts), len(todo),
                  len(attempts) - len(todo), self.config.cap(parallel))
+        together = max(1, min(len(todo), self.config.cap(parallel)))  # attempts alive at once share the threads
         with ThreadPoolExecutor(max_workers=self.config.cap(parallel)) as ex:
-            list(ex.map(lambda a: self._run_attempt(a, fn), todo))
+            list(ex.map(lambda a: self._run_attempt(a, fn, together), todo))
         if any(a.status == "cancelled" for a in attempts):
             self.save_graph()
             raise StepCancelled(f"step {name} cancelled: " + ", ".join(f"{a.id} {a.status}" for a in attempts))
@@ -388,7 +390,16 @@ class Flow:
             self.attempts.append(a)
         return a
 
-    def _run_attempt(self, a: Attempt, fn: Callable):
+    def _threads(self, params: dict, together: int = 1) -> int:
+        """OpenROAD threads for one attempt: the step's ``threads`` parameter
+        when set, else the run's ``threads`` divided among the ``together``
+        attempts running at once (at least 1)."""
+        given = params.get("threads")
+        if given:
+            return int(given)
+        return max(1, int(getattr(self.config, "threads", 1) or 1) // max(1, together))
+
+    def _run_attempt(self, a: Attempt, fn: Callable, together: int = 1):
         if self.cancelled:
             a.status, a.error = "cancelled", "cancelled before it started"
             self.save_graph()
@@ -428,6 +439,12 @@ class Flow:
             if self.cancelled:  # cancelled while the process was starting
                 raise RuntimeError("cancelled")
             t1 = mark("start", t0)
+            decl = "eco" if a.kind == "eco" else getattr(fn, "__name__", a.step)
+            params = params_mod.resolve(decl, a.params, self.pdk, self.design)
+            threads = self._threads(params, together)
+            started = getattr(getattr(session, "runner", None), "threads", getattr(self.config, "threads", None))
+            if threads != started:  # the process started with the runner's -threads
+                session.run(f"set_thread_count {threads}")
             session.run(tcl.HELPERS)
             if a.parent is None:
                 session.run(tcl.load_root(self.pdk, self.design))
@@ -438,9 +455,8 @@ class Flow:
             t1 = mark("load", t1)
             # the step sees every declared parameter (variant, then design and PDK
             # step_defaults, then the declared default); the attempt records the variant
-            decl = "eco" if a.kind == "eco" else getattr(fn, "__name__", a.step)
-            ctx = Ctx(session, self.design, self.pdk, params_mod.resolve(decl, a.params, self.pdk, self.design),
-                      a.dir, a.parent, a, config=self.config)
+            ctx = Ctx(session, self.design, self.pdk, params, a.dir, a.parent, a, config=self.config,
+                      threads=threads)
             fn(ctx)
             t1 = mark("step", t1)
             parasitics = session.value("::flow_timing_prep")

@@ -49,7 +49,9 @@ python3 -m sipath report runs/gcd8 --render   # the run's report page (report.md
   SG13G2; sky130 the most complete (corners, routing, power grid, IO, signoff
   decks, fill rules, Magic rc file, cell exclusions, LVS black boxes).
 - Run configuration from a file or `SIPATH_*` variables: threads (default:
-  every core, as ORFS; two thirds of them on macOS), timeouts,
+  every core, as ORFS; two thirds of them on macOS; per step with the
+  `threads` parameter of every OpenROAD step, and shared among a step's
+  attempts running at once), timeouts,
   parallel cap, container limits, image and digest pinning, Magic image,
   native tools, OpenROAD binary, platform.
 - Plugins (`plugins:` or the `sipath.plugins` entry points) add steps,
@@ -377,7 +379,8 @@ after the other on an idle 18-core Apple M5 Max, 12 threads (wall seconds):
 - Threads: with all 18 cores, Docker's VM leaves the host none; LibreLane's
   arm64 OpenROAD then takes 50 s for an aes global placement it does in 1.9 s
   at 12 threads (amd64: 3.2 s against 1.2 s), and detailed routing gains under
-  5% past 12. On macOS the default is two thirds of the cores (`threads`);
+  5% past 12. On macOS the default is two thirds of the cores (`threads`;
+  a step can take its own, e.g. `step_defaults: {place: {threads: 8}}`);
   12 threads also made the amd64 runs 3–34% faster than 18.
 
 **Exploration mode.** `--explore` on gcd8 (ORFS image, Rosetta, while another run used the machine): 47 s from RTL
