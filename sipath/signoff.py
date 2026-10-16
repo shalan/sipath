@@ -724,6 +724,32 @@ def lvs_compare(ctx, prep: dict) -> dict:
             "first_errors": errors[:8], "gds": gds, "blackboxed": bb, "abstract_shorts": abstract_shorts, **info}
 
 
+def lvs_full(ctx, gds: str) -> dict:
+    """Full-device LVS (P0.4): the PDK's own deck (every device class) on ``gds``
+    against the design's netlist (``write_cdl``, tie cells kept whole) with
+    each cell from the PDK's cell SPICE (``lvs_full_cell_spice``: every device,
+    tap diodes and tie resistors included; the CDL for the rest), device
+    models prefixed and aliased as the deck spells them."""
+    from . import lvs_full as lf
+    so, d = _cfg(ctx), ctx.design
+    libs = []
+    for f in list(so.get("cell_cdl", [])) + list(so.get("lvs_full_cell_spice", [])):  # later definitions win
+        with open(f, errors="replace") as fh:
+            libs.append(fh.read())
+    with open(ctx.path(f"{d.top}.top.cdl")) as fh:
+        ref, ref_info = reference_cdl(fh.read(), libs, {}, supplies(ctx), so.get("device_prefix", ""))
+    if ref_info["missing"]:
+        return {"match": False, "reason": f"no subcircuit for {ref_info['missing']}", "errors": 0, "report": None}
+    text, info = lf.prepare([ref], so.get("lvs_full_aliases"), so.get("device_prefix", ""))
+    sch = ctx.path(f"{d.top}.full.spice")
+    with open(sch, "w") as fh:
+        fh.write(text)
+    cfg = getattr(ctx, "config", None)
+    res = lf.run(_runner(ctx), gds, d.top, sch, ctx.dir, so["lvs_full_deck"], int(so.get("lvs_threads", 4)),
+                 so.get("lvs_full_options"), timeout=getattr(cfg, "tool_timeout", None))
+    return {**res, "schematic": sch, **info}
+
+
 # -------------------------------------------------------------------- timing
 class _View:
     """Minimal context for helpers that take ``ctx`` (session + outputs)."""
@@ -955,6 +981,17 @@ def run(ctx) -> dict:
             jobs["lvs"] = lambda: lvs_compare(ctx, lvs_prep["_compare"])
         else:
             summary["lvs"] = lvs_prep
+    if "lvs_full" in checks:
+        so = _cfg(ctx)
+        if not so.get("lvs_full_deck"):
+            failures.append("lvs_full: the PDK gives no signoff.lvs_full_deck")
+        elif not (lvs_prep and "_compare" in lvs_prep):
+            failures.append("lvs_full: no reference netlist (needs lvs among the checks, prepared without errors)")
+        elif lvs_prep["_compare"]["bb"]:
+            failures.append(f"lvs_full: black boxes {sorted(set(lvs_prep['_compare']['bb'].values()))} have no "
+                            "device netlist (full-device LVS needs every cell's devices)")
+        else:
+            jobs["lvs_full"] = lambda: lvs_full(ctx, summary["gds"]["file"])
     tchecks = [c for c in ("setup", "hold", "drv", "annotation", "unconstrained") if c in checks]
     if tchecks:
         spefs = ctx.ancestor_output("spef_corners")
@@ -990,6 +1027,11 @@ def run(ctx) -> dict:
         if summary["magic_drc"]["count"]:
             failures.append(f"magic_drc: {summary['magic_drc']['count']} violations "
                             f"{dict(list(summary['magic_drc']['by_rule'].items())[:8])}")
+    if "lvs_full" in results:
+        summary["lvs_full"] = results["lvs_full"]
+        if not summary["lvs_full"]["match"]:
+            failures.append(f"lvs_full: {summary['lvs_full'].get('reason') or 'netlists do not match'} "
+                            f"({summary['lvs_full']['errors']} mismatches, report {summary['lvs_full']['report']})")
     if "xor" in results:
         summary["xor"] = results["xor"]
         if summary["xor"]["count"]:
@@ -1059,6 +1101,8 @@ def run(ctx) -> dict:
         m["drc_signoff"] = summary["drc"]["count"]
     if "lvs" in summary:
         m["lvs_match"] = summary["lvs"].get("match", False)
+    if "lvs_full" in summary:
+        m["lvs_full_match"] = summary["lvs_full"].get("match", False)
     for k in ("magic_drc", "xor"):
         if summary.get(k, {}).get("count") is not None:
             m[f"{k}_violations"] = summary[k]["count"]
@@ -1080,7 +1124,7 @@ def run(ctx) -> dict:
     ctx.outputs.update(signoff=path, def_=final_def, verilog=final_v,
                        gds=summary.get("gds", {}).get("file"))
     rep = ctx.outputs.setdefault("reports", {})
-    for k in ("drc", "density", "lvs", "magic_drc", "xor"):
+    for k in ("drc", "density", "lvs", "lvs_full", "magic_drc", "xor"):
         if summary.get(k, {}).get("report"):
             rep[f"signoff_{k}"] = summary[k]["report"]
     for k, f in summary.get("timing", {}).get("reports", {}).items():

@@ -1,0 +1,49 @@
+# Regression limits per design (P1.3), checked by the live tests and by
+#   python3 -m sipath limits <workdir> <design>
+# From the live runs of 2026-10-16 (ORFS image, 12 threads) with the margins of
+# sipath.limits.suggest: setup slack may lose a quarter (>= 0.25 ns) but stays met, hold met,
+# DRC as run, wirelength and instances +10%, wall time x2 + 30 s (machine load).
+gcd8:
+  min_wns_ns: 2.76
+  min_whs_ns: 0.0
+  max_drc: 0
+  max_wirelength_um: 3776
+  max_insts: 599
+  max_runtime_s: 173
+  signoff_pass: true
+  lvs_match: true
+dp8:
+  min_wns_ns: 0.59
+  min_whs_ns: 0.0
+  max_drc: 0
+  max_wirelength_um: 7538
+  max_insts: 2394
+  max_runtime_s: 172
+  signoff_pass: true
+  lvs_match: true
+dp8_hs:
+  min_wns_ns: 4.29
+  min_whs_ns: 0.0
+  max_drc: 0
+  max_wirelength_um: 7663
+  max_insts: 2538
+  max_runtime_s: 232
+  signoff_pass: true
+  lvs_match: true
+mcu8:
+  min_wns_ns: 6.56
+  min_whs_ns: 0.0
+  max_drc: 0
+  max_wirelength_um: 102904
+  max_insts: 71207
+  max_runtime_s: 5563
+  signoff_pass: true
+  lvs_match: true
+ihp_add8:
+  until: "extract"
+  min_wns_ns: 5.75
+  min_whs_ns: 0.0
+  max_drc: 0
+  max_wirelength_um: 2744
+  max_insts: 756
+  max_runtime_s: 76

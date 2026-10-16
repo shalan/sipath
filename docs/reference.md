@@ -347,8 +347,8 @@ Set per attempt in `variants` (design file `flow:` or MCP `run_step`), or as def
 
 | parameter | type | default | allowed | description |
 |---|---|---|---|---|
-| `checks` | list[str] | drc, density, lvs, antenna, setup, hold, drv, annotation, unconstrained, harness | drc, density, lvs, antenna, setup, hold, drv, annotation, unconstrained, harness, magic_drc, xor | checks to run (magic_drc and xor are opt-in: they need the Magic image) |
-| `require` | list[str] | drc, density, lvs, antenna, setup, hold, drv, annotation, harness, magic_drc, xor | drc, density, lvs, antenna, setup, hold, drv, annotation, unconstrained, harness, magic_drc, xor | checks whose failure fails signoff (of those run) |
+| `checks` | list[str] | drc, density, lvs, antenna, setup, hold, drv, annotation, unconstrained, harness | drc, density, lvs, antenna, setup, hold, drv, annotation, unconstrained, harness, magic_drc, xor, lvs_full | checks to run (opt-in: magic_drc and xor need the Magic image; lvs_full runs the PDK's full-device LVS deck and needs lvs and no black boxes) |
+| `require` | list[str] | drc, density, lvs, antenna, setup, hold, drv, annotation, harness, magic_drc, xor, lvs_full | drc, density, lvs, antenna, setup, hold, drv, annotation, unconstrained, harness, magic_drc, xor, lvs_full | checks whose failure fails signoff (of those run) |
 | `fail_on_violation` | bool | true |  | fail the attempt when a required check fails (signoff.json is written either way) |
 | `drc_split` | bool | true |  | run the PDK's DRC rule groups (signoff.drc_groups) as concurrent processes and merge their reports |
 | `threads` | int | – | 1.. | OpenROAD threads for this step's attempts (set_thread_count; signoff: also KLayout DRC); unset: the run's threads, shared among the attempts running at once |

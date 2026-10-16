@@ -144,10 +144,11 @@ class Pdk:
         for c in self.corners:
             out += [c.liberty, c.rcx_rules]
         so = self.signoff or {}
-        for k in ("klayout_tech", "klayout_map", "drc_deck", "lvs_deck", "density_deck", "fill_rules", "magic_rc"):
+        for k in ("klayout_tech", "klayout_map", "drc_deck", "lvs_deck", "lvs_full_deck", "density_deck", "fill_rules",
+                  "magic_rc"):
             if so.get(k):
                 out.append(so[k])
-        for k in ("cell_gds", "cell_cdl", "io_gds", "io_cdl"):
+        for k in ("cell_gds", "cell_cdl", "io_gds", "io_cdl", "lvs_full_cell_spice"):
             out += list(so.get(k) or [])
         out = list(dict.fromkeys(out))
         out += list(self.io_lefs.values())

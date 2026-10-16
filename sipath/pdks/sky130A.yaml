@@ -210,6 +210,14 @@ signoff:
   # second DRC engine and the stream-out XOR (opt-in checks magic_drc, xor): Magic with the PDK's rc
   magic_rc: ${pdk_root}/${variant}/libs.tech/magic/${variant}.magicrc
   lvs_deck: ${here}/sky130/sky130_stdcell.lvs
+  # full-device LVS (signoff check lvs_full, `sipath lvs`): open_pdks' KLayout deck,
+  # every device class (hv MOS, MIM caps, poly/diffusion resistors, diodes)
+  lvs_full_deck: ${pdk_root}/${variant}/libs.tech/klayout/lvs/sky130.lvs
+  # cell netlists with every device (the CDL leaves out tap diodes and tie resistors)
+  lvs_full_cell_spice: ["${pdk_root}/${variant}/libs.ref/${scl}/spice/${scl}.spice"]
+  lvs_full_aliases:   # schematic device names the deck spells differently (Xschem's MIM caps)
+    sky130_fd_pr__cap_mim_m3_1: sky130_fd_pr__model__cap_mim
+    sky130_fd_pr__cap_mim_m3_2: sky130_fd_pr__model__cap_mim_m4
   lvs_threads: 8
   # drawing layer -> text layer, low to high: supply nets get one label on the highest
   label_layers: {met1: [68, 20, 68, 5], met2: [69, 20, 69, 5], met3: [70, 20, 70, 5], met4: [71, 20, 71, 5],

@@ -27,7 +27,10 @@ python3 -m sipath pdks                         # PDK descriptions available
 python3 -m sipath run sipath/examples/gcd8.yaml runs/x --explore  # first-cut PPA in a minute, suggested clock
 python3 -m sipath run mcu8 runs/mcu8 --resume  # continue an interrupted run (finished work is kept)
 python3 -m sipath run dp8 --config my.yaml -v  # run configuration file, INFO logging
-python3 -m unittest sipath.tests.test_sipath
+python3 -m unittest sipath.tests.test_unit      # unit tests: no OpenROAD, a few seconds
+python3 -m sipath.tests.run_live -j 4          # live tests (real runs), classes in parallel, with times
+python3 -m unittest sipath.tests.test_sipath    # everything, one process
+python3 -m sipath limits runs/gcd8 gcd8        # a run against its regression limits (sipath/tests/limits.yaml)
 python3 -m sipath validate      # inputs + scheduler rules (stand-in sessions, no design)
 python3 -m sipath draw <odb> <svg> [--ring]   # schematic SVG of a checkpoint
 python3 -m sipath render <odb> <png>          # OpenROAD's own layout render
@@ -59,6 +62,11 @@ python3 -m sipath report runs/gcd8 --render   # the run's report page (report.md
   compares the configured images), and an unpinned image is refused by
   default. `pyproject.toml` packages it (`sipath` console script); the
   example inputs are committed and their generators leave current files alone.
+- Regression limits per design (`sipath/tests/limits.yaml`: setup/hold slack,
+  DRC, LVS, signoff, wirelength, instances, wall time), one checker
+  (`sipath limits`, `--suggest` from a good run); the live tests check their
+  runs against it. Tests split into unit (`test_unit`, seconds) and live
+  (`test_live`, run in parallel by `sipath.tests.run_live`).
 - Plugins (`plugins:` or the `sipath.plugins` entry points) add steps,
   scores, signoff checks, harnesses, design templates and design-file
   extensions.
@@ -108,6 +116,17 @@ python3 -m sipath report runs/gcd8 --render   # the run's report page (report.md
   5%, the `ppa` step's `margin`).
 
 **Signoff**
+- Full-device LVS with the PDK's own KLayout deck (open_pdks `sky130.lvs`:
+  high-voltage MOS, MIM caps, poly/diffusion resistors, diodes), as the opt-in
+  signoff check `lvs_full` and as `sipath lvs <gds> <top> <schematic...>` for a
+  macro. Schematics are prepared for the deck (device-name aliases from the
+  PDK file, the device prefix on CDL models, cell SPICE for black-box cells,
+  parallel MOS merged as the deck merges the layout's). Not yet matching: on
+  the ChipFoundry ADC (10 s) the vendor schematic lacks its `decoder3to8`
+  block; on dp8 (13 s) the deck's extraction and the PDK's cell netlists
+  disagree (parallel devices merged across cells, tap diodes and tie resistors
+  not extracted, well/substrate pins of the cells). The standard-cell LVS
+  remains the gating check.
 - KLayout DRC (the deck's rule groups run in parallel), metal density
   (gating for top-level layouts, reported for embedded macros), KLayout LVS
   against a reference netlist (tie cells and supplies handled; macros and IO

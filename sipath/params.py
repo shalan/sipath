@@ -83,7 +83,7 @@ SIGNOFF_CHECKS = ("drc", "density", "lvs", "antenna", "setup", "hold", "drv", "a
                   "harness")
 SIGNOFF_REQUIRED = ("drc", "density", "lvs", "antenna", "setup", "hold", "drv", "annotation", "harness")
 # opt-in (need the Magic image, config magic_image): a second DRC engine and the stream-out XOR
-SIGNOFF_OPTIONAL = ("magic_drc", "xor")
+SIGNOFF_OPTIONAL = ("magic_drc", "xor", "lvs_full")
 
 _ITERS = "detailed-router iterations"
 _FAIL = "fail the attempt when setup or hold is not met after the step"
@@ -197,8 +197,9 @@ STEP_PARAMS: dict[str, list[Param]] = {
         Param("fail_on_violation", "bool", False, _FAIL),
     ],
     "signoff": [
-        Param("checks", "list[str]", SIGNOFF_CHECKS, "checks to run (magic_drc and xor are opt-in: they need "
-              "the Magic image)", choices=SIGNOFF_CHECKS + SIGNOFF_OPTIONAL),
+        Param("checks", "list[str]", SIGNOFF_CHECKS, "checks to run (opt-in: magic_drc and xor need the Magic "
+              "image; lvs_full runs the PDK's full-device LVS deck and needs lvs and no black boxes)",
+              choices=SIGNOFF_CHECKS + SIGNOFF_OPTIONAL),
         Param("require", "list[str]", SIGNOFF_REQUIRED + SIGNOFF_OPTIONAL, "checks whose failure fails signoff "
               "(of those run)", choices=SIGNOFF_CHECKS + SIGNOFF_OPTIONAL),
         Param("fail_on_violation", "bool", True, "fail the attempt when a required check fails (signoff.json "

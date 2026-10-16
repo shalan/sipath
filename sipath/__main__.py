@@ -24,6 +24,11 @@
     python3 -m sipath mcp               MCP server on stdio (tools: open_run, run_step, run_eco, ...)
     python3 -m sipath toolchain [--check]   locked images and tool versions (--check: the configured
                                       images against the lock, sipath/toolchain.json)
+    python3 -m sipath lvs <gds> <top> <schematic.spice ...> --pdk p [--lib cells.spice] [--out dir]
+                                      full-device LVS (the PDK's KLayout deck) of a layout, e.g. a macro
+    python3 -m sipath limits <workdir> <design> [--file f] [--suggest [--until step]]
+                                      a run's results against its regression limits
+                                      (sipath/tests/limits.yaml; --suggest: an entry from this run)
 """
 from __future__ import annotations
 
@@ -209,6 +214,12 @@ def main(argv) -> int:
         registry.load_plugins(argv[1:])
         print(json.dumps(registry.loaded(), indent=1))
         return 0
+    if cmd == "lvs":
+        from .lvs_full import main as lvs_main
+        return lvs_main(argv[1:])
+    if cmd == "limits":
+        from .limits import main as lm
+        return lm(argv[1:])
     if cmd == "toolchain":
         from .toolchain import main as tc
         return tc(argv[1:])
