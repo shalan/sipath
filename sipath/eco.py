@@ -248,7 +248,17 @@ def _slacks(session):
     return tuple(float(x) if abs(float(x)) < 1e30 else None for x in v)
 
 
-def post_route_repair(ctx, max_iter: int = 2, max_patch: int = 40) -> dict:
+def patch_limit(session, max_patch: int | None) -> int:
+    """Nets a repair may change and still be patched: ``max_patch``, or by
+    default a quarter of the digital nets (at least 40). A fixed 40 sent every
+    larger repair to a full re-route (aes: ~2,300 s of the post-route step)."""
+    if max_patch is not None:
+        return int(max_patch)
+    n = int(session.value(tcl.DIGITAL_NETS + "llength $::flow_digital"))
+    return max(40, n // 4)
+
+
+def post_route_repair(ctx, max_iter: int = 2, max_patch: int | None = None) -> dict:
     """Timing repair on extracted parasitics after detailed routing.
 
     While setup or hold fails (all corners): repair_timing (resize/buffer only:
@@ -260,6 +270,7 @@ def post_route_repair(ctx, max_iter: int = 2, max_patch: int = 40) -> dict:
     s, d, pdk = ctx.session, ctx.design, ctx.pdk
     history = []
     rerouted = False
+    max_patch = patch_limit(s, max_patch)
     for it in range(1, max_iter + 1):
         wns, whs = _slacks(s)
         history.append({"wns": wns, "whs": whs})

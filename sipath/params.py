@@ -131,7 +131,10 @@ STEP_PARAMS: dict[str, list[Param]] = {
     "place": [
         Param("density", "float", 0.55, "global placement target density", min=0.05, max=1.0),
         Param("seed", "int", None, "global placement random seed; default: the tool's"),
-        Param("routability_driven", "bool", False, "routability-driven global placement"),
+        Param("routability_driven", "bool", True, "routability-driven global placement (ORFS's default; off "
+              "left aes too congested to route)"),
+        Param("improve_placement", "bool", True, "after detailed placement: improve_placement -max_displacement "
+              "\"5 1\" and optimize_mirroring, as ORFS (skipped with fences)"),
         Param("timing_driven", "bool", True, "timing-driven global placement (off for designs whose pins are far "
               "from the cells, e.g. a mostly empty harness wrapper: repair_design then buffers the long wires)"),
         Param("repair_tie_fanout", "bool", True, "one tie cell per load, placed next to it"),
@@ -146,18 +149,22 @@ STEP_PARAMS: dict[str, list[Param]] = {
         Param("iters", "int", 20, _ITERS + " for the analog nets", min=1),
     ],
     "route_digital": [
+        Param("detailed", "bool", True, "detailed routing; off: stop after global routing and its repair, with "
+              "PPA from global-route parasitics (explore mode)"),
         Param("iters", "int", 64, _ITERS, min=1),
         Param("max_drc", "int", 0, "routing DRC violations allowed", min=0),
         Param("antenna_rounds", "int", 3, "antenna repair rounds", min=0),
         Param("max_antenna", "int", 0, "antenna violations allowed", min=0),
+        Param("pin_access", "bool", True, "pin access analysis on the routing layers before global routing, "
+              "as ORFS"),
         Param("repair_after_grt", "bool", True, "repair timing on global-route parasitics, then re-route "
               "incrementally"),
         Param("fail_on_violation", "bool", False, _FAIL),
     ],
     "route_repair": [
         Param("rounds", "int", 2, "post-route timing repair rounds on extracted parasitics", min=0),
-        Param("max_patch_nets", "int", 40, "nets changed by repair above which the design is routed again "
-              "instead of patched", min=0),
+        Param("max_patch_nets", "int", None, "nets changed by repair above which the design is routed again "
+              "instead of patched (default: a quarter of the signal nets, at least 40)", min=0),
         Param("antenna_rounds", "int", 3, "antenna repair rounds", min=0),
         Param("max_antenna", "int", 0, "antenna violations allowed", min=0),
         Param("fillers", "list[str]", None, "cells for the empty sites (default: the PDK's fill list, decaps "
@@ -174,6 +181,10 @@ STEP_PARAMS: dict[str, list[Param]] = {
     "integrate": [
         Param("drc", "bool", False, "full-chip KLayout DRC of the assembled chip (slow; the frame's IO cells "
               "carry their own waivers)"),
+    ],
+    "ppa": [
+        Param("margin", "float", 0.05, "margin added to the achievable clock period in the suggested one",
+              min=0, max=1),
     ],
     "views": [
         Param("corners", "list[str]", None, "analysis corners to write a timing Liberty for (default: all)"),

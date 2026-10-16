@@ -25,7 +25,7 @@ from sipath.examples import designs
 from sipath.netlist import parse_verilog, read_verilog
 from sipath.pdk import load as load_pdk
 from sipath.scheduler import Attempt, EcoRefused, Flow, StepCancelled, StepFailed
-from sipath.session import FakeSession, OpenRoadSession, TclError, find_openroad
+from sipath.session import FakeSession, NativeRunner, OpenRoadSession, TclError, find_openroad
 
 RUNNER = find_openroad()
 LIVE = unittest.skipIf(RUNNER is None, "openroad is not available (not on PATH, no ORFS docker image)")
@@ -632,9 +632,19 @@ class Sky130Fidelity(unittest.TestCase):
                                val(nom, "-via", "via2", "-resistance"), 8.0 / 3.41, places=3)
         self.assertEqual(val(c["ss_max"].rc_script, "-layer", "met2", "-capacitance"),
                          val(nom, "-layer", "met2", "-capacitance"))  # same capacitance in all three
-        t = tcl.rc_setup(self.p)
-        self.assertEqual(t.count("set_layer_rc -layer met2"), 9)
+        t = tcl.rc_setup(self.p)  # in-flow sessions: the corners the flow repairs against
+        self.assertEqual(t.count("set_layer_rc -layer met2"), 3)
         self.assertIn("-corner ss_max", t)
+        self.assertEqual(tcl.rc_setup(self.p, None, self.p.signoff_corners()).count("set_layer_rc -layer met2"), 9)
+
+    def test_flow_repairs_on_three_corners_signoff_checks_nine(self):
+        self.assertEqual([c.name for c in self.p.analysis_corners()], ["tt_nom", "ss_max", "ff_min"])
+        self.assertEqual(len(self.p.signoff_corners()), 9)
+        self.assertEqual(len(tcl.spef_paths(self.p, "/x/d.spef")), 9)  # extraction serves every corner
+        r = tcl.rcx(self.p, "/x/d.spef")
+        self.assertEqual(r.count("extract_parasitics"), 3)  # one per RCX rule file (min, nom, max)
+        self.assertEqual(r.count("read_spef"), 3)  # into the session's three corners
+        self.assertIn("define_corners tt_nom ss_max ff_min", "\n".join(tcl._define_corners(self.p)))
 
     def test_constraints_extraction_and_layers(self):
         d = Design("x", "x", "a.v", "a.sdc", "macro", floorplan_def="f.def").resolve(self.p)
@@ -653,7 +663,7 @@ class Sky130Fidelity(unittest.TestCase):
         self.assertEqual(len(set(paths.values())), 3)
         r = tcl.rcx(self.p, "/w/x.spef")
         self.assertEqual(r.count("extract_parasitics"), 3)
-        self.assertEqual(r.count("read_spef -corner"), 9)
+        self.assertEqual(r.count("read_spef -corner"), 3)  # the session's corners; SPEFs written for all nine
         self.assertIn("set_routing_layers -signal met1-met4 -clock met3-met4", tcl.routing_layers(d, self.p))
         self.assertIn("set_wire_rc -clock -layer met4", tcl.rc_setup(self.p, d))  # met5 clamped for a macro
         self.assertEqual(tcl.margins(self.p, "hold_place"), " -setup_margin 0.025 -hold_margin 0.1")
@@ -1178,6 +1188,41 @@ class HardenedViewsAndFill(unittest.TestCase):
             self.assertEqual([layer["layer"], layer["datatype"]], p.signoff["fill_gds"][name])
         for k in ("density_deck", "fill_rules", "magic_rc"):
             self.assertIn(p.signoff[k], p.files())  # mounted for the tools
+
+
+class ExploreMode(unittest.TestCase):
+    def test_explore_flow_is_a_fast_first_cut(self):
+        from sipath import designfile
+        spec = [{"step": "synth", "variants": [{"abc": "speed"}, {"abc": "area"}]}, {"step": "floorplan"},
+                {"step": "place"}, {"step": "cts"}, {"step": "route_digital"}, {"step": "route_repair"},
+                {"step": "fill"}, {"step": "extract"}, {"step": "signoff"}, {"step": "views"},
+                {"step": "chip", "fn": "integrate"}]
+        out = designfile.explore_flow(spec)
+        self.assertEqual([s["step"] for s in out], ["synth", "floorplan", "place", "cts", "route_digital"])
+        self.assertEqual(out[0]["variants"], [{"abc": "speed", "equiv": "off"}, {"abc": "area", "equiv": "off"}])
+        self.assertEqual(out[-1]["variants"], [{"detailed": False}])
+        self.assertEqual(spec[0]["variants"], [{"abc": "speed"}, {"abc": "area"}])  # the file's flow is untouched
+        # a flow that stops before routing closes with a ppa step
+        self.assertEqual([s["step"] for s in designfile.explore_flow([{"step": "synth"}, {"step": "place"}])],
+                         ["synth", "place", "ppa"])
+
+    def test_explore_params_are_declared(self):
+        from sipath.params import check
+        check("route_digital", {"detailed": False})
+        check("synth", {"equiv": "off"})
+        check("ppa", {"margin": 0.1})
+
+    def test_explore_build_optimizes_on_the_typical_corner(self):
+        from sipath import designfile
+        d, _ = designfile.load(os.path.join(os.path.dirname(designs.__file__), "gcd8.yaml"))
+        with tempfile.TemporaryDirectory() as td:
+            runner = NativeRunner("openroad")
+            runner.platform_root = lambda: "/p"
+            full = designfile.build(d, os.path.join(td, "a"), runner)
+            fast = designfile.build(d, os.path.join(td, "b"), runner, explore=True)
+            self.assertEqual([c.name for c in full.pdk.analysis_corners()], ["tt_nom", "ss_max", "ff_min"])
+            self.assertEqual([c.name for c in fast.pdk.analysis_corners()], ["tt_nom"])
+            self.assertEqual(len(fast.pdk.signoff_corners()), 9)
 
 
 class Templates(unittest.TestCase):
@@ -1756,6 +1801,25 @@ class Scheduler(unittest.TestCase):
             self.assertIn("**cts.0**", md)
             with open(os.path.join(td, "report.html")) as fh:
                 self.assertIn("<table>", fh.read())
+
+    def test_report_shows_the_ppa_first_cut(self):
+        ppa = {"parasitics": "global routing", "corner": "tt_nom",
+               "area": {"std_cell_um2": 812.5, "macro_um2": 0.0, "cells": 140, "core_um2": 2000.0, "utilization": 0.41},
+               "timing": {"wns_ns": -0.4, "tns_ns": -3.1, "whs_ns": 0.05,
+                          "clocks": [{"clock": "clk", "period_ns": 5.0, "achievable_period_ns": 5.4, "fmax_mhz": 185.2,
+                                      "suggested_period_ns": 5.67, "sdc": "create_clock -name clk -period 5.67 ..."}]},
+               "power": {"internal_w": 1e-4, "switching_w": 5e-5, "leakage_w": 1e-9, "total_w": 1.5e-4},
+               "wirelength_um": 9000.0, "wirelength_kind": "HPWL"}
+        def step(ctx):
+            demo.fake_step(delay=0)(ctx)
+            ctx.outputs["ppa"] = ppa
+        with tempfile.TemporaryDirectory() as td:
+            self.flow(td).step("route", step, score="setup_wns")
+            with open(os.path.join(td, "report.md")) as fh:
+                md = fh.read()
+            self.assertIn("## PPA (first cut from route: global routing parasitics, corner tt_nom)", md)
+            self.assertIn("achievable 5.4 ns (fmax 185.2 MHz), suggested period 5.67 ns", md)
+            self.assertIn("| wirelength (HPWL) | 9000 um |", md)
 
     def test_failure_writes_no_checkpoint_and_parent_rules(self):
         with tempfile.TemporaryDirectory() as td:

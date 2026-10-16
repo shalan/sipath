@@ -105,8 +105,9 @@ def equiv_script(pdk, d, netlist: str, depth: int, reset: tuple[str, int] | None
     std, _ = _libs(pdk, d)
     rst = f" -set-at 1 in_{reset[0]} {reset[1]}" if reset else ""
     return "\n".join([
-        *_read_rtl(d, True), f"hierarchy -check -top {d.top}", "proc", "flatten", "opt_clean",
-        f"rename {d.top} gold", "design -stash gold",
+        *_read_rtl(d, True), f"hierarchy -check -top {d.top}", "proc",
+        "memory",  # RTL memories (e.g. lookup tables) to logic: SAT has no model for memory cells
+        "flatten", "opt_clean", f"rename {d.top} gold", "design -stash gold",
         f"read_liberty -ignore_miss_func {std}", f"read_verilog {netlist}", f"hierarchy -check -top {d.top}",
         "proc", "flatten", "opt_clean", f"rename {d.top} gate", "design -stash gate",
         "design -copy-from gold -as gold gold", "design -copy-from gate -as gate gate",

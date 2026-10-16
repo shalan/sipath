@@ -2,9 +2,11 @@
 
     python3 -m sipath validate          inputs present + scheduler graph rules (FakeSession; no design)
     python3 -m sipath gen-inputs        (re)write sipath/examples/inputs
-    python3 -m sipath run <design.yaml|dp8|mcu8|ihp_add8> [workdir] [--resume] [--config file] [-v]
+    python3 -m sipath run <design.yaml|dp8|mcu8|ihp_add8> [workdir] [--resume] [--explore] [--config file] [-v]
                                       real OpenROAD run -> routed DEF + SPEF; --resume continues the
-                                      attempt graph in workdir (finished steps are not run again)
+                                      attempt graph in workdir (finished steps are not run again);
+                                      --explore: a fast first cut at PPA (typical corner, global routing,
+                                      no signoff) with a suggested clock period
     python3 -m sipath harden <design.yaml|example> <outdir> [workdir] [--resume] [-v]
                                       run through signoff + views; copy the hardened macro views
                                       (LEF, Liberty per corner, GDS, CDL, macro.yaml) to outdir
@@ -127,7 +129,7 @@ def main(argv) -> int:
         import logging
         from . import designfile
         from .config import Config
-        resume, verbose = "--resume" in argv, "-v" in argv
+        resume, verbose, explore = "--resume" in argv, "-v" in argv, "--explore" in argv
         args = [a for a in argv[1:] if not a.startswith("-")]
         cfg_file = argv[argv.index("--config") + 1] if "--config" in argv else None
         if cfg_file in args:
@@ -143,8 +145,12 @@ def main(argv) -> int:
         wd = argv[2] if len(argv) > 2 else os.path.join(os.getcwd(), "runs", name)
         fcfg = designfile.file_config(path)
         flow = designfile.run(path, wd, config=Config.load(cfg_file, **fcfg) if (cfg_file or fcfg) else cfg,
-                              resume=resume)
+                              resume=resume, explore=explore)
         last = list(flow.steps.values())[-1].selected
+        ppa_md = (last.outputs.get("reports") or {}).get("ppa")
+        if ppa_md and os.path.isfile(ppa_md):
+            with open(ppa_md) as f:
+                print(f.read())
         for k in ("def_", "spef"):
             if k in last.outputs:
                 print(f"{k.rstrip('_').upper():4}:", last.outputs[k])

@@ -81,6 +81,7 @@ class Pdk:
     io_fill: list = field(default_factory=list)
     source: str = ""  # the description file
     typical_corner: str = ""  # nominal corner (CTS library, main SPEF); default tt / the first
+    optimize_corners: list = field(default_factory=list)  # corners the flow repairs against (default all)
     constraints: dict = field(default_factory=dict)  # design rules: max_transition/fanout/capacitance, ...
     clock_min_layer: str = ""  # lowest layer for clock nets
     repair_margins: dict = field(default_factory=dict)  # ns: setup, hold_place, hold_route; %: slew, cap
@@ -114,8 +115,20 @@ class Pdk:
             raise ValueError(f"no routing layer above {layer}")
         return self.layers[i + 1]
 
-    def analysis_corners(self) -> list[Corner]:
+    def signoff_corners(self) -> list[Corner]:
+        """Every corner: extraction writes a SPEF for each, signoff STA checks each."""
         return self.corners or [Corner("tt", self.liberty, self.rcx_rules)]
+
+    def analysis_corners(self) -> list[Corner]:
+        """The corners in-flow sessions load and repair against: the PDK's
+        ``optimize_corners`` (e.g. typical, worst setup, worst hold), else all.
+        Each corner costs a parasitics estimate and a timing view at every
+        repair (aes placement: 148 s with nine corners, 8 s with one)."""
+        allc = self.signoff_corners()
+        if not self.optimize_corners:
+            return allc
+        by = {c.name: c for c in allc}
+        return [by[n] for n in self.optimize_corners]
 
     def excluded(self, cell: str, extra=()) -> bool:
         """``cell`` is on the PDK's exclude list or matches one of ``extra`` (patterns)."""
@@ -336,7 +349,7 @@ def load(spec: str, runner=None, **variables) -> Pdk:
 
 PDK_KEYS = {"name", "description", "extends", "vars", "tech_lef", "cell_lef", "liberty", "rcx_rules", "rc",
             "rc_tech_lefs", "rc_via_cut_layers", "site", "tracks", "tracks_file", "layers", "local_layers",
-            "corners", "typical_corner", "cells", "route", "power", "pdn", "analog", "io", "sram", "constraints",
+            "corners", "typical_corner", "optimize_corners", "cells", "route", "power", "pdn", "analog", "io", "sram", "constraints",
             "repair_margins", "step_defaults", "signoff"}
 
 
@@ -420,7 +433,8 @@ def from_dict(data: dict, env: dict, source: str = "") -> Pdk:  # noqa: C901
         power_pins=list(power.get("pins") or []), voltages=dict(power.get("voltages") or {}),
         pdn_defaults=dict(data.get("pdn") or {}), analog_defaults=dict(data.get("analog") or {}),
         io_corner=io.get("corner", ""), io_fill=list(io.get("fill") or []), source=source,
-        typical_corner=data.get("typical_corner", ""), constraints=dict(data.get("constraints") or {}),
+        typical_corner=data.get("typical_corner", ""),
+        optimize_corners=list(data.get("optimize_corners") or []), constraints=dict(data.get("constraints") or {}),
         clock_min_layer=route.get("clock_min_layer", ""),
         repair_margins={k: float(v) for k, v in (data.get("repair_margins") or {}).items()},
         exclude=sorted(exclude), exclude_sources=sources,
@@ -441,6 +455,11 @@ def from_dict(data: dict, env: dict, source: str = "") -> Pdk:  # noqa: C901
         pdk.layer_index(pdk.clock_min_layer)
     if pdk.typical_corner and pdk.corners and pdk.typical_corner not in [c.name for c in pdk.corners]:
         raise ValueError(f"PDK {pdk.name}: typical_corner {pdk.typical_corner} is not a corner")
+    unknown = [n for n in pdk.optimize_corners if n not in [c.name for c in pdk.signoff_corners()]]
+    if unknown:
+        raise ValueError(f"PDK {pdk.name}: optimize_corners {unknown} are not corners")
+    if pdk.optimize_corners and pdk.typical_corner and pdk.typical_corner not in pdk.optimize_corners:
+        raise ValueError(f"PDK {pdk.name}: optimize_corners must include the typical corner {pdk.typical_corner}")
     for ly in [pdk.min_layer, pdk.max_layer_core, pdk.max_layer_macro]:
         pdk.layer_index(ly)
     return pdk

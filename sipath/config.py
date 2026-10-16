@@ -7,7 +7,7 @@ variables, the ``config:`` section of a design file, and keyword overrides.
 =====================  ======================  =====================================
 field                  environment             meaning
 =====================  ======================  =====================================
-threads                SIPATH_THREADS            OpenROAD ``-threads`` per process
+threads                SIPATH_THREADS            OpenROAD ``-threads`` per process (default: all cores, as ORFS)
 command_timeout        SIPATH_TIMEOUT            seconds one Tcl command may take
 tool_timeout           SIPATH_TOOL_TIMEOUT       seconds one signoff tool run (KLayout DRC/LVS, Magic) may take
 parallel_cap           SIPATH_PARALLEL_CAP       most attempts alive at once (0: none)
@@ -45,7 +45,7 @@ class ConfigError(ValueError):
 
 @dataclass
 class Config:
-    threads: int = 2
+    threads: int = field(default_factory=lambda: os.cpu_count() or 2)  # all cores (ORFS NUM_CORES)
     command_timeout: float = 3600.0
     tool_timeout: float = 7200.0
     parallel_cap: int = 0

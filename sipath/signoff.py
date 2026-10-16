@@ -744,14 +744,15 @@ def timing(ctx, verilog: str, spef_corners: dict) -> dict:
     r = _runner(ctx)
     wd = ctx.path("sta")
     os.makedirs(wd, exist_ok=True)
-    corners = [c.name for c in pdk.analysis_corners()]
+    every = pdk.signoff_corners()  # signoff checks every corner, not only those the flow repaired against
+    corners = [c.name for c in every]
     res = {"corners": {}}
     with OpenRoadSession(wd, r, timeout=getattr(ctx.session, "timeout", 3600)) as s:
         s.run(tcl.HELPERS)
-        out = [*tcl._define_corners(pdk)]
+        out = [*tcl._define_corners(pdk, every)]
         out += [f"read_lef {q(f)}" for f in [pdk.tech_lef, *pdk.cell_lefs, *d.extra_lefs, *[m.lef for m in d.macros]]]
-        out += tcl._read_libs(pdk, d)
-        out += [f"read_verilog {q(verilog)}", f"link_design {d.top}", tcl._timing_setup(pdk, d),
+        out += tcl._read_libs(pdk, d, every)
+        out += [f"read_verilog {q(verilog)}", f"link_design {d.top}", tcl._timing_setup(pdk, d, every),
                 "set_propagated_clock [all_clocks]"]
         s.run("\n".join(out))
         multi = len(corners) > 1

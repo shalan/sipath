@@ -68,7 +68,9 @@ proc ::flow_set_flag {key} {
 }
 proc ::flow_timing_prep {} {
   # parasitics for checkpoint metrics: placement estimate unless SPEF was read
+  # (or a global-only route left its own estimate)
   if {[::flow_flag flow_post_cts]} { set_propagated_clock [all_clocks] }
+  if {[info exists ::flow_grt_parasitics]} { return global_routing }
   if {![info exists ::flow_spef_loaded]} {
     if {[[ord::get_db_block] getRows] ne {}} { estimate_parasitics -placement }
     return placement
@@ -138,7 +140,7 @@ proc ::flow_swire_signature {names} {
 
 
 def corner_libs(pdk: Pdk, d: Design, corner: str) -> list[str]:
-    cs = [c for c in pdk.analysis_corners() if c.name == corner]
+    cs = [c for c in pdk.signoff_corners() if c.name == corner]
     libs = [c.liberty for c in cs] + list(d.extra_libs)
     process = cs[0].process if cs else corner
     for m in d.macros:
@@ -152,8 +154,8 @@ def corner_libs(pdk: Pdk, d: Design, corner: str) -> list[str]:
     return libs
 
 
-def _read_libs(pdk: Pdk, d: Design) -> list[str]:
-    corners = pdk.analysis_corners()
+def _read_libs(pdk: Pdk, d: Design, corners=None) -> list[str]:
+    corners = corners or pdk.analysis_corners()
     if len(corners) == 1:
         return [f"read_liberty {q(f)}" for f in corner_libs(pdk, d, corners[0].name)]
     out = []
@@ -168,16 +170,16 @@ def _read_libs(pdk: Pdk, d: Design) -> list[str]:
     return out
 
 
-def _define_corners(pdk: Pdk) -> list[str]:
-    names = [c.name for c in pdk.analysis_corners()]
+def _define_corners(pdk: Pdk, corners=None) -> list[str]:
+    names = [c.name for c in (corners or pdk.analysis_corners())]
     out = [f"set ::flow_corners {qlist(names)}"]
     if len(names) > 1:
         out.insert(0, f"define_corners {' '.join(names)}")
     return out
 
 
-def _all_libs(pdk: Pdk, d: Design) -> list[str]:
-    return sorted({f for c in pdk.analysis_corners() for f in corner_libs(pdk, d, c.name)})
+def _all_libs(pdk: Pdk, d: Design, corners=None) -> list[str]:
+    return sorted({f for c in (corners or pdk.analysis_corners()) for f in corner_libs(pdk, d, c.name)})
 
 
 def load_root(pdk: Pdk, d: Design, netlist: str | None = None) -> str:
@@ -220,10 +222,10 @@ def _clamp_wire_rc(script: str, pdk: Pdk, d: Design | None) -> str:
     return "\n".join(out)
 
 
-def rc_setup(pdk: Pdk, d: Design | None = None) -> str:
+def rc_setup(pdk: Pdk, d: Design | None = None, corners=None) -> str:
     """Estimation RC: each corner's own script (scaled from its tech LEF when
     the PDK gives one), the PDK's otherwise."""
-    corners = pdk.analysis_corners()
+    corners = corners or pdk.analysis_corners()
     if len(corners) == 1:
         return _clamp_wire_rc(corners[0].rc_script or pdk.rc_script, pdk, d)
     out = []
@@ -259,8 +261,8 @@ def constraints_setup(pdk: Pdk, d: Design) -> list[str]:
     return out
 
 
-def _timing_setup(pdk: Pdk, d: Design) -> str:
-    out = [*constraints_setup(pdk, d), f"read_sdc {q(d.sdc)}", rc_setup(pdk, d)]
+def _timing_setup(pdk: Pdk, d: Design, corners=None) -> str:
+    out = [*constraints_setup(pdk, d), f"read_sdc {q(d.sdc)}", rc_setup(pdk, d, corners)]
     if pdk.dont_use:
         out.append(f"set_dont_use {qlist(pdk.dont_use)}")
     # cells with known layout problems and the design's own exclusions: never chosen
@@ -564,7 +566,7 @@ def spef_paths(pdk: Pdk, base: str) -> dict[str, str]:
     """SPEF file per corner. One extraction per distinct RCX rule file, shared
     by the corners that use it: the typical corner's goes to ``base``, the
     others to ``base`` with ``_<rc corner>`` before ``.spef``."""
-    corners = pdk.analysis_corners()
+    corners = pdk.signoff_corners()  # every corner's SPEF, for signoff STA
     root = base[:-5] if base.endswith(".spef") else base
     typ = pdk.typical()
     by_rule = {typ.rcx_rules: base}
@@ -578,15 +580,17 @@ def spef_paths(pdk: Pdk, base: str) -> dict[str, str]:
 
 
 def rcx(pdk: Pdk, spef: str) -> str:
-    """OpenRCX: one extraction per RCX rule file, written once and read into
-    every corner that uses those rules."""
+    """OpenRCX: one extraction per RCX rule file (of all corners), written
+    once and read into every corner of the session that uses those rules."""
     corners = pdk.analysis_corners()
+    every = pdk.signoff_corners()
     paths = spef_paths(pdk, spef)
     out = []
     for path in dict.fromkeys(paths.values()):
         users = [c for c in corners if paths[c.name] == path]
+        rules = next(c for c in every if paths[c.name] == path).rcx_rules
         out += ["define_process_corner -ext_model_index 0 X",
-                f"extract_parasitics -ext_model_file {q(users[0].rcx_rules)}",
+                f"extract_parasitics -ext_model_file {q(rules)}",
                 f"write_spef {q(path)}"]
         for c in users:
             out.append(f"read_spef {'-corner ' + c.name + ' ' if len(corners) > 1 else ''}{q(path)}")

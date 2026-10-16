@@ -499,6 +499,9 @@ def place(ctx):
     s.run(tcl.repair_after_place(p.get("max_util"), ctx.pdk))
     ctx.outputs["reabut"] = reabut_all(ctx)  # sizing may have grown FIRM datapath cells
     s.run("detailed_placement")
+    if p.get("improve_placement", True) and not fence_groups:
+        # ORFS's placement cleanup: shorter wires, less congestion for the router
+        s.run('improve_placement -max_displacement "5 1"\noptimize_mirroring')
     ctx.outputs["fence_evicted"] = enforce_fences(s, [g.name for g in d.groups if g.kind == "fence"])
     check_placement(ctx)
     for g in clusters:
@@ -890,12 +893,16 @@ def route_digital(ctx):
     route again -> antenna repair -> detailed route -> antenna check -> RCX
     (all corners) -> reports.
 
-    params: iters, max_drc, max_antenna (default 0), repair_after_grt (True),
-    fail_on_violation. Post-route repair and fillers are the next step (route_repair)."""
+    params: detailed (True; off: stop after global routing with a PPA summary),
+    iters, max_drc, max_antenna (default 0), pin_access (True),
+    repair_after_grt (True), fail_on_violation. Post-route repair and fillers
+    are the next step (route_repair)."""
     d, s, p = ctx.design, ctx.session, ctx.params
     frozen = list(d.analog_nets) + list(d.analog_supplies)
     before = analog.signature(s, frozen) if frozen else ""
     s.run(tcl.routing_layers(d, ctx.pdk))
+    if p.get("pin_access", True):  # as ORFS: pin access points for the global router (and reused by DRT);
+        s.run("pin_access")         # the layers come from set_routing_layers (its own options are deprecated)
     _global_route(ctx, tcl.global_route_digital(ctx.path("congestion.rpt")), "congestion.rpt")
     if p.get("repair_after_grt", True):
         # 1.1: repair with global-route parasitics, legalize, then let the global
@@ -914,6 +921,12 @@ def route_digital(ctx):
         datapath_check(ctx, "after post-global-route repair")
         _global_route(ctx, f"global_route -end_incremental -congestion_report_file {q(ctx.path('congestion.rpt'))}",
                       "congestion.rpt")
+    if not p.get("detailed", True):  # explore: PPA on global-route parasitics, no detailed route
+        s.run("estimate_parasitics -global_routing\nset ::flow_grt_parasitics 1")
+        ctx.metrics["routed"] = "global"
+        ppa_summary(ctx, "global routing")
+        reports(ctx, "route")
+        return
     if ctx.pdk.diode_cell:  # 1.4: antenna repair on the global routes
         r = s.run(f"repair_antennas {q(ctx.pdk.diode_cell)} -iterations 3")
         m = re.findall(r"Inserted (\d+) diodes", r.output)
@@ -950,7 +963,7 @@ def route_repair(ctx):
     """Post-route timing repair on extracted parasitics (1.2), in a fresh
     process: patch routes after many incremental global routes in one process
     can hang this OpenROAD build. Then fillers. params: rounds (2),
-    max_patch_nets (40), fail_on_violation."""
+    max_patch_nets (a quarter of the signal nets, at least 40), fail_on_violation."""
     s, p = ctx.session, ctx.params
     for k in ("drc", "wirelength_um", "vias"):  # unchanged unless a patch route runs
         if k in (ctx.parent.metrics if ctx.parent else {}):
@@ -958,7 +971,7 @@ def route_repair(ctx):
     s.run(tcl.routing_layers(ctx.design, ctx.pdk))
     run_rcx(ctx, ctx.path("route_rcx.spef"), tag="repair_rcx")
     from .eco import post_route_repair
-    ctx.outputs["post_route_repair"] = post_route_repair(ctx, p.get("rounds", 2), p.get("max_patch_nets", 40))
+    ctx.outputs["post_route_repair"] = post_route_repair(ctx, p.get("rounds", 2), p.get("max_patch_nets"))
     _check_unrouted(ctx)
     ctx.metrics["antenna_violations"] = check_antennas(ctx)
     d = ctx.design
@@ -1093,7 +1106,13 @@ def views(ctx):
         raise RuntimeError(f"hardened views incomplete: {bad}")
     sup_map = {f"^{re.escape(n)}$": n for n in sorted(supplies)}
     rel = os.path.basename  # paths relative to macro.yaml: the directory can be copied as a whole
-    entry = {"inst": "<instance name>", "lef": rel(lef), "gds": rel(gds), "lib": {c: rel(f) for c, f in libs.items()},
+    lib_map = {c: rel(f) for c, f in libs.items()}
+    # also keyed by process (the first corner of each): a parent's other corners (e.g. ss_nom
+    # when the views have ss_max) find a model of their process
+    for c in ctx.pdk.analysis_corners():
+        if c.name in libs and getattr(c, "process", "") and c.process not in lib_map:
+            lib_map[c.process] = rel(libs[c.name])
+    entry = {"inst": "<instance name>", "lef": rel(lef), "gds": rel(gds), "lib": lib_map,
              "location": None, "supplies": sup_map, **({"cdl": rel(cdl)} if cdl else {"lvs": "blackbox"})}
     import json as _json
     with open(os.path.join(out, "macro.yaml"), "w") as f:
@@ -1162,6 +1181,106 @@ def integrate(ctx):
 
 
 integrate.tool = True
+
+
+PPA_TCL = r"""
+set __o {}
+set __b [ord::get_db_block]; set __dbu [$__b getDbUnitsPerMicron]
+set __std 0.0; set __mac 0.0; set __n 0
+foreach __i [$__b getInsts] {
+  set __m [$__i getMaster]
+  set __a [expr {double([$__m getWidth]) * [$__m getHeight] / $__dbu / $__dbu}]
+  if {[$__m isBlock]} { set __mac [expr {$__mac + $__a}]; continue }
+  if {[$__m getType] ne "CORE" || [regexp {fill|tap|decap} [$__m getName]]} continue
+  set __std [expr {$__std + $__a}]; incr __n
+}
+set __c [$__b getCoreArea]
+set __core [expr {double([$__c dx]) * [$__c dy] / $__dbu / $__dbu}]
+lappend __o std_area $__std macro_area $__mac cells $__n core_area $__core
+lappend __o wns [sta::worst_slack -max] tns [sta::total_negative_slack -max] whs [sta::worst_slack -min]
+set __cl {}
+foreach __k [all_clocks] { lappend __cl [list [get_name $__k] [get_property $__k period]] }
+lappend __o clocks $__cl
+set __o
+"""
+
+
+def ppa_summary(ctx, parasitics: str) -> dict:
+    """A first cut at power, performance and area from the session's current
+    parasitics: cell and macro area, utilization, WNS/TNS, the achievable clock
+    period (period - WNS) and fmax, a suggested period for the next SDC
+    (achievable + ``margin``), total power and its parts, wirelength. Written
+    to ppa.json / ppa.md and into the metrics (ppa_*)."""
+    import math
+    s, p = ctx.session, ctx.params
+    v = tcl_parse(s.value(PPA_TCL))
+    kv = dict(zip(v[0::2], v[1::2]))
+    num = lambda x: (round(float(x), 4) if abs(float(x)) < 1e29 else None)  # noqa: E731
+    wns, tns, whs = num(kv["wns"]), num(kv["tns"]), num(kv["whs"])
+    clocks = []
+    margin = float(p.get("margin", 0.05))
+    for name, period in (kv["clocks"] or []):  # tcl_parse nests: [[name, period], ...]
+        period = float(period)
+        ach = period - wns if wns is not None else None
+        sug = math.ceil(ach * (1 + margin) * 100) / 100 if ach else None
+        clocks.append({"clock": name, "period_ns": period, "achievable_period_ns": round(ach, 3) if ach else None,
+                       "fmax_mhz": round(1000.0 / ach, 1) if ach and ach > 0 else None, "suggested_period_ns": sug,
+                       "sdc": f"create_clock -name {name} -period {sug} ..." if sug else None})
+    pw = s.run("report_power").output
+    power = {}
+    m = re.search(r"^Total\s+([\deE.+-]+)\s+([\deE.+-]+)\s+([\deE.+-]+)\s+([\deE.+-]+)", pw, re.M)
+    if m:
+        power = dict(zip(("internal_w", "switching_w", "leakage_w", "total_w"), (float(x) for x in m.groups())))
+    std, mac, core = float(kv["std_area"]), float(kv["macro_area"]), float(kv["core_area"])
+    from .scheduler import parse_metrics
+    wl = ctx.metrics.get("wirelength_um")  # routed, when a detailed route ran
+    wl_kind = "routed"
+    if not wl:
+        wl, wl_kind = parse_metrics(s.value("::flow_metrics")).get("hpwl_um"), "HPWL"
+    res = {"parasitics": parasitics, "corner": ctx.pdk.typical().name if len(ctx.pdk.analysis_corners()) == 1 else
+           [c.name for c in ctx.pdk.analysis_corners()],
+           "area": {"std_cell_um2": round(std, 1), "macro_um2": round(mac, 1), "cells": int(kv["cells"]),
+                    "core_um2": round(core, 1), "utilization": round((std + mac) / core, 4) if core else None},
+           "timing": {"wns_ns": wns, "tns_ns": tns, "whs_ns": whs, "clocks": clocks},
+           "power": power, "wirelength_um": wl, "wirelength_kind": wl_kind}
+    with open(ctx.path("ppa.json"), "w") as f:
+        json.dump(res, f, indent=1)
+    lines = [f"# PPA (first cut: {parasitics} parasitics)", "",
+             f"- area: {res['area']['std_cell_um2']} um2 in {res['area']['cells']} cells"
+             + (f", macros {res['area']['macro_um2']} um2" if mac else "")
+             + f"; utilization {res['area']['utilization']}",
+             f"- timing: WNS {wns} ns, TNS {tns} ns, WHS {whs} ns"]
+    for c in clocks:
+        lines.append(f"- clock {c['clock']}: period {c['period_ns']} ns, achievable {c['achievable_period_ns']} ns "
+                     f"(fmax {c['fmax_mhz']} MHz); suggested `{c['sdc']}`")
+    if power:
+        lines.append(f"- power: total {power['total_w']:.3e} W (internal {power['internal_w']:.3e}, "
+                     f"switching {power['switching_w']:.3e}, leakage {power['leakage_w']:.3e})")
+    if wl:
+        lines.append(f"- wirelength ({wl_kind}): {round(wl)} um")
+    with open(ctx.path("ppa.md"), "w") as f:
+        f.write("\n".join(lines) + "\n")
+    ctx.outputs["ppa"] = res
+    ctx.outputs.setdefault("reports", {})["ppa"] = ctx.path("ppa.md")
+    ctx.metrics.update(ppa_std_area_um2=res["area"]["std_cell_um2"], ppa_utilization=res["area"]["utilization"],
+                       ppa_power_w=power.get("total_w"),
+                       ppa_fmax_mhz=clocks[0]["fmax_mhz"] if clocks else None)
+    return res
+
+
+def ppa(ctx):
+    """PPA summary (first cut) on the best parasitics the parent left: its
+    extracted SPEF when there is one (typical corner), else placement
+    estimates. params: margin (suggested period = achievable x (1 + margin))."""
+    spefs = ctx.ancestor_output("spef_corners") or {}
+    typ = ctx.pdk.typical().name
+    if spefs.get(typ):
+        multi = len(ctx.pdk.analysis_corners()) > 1
+        ctx.session.run(f"read_spef {'-corner ' + typ + ' ' if multi else ''}{q(spefs[typ])}\nset ::flow_spef_loaded 1")
+        ppa_summary(ctx, "extracted")
+    else:
+        ctx.session.run("::flow_timing_prep")
+        ppa_summary(ctx, "placement-estimate")
 
 
 def antenna_loop(ctx, max_rounds: int = 3, tag: str = "antenna") -> int:
@@ -1306,7 +1425,7 @@ from .synth import synth  # noqa: E402  (tool step: Yosys, no OpenROAD process)
 
 STEPS = {
     "synth": synth, "floorplan": floorplan, "macros": macros, "physical": physical, "place": place, "cts": cts,
-    "route_analog": route_analog, "route_digital": route_digital, "route_repair": route_repair, "fill": fill, "extract": extract, "views": views, "integrate": integrate,
+    "route_analog": route_analog, "route_digital": route_digital, "route_repair": route_repair, "fill": fill, "extract": extract, "views": views, "integrate": integrate, "ppa": ppa,
     "signoff": signoff,
 }
 

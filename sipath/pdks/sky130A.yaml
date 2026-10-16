@@ -125,6 +125,10 @@ rc_tech_lefs:
 # signoff corners: process/voltage/temperature x interconnect (min/nom/max),
 # as in the PDK's reference STA corner set
 typical_corner: tt_nom
+# corners the flow repairs against (placement, CTS, routing, post-route): typical, worst setup, worst
+# hold; signoff STA checks every corner below. Each corner costs a parasitics estimate and a timing
+# view at every repair (aes placement: 148 s with all nine, 8 s with one)
+optimize_corners: [tt_nom, ss_max, ff_min]
 corners:
   - {name: tt_nom, process: tt, rc: nom, liberty: "${pdk_root}/${variant}/libs.ref/${scl}/lib/${scl}__tt_025C_1v80.lib", rcx_rules: "${pdk_root}/${variant}/libs.tech/openlane/rules.openrcx.${variant}.nom.calibre"}
   - {name: tt_min, process: tt, rc: min, liberty: "${pdk_root}/${variant}/libs.ref/${scl}/lib/${scl}__tt_025C_1v80.lib", rcx_rules: "${pdk_root}/${variant}/libs.tech/openlane/rules.openrcx.${variant}.min.calibre"}

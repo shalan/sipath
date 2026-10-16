@@ -126,6 +126,32 @@ def design_from_dict(data: dict, base: str) -> Design:
     return Design(**kw)
 
 
+# explore mode drops these (signoff-grade work), and keeps the rest of the design's flow
+EXPLORE_DROP = {"fill", "route_repair", "extract", "signoff", "views", "integrate"}
+
+
+def explore_flow(spec: list[dict]) -> list[dict]:
+    """A design's flow as a fast first cut at PPA (explore mode): no
+    equivalence check, global routing only (PPA from its parasitics), no fill,
+    post-route repair, extraction, signoff, views or integration; a ``ppa``
+    step closes a flow that stops before routing. With the typical corner only
+    (``build(..., explore=True)``)."""
+    out = []
+    for item in spec:
+        fn = item.get("fn", item["step"])
+        if fn in EXPLORE_DROP:
+            continue
+        item = dict(item)
+        if fn == "synth":
+            item["variants"] = [{**v, "equiv": "off"} for v in (item.get("variants") or [{}])]
+        if fn == "route_digital":
+            item["variants"] = [{**v, "detailed": False} for v in (item.get("variants") or [{}])]
+        out.append(item)
+    if not any(i.get("fn", i["step"]) == "route_digital" for i in out):
+        out.append({"step": "ppa"})
+    return out
+
+
 def file_config(path: str) -> dict:
     """The ``config:`` section of a design file (see sipath.config)."""
     return dict(read_file(os.path.abspath(path)).get("config") or {})
@@ -146,14 +172,17 @@ def load(path: str, generate: bool = True) -> tuple[Design, list[dict]]:
     return d, list(data.get("flow") or default_flow(d))
 
 
-def build(d: Design, workdir: str, runner, config=None, resume: bool = False):
+def build(d: Design, workdir: str, runner, config=None, resume: bool = False, explore: bool = False):
     """A Flow for ``d`` on its PDK, with the runner's mounts in place. With
-    ``resume`` the attempt graph in ``workdir`` is picked up (see Flow)."""
+    ``resume`` the attempt graph in ``workdir`` is picked up (see Flow); with
+    ``explore`` the sessions use the typical corner only."""
     from .config import Config
     from .scheduler import Flow
     from .session import OpenRoadSession
     cfg = config or Config.load()
     pdk = load_pdk(d.pdk, runner)
+    if explore and pdk.corners:
+        pdk.optimize_corners = [pdk.typical().name]
     harness_info = None
     if d.harness:  # before resolve: the harness sets supplies, PDN and floorplan
         from . import harness
@@ -176,11 +205,12 @@ def build(d: Design, workdir: str, runner, config=None, resume: bool = False):
 
 
 def run(path_or_design, workdir: str, runner=None, overrides: dict | None = None, flow_steps=None,
-        config=None, resume: bool = False, progress=None):
+        config=None, resume: bool = False, progress=None, explore: bool = False):
     """Run every step of a design file (or a Design with ``flow_steps``); each
     step continues from the previous step's selected attempt. ``overrides``:
     step -> dict of {variants, score, parallel} replacing the file's. With
-    ``resume`` steps already recorded in ``workdir`` are not run again."""
+    ``resume`` steps already recorded in ``workdir`` are not run again. With
+    ``explore`` the flow is a fast first cut at PPA (``explore_flow``)."""
     from .config import Config
     from .session import find_openroad
     if isinstance(path_or_design, Design):
@@ -192,7 +222,9 @@ def run(path_or_design, workdir: str, runner=None, overrides: dict | None = None
     runner = runner or find_openroad(cfg)
     if runner is None:
         raise FileNotFoundError("OpenROAD not available")
-    flow = build(d, workdir, runner, cfg, resume)
+    if explore:  # a first cut at PPA: see explore_flow
+        spec = explore_flow(spec)
+    flow = build(d, workdir, runner, cfg, resume, explore=explore)
     flow.progress = progress
     parent = None
     for item in spec:

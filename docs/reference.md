@@ -171,7 +171,7 @@ YAML or JSON; relative paths are relative to the file. Keys not listed are error
 
 | key | type | required | description |
 |---|---|---|---|
-| `threads` | int |  | OpenROAD threads per process |
+| `threads` | int |  | OpenROAD threads per process (default: all cores) |
 | `command_timeout` | number |  | seconds before a Tcl command is abandoned |
 | `parallel_cap` | int |  | attempts at once across a step (0: as asked) |
 | `container_cpus` | number |  | CPU limit per container |
@@ -250,7 +250,8 @@ No parameters.
 |---|---|---|---|---|
 | `density` | float | 0.55 | 0.05..1.0 | global placement target density |
 | `seed` | int | – |  | global placement random seed; default: the tool's |
-| `routability_driven` | bool | false |  | routability-driven global placement |
+| `routability_driven` | bool | true |  | routability-driven global placement (ORFS's default; off left aes too congested to route) |
+| `improve_placement` | bool | true |  | after detailed placement: improve_placement -max_displacement "5 1" and optimize_mirroring, as ORFS (skipped with fences) |
 | `timing_driven` | bool | true |  | timing-driven global placement (off for designs whose pins are far from the cells, e.g. a mostly empty harness wrapper: repair_design then buffers the long wires) |
 | `repair_tie_fanout` | bool | true |  | one tie cell per load, placed next to it |
 | `remove_buffers` | bool | false |  | remove the netlist's buffers before placement |
@@ -272,10 +273,12 @@ No parameters.
 
 | parameter | type | default | allowed | description |
 |---|---|---|---|---|
+| `detailed` | bool | true |  | detailed routing; off: stop after global routing and its repair, with PPA from global-route parasitics (explore mode) |
 | `iters` | int | 64 | 1.. | detailed-router iterations |
 | `max_drc` | int | 0 | 0.. | routing DRC violations allowed |
 | `antenna_rounds` | int | 3 | 0.. | antenna repair rounds |
 | `max_antenna` | int | 0 | 0.. | antenna violations allowed |
+| `pin_access` | bool | true |  | pin access analysis on the routing layers before global routing, as ORFS |
 | `repair_after_grt` | bool | true |  | repair timing on global-route parasitics, then re-route incrementally |
 | `fail_on_violation` | bool | false |  | fail the attempt when setup or hold is not met after the step |
 
@@ -284,7 +287,7 @@ No parameters.
 | parameter | type | default | allowed | description |
 |---|---|---|---|---|
 | `rounds` | int | 2 | 0.. | post-route timing repair rounds on extracted parasitics |
-| `max_patch_nets` | int | 40 | 0.. | nets changed by repair above which the design is routed again instead of patched |
+| `max_patch_nets` | int | – | 0.. | nets changed by repair above which the design is routed again instead of patched (default: a quarter of the signal nets, at least 40) |
 | `antenna_rounds` | int | 3 | 0.. | antenna repair rounds |
 | `max_antenna` | int | 0 | 0.. | antenna violations allowed |
 | `fillers` | list[str] | – |  | cells for the empty sites (default: the PDK's fill list, decaps first); e.g. fill cells only where most rows are empty and decaps would only add LVS devices |
@@ -304,6 +307,12 @@ No parameters.
 | parameter | type | default | allowed | description |
 |---|---|---|---|---|
 | `drc` | bool | false |  | full-chip KLayout DRC of the assembled chip (slow; the frame's IO cells carry their own waivers) |
+
+### ppa
+
+| parameter | type | default | allowed | description |
+|---|---|---|---|---|
+| `margin` | float | 0.05 | 0..1 | margin added to the achievable clock period in the suggested one |
 
 ### views
 
@@ -343,7 +352,7 @@ Design file `config:`, a `--config` file, or `SIPATH_<KEY>` environment variable
 
 | key | type | description |
 |---|---|---|
-| `threads` | int | OpenROAD threads per process |
+| `threads` | int | OpenROAD threads per process (default: all cores) |
 | `command_timeout` | number | seconds before a Tcl command is abandoned |
 | `parallel_cap` | int | attempts at once across a step (0: as asked) |
 | `container_cpus` | number | CPU limit per container |
@@ -362,4 +371,4 @@ Design file `config:`, a `--config` file, or `SIPATH_<KEY>` environment variable
 
 Top-level keys of a PDK description (`sipath/pdks/*.yaml`); others are errors. `step_defaults` takes the same tables as a design file's.
 
-`analog`, `cell_lef`, `cells`, `constraints`, `corners`, `description`, `extends`, `io`, `layers`, `liberty`, `local_layers`, `name`, `pdn`, `power`, `rc`, `rc_tech_lefs`, `rc_via_cut_layers`, `rcx_rules`, `repair_margins`, `route`, `signoff`, `site`, `sram`, `step_defaults`, `tech_lef`, `tracks`, `tracks_file`, `typical_corner`, `vars`
+`analog`, `cell_lef`, `cells`, `constraints`, `corners`, `description`, `extends`, `io`, `layers`, `liberty`, `local_layers`, `name`, `optimize_corners`, `pdn`, `power`, `rc`, `rc_tech_lefs`, `rc_via_cut_layers`, `rcx_rules`, `repair_margins`, `route`, `signoff`, `site`, `sram`, `step_defaults`, `tech_lef`, `tracks`, `tracks_file`, `typical_corner`, `vars`

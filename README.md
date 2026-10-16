@@ -24,6 +24,7 @@ python3 -m sipath run sipath/examples/dp8.yaml   # mode 1: soft macro, floorplan
 python3 -m sipath run mcu8                     # mode 2: MCU die, pad ring + hard macros (example name)
 python3 -m sipath run ihp_add8                 # a soft macro on the second PDK (IHP SG13G2)
 python3 -m sipath pdks                         # PDK descriptions available
+python3 -m sipath run sipath/examples/gcd8.yaml runs/x --explore  # first-cut PPA in a minute, suggested clock
 python3 -m sipath run mcu8 runs/mcu8 --resume  # continue an interrupted run (finished work is kept)
 python3 -m sipath run dp8 --config my.yaml -v  # run configuration file, INFO logging
 python3 -m unittest sipath.tests.test_sipath
@@ -47,7 +48,8 @@ python3 -m sipath report runs/gcd8 --render   # the run's report page (report.md
 - PDKs as data: sky130A/B, sky130A_hs, sky130hd (ORFS platform files), IHP
   SG13G2; sky130 the most complete (corners, routing, power grid, IO, signoff
   decks, fill rules, Magic rc file, cell exclusions, LVS black boxes).
-- Run configuration from a file or `SIPATH_*` variables: threads, timeouts,
+- Run configuration from a file or `SIPATH_*` variables: threads (default:
+  every core, as ORFS), timeouts,
   parallel cap, container limits, image and digest pinning, Magic image,
   native tools, OpenROAD binary, platform.
 - Plugins (`plugins:` or the `sipath.plugins` entry points) add steps,
@@ -73,16 +75,30 @@ python3 -m sipath report runs/gcd8 --render   # the run's report page (report.md
 - Power grid (rings, straps scaled to the design) and a power connector for
   pins the grid generator cannot reach (pad tabs, analog macro tabs, harness
   supply pins); 3.3 V analog supplies routed with a non-default rule.
-- Placement: timing-driven, optionally routability-driven; fences and
-  clusters; structured datapaths (column, array, bit-slice) with well-tap
-  slots; tie-cell fanout repair.
-- CTS, then routing: analog nets first and frozen; digital routing with
-  repair on global-route parasitics, antenna repair loops, incremental patch
-  routes; post-route timing repair on extracted parasitics, checked for
-  equivalence; zero-extension corners squared.
+- Placement: timing- and routability-driven (as ORFS), then
+  `improve_placement` and `optimize_mirroring`; fences and clusters;
+  structured datapaths (column, array, bit-slice) with well-tap slots;
+  tie-cell fanout repair.
+- CTS, then routing: analog nets first and frozen; `pin_access`, digital
+  routing with repair on global-route parasitics, antenna repair loops,
+  incremental patch routes; post-route timing repair on extracted parasitics
+  re-routes only the nets it changed (a full re-route past a quarter of the
+  nets), checked for equivalence; zero-extension corners squared.
 - Metal fill with the PDK's rules, up to the design's top routing layer.
-- OpenRCX extraction per corner, power-grid checks, IR drop; timing at nine
-  sky130 corners (tt/ss/ff x min/nom/max interconnect).
+- In-flow repair on three corners (sky130: typical, worst setup `ss_max`,
+  worst hold `ff_min`; the PDK's `optimize_corners`); OpenRCX extraction and
+  signoff timing at all nine (tt/ss/ff x min/nom/max interconnect).
+
+**Exploration mode** (`--explore`, `run(..., explore=True)`)
+- A first cut at PPA to set the SDC before a full run: the design's own flow
+  without the equivalence check, detailed routing, post-route repair, fill,
+  extraction, signoff, views or integration, optimized at the typical corner
+  only. Timing and power come from global-routing parasitics (placement
+  estimates when the flow stops before routing).
+- `ppa.json` / `ppa.md` and the run report give cell area, utilization,
+  WNS/TNS/WHS, total power, wirelength, and per clock the achievable period
+  (period − WNS), fmax and a suggested `create_clock` period (achievable +
+  5%, the `ppa` step's `margin`).
 
 **Signoff**
 - KLayout DRC (the deck's rule groups run in parallel), metal density
@@ -193,7 +209,10 @@ installed by ciel/volare), mounted into the container:
   Its estimation RC is the calibrated nominal table scaled per layer and per
   via by that corner's tech LEF (sheet and cut resistance, area and edge
   capacitance). Extraction runs once per RCX rule file (3 SPEFs), each read
-  into the 3 corners that share it;
+  into the 3 corners that share it. Placement, CTS and routing repair on
+  `optimize_corners` (tt_nom, ss_max, ff_min): on aes, nine corners against one made
+  each parasitics estimate ~18x slower (143 s against 8 s);
+  signoff still checks all nine;
 - the PDK's design rules (max transition 0.75 ns, max fanout 10, max
   capacitance 0.2 pF) applied before the design SDC. Its boundary defaults
   (inv_2 driving cell, 33.4 fF output load) apply to embedded macros only,
@@ -331,7 +350,13 @@ amd64: under Rosetta on Apple silicon). Two ways to avoid the emulation:
   host while OpenROAD stays in the image (gcd8 synthesis 10.0 s to 4.4 s with
   Homebrew's Yosys).
 Each run's provenance records the image, platform, binary and native tool
-versions.
+versions. `bench/arch_compare.py` times the same flows (full and `--explore`)
+on the amd64 image and the arm64 image, step by step.
+
+**Exploration mode.** `--explore` on gcd8 (ORFS image, Rosetta): 47 s from RTL
+to a PPA first cut at global routing; achievable period 3.52 ns (285 MHz)
+against the SDC's 10 ns, suggested `create_clock -period 3.7`, 1,630 µm² of
+cells, 0.71 mW.
 
 ## Layout
 
@@ -579,26 +604,45 @@ Rosetta (amd64 image), with other jobs running: indicative only.
 | design | flow | WNS (ns) | TNS (ns) | wirelength (µm) | cells | cell area (µm²) | DRT DRC | KLayout DRC | wall (s) |
 |---|---|---|---|---|---|---|---|---|---|
 | gcd (1.1 ns) | ORFS | −1.465 | −65.1 | 11,786 | 473 | 5,319 | 0 | 0 | 321 |
-| gcd (1.1 ns) | SiPath | −2.484 | −105.6 | 7,552 | 338 | 3,994 | 0 | 0 | 284 |
+| gcd (1.1 ns) | SiPath (earlier defaults) | −2.484 | −105.6 | 7,552 | 338 | 3,994 | 0 | 0 | 284 |
 | aes | ORFS | −0.196 | −0.67 | 588,211 | 15,396 | 124,637 | 0 | 0 | 2,724 |
-| aes | SiPath (defaults) | — | — | — | — | — | did not route | — | — |
-| aes | SiPath, routability-driven placement | −0.157 | −1.57 | 577,107 | 15,984 | 138,114 | 0 | 0 | 10,025* |
+| aes | SiPath (defaults) | −0.237 | −0.88 | 568,195 | 16,389 | 143,121 | 0 | 0 | 4,258 |
+| aes | SiPath, earlier defaults (2 threads, 9 repair corners) | −0.157 | −1.57 | 577,107 | 15,984 | 138,114 | 0 | 0 | 10,025* |
+
+aes by stage (seconds; SiPath's current defaults against the earlier ones and ORFS):
+
+| stage | ORFS | SiPath now | SiPath before |
+|---|---|---|---|
+| synthesis | — | 666 (600 of it the RTL equivalence check, timed out: inconclusive) | — |
+| place | 83 | 108 | 275 |
+| CTS | 26 | 47 | 287 |
+| detailed route | 2,290 | 1,226 | 3,926 |
+| post-route repair | — | 1,507 (3,980 cells resized: full re-route) | 2,737 |
+| extraction | — | 31 | — |
+| signoff | — | 655 (LVS 636, DRC 175, nine-corner STA 45, in parallel) | 567 |
+| **whole run** | **2,724** | **4,258** | **10,025** |
+
+The gap was mostly corners (in-flow repair on nine) and threads (2 against
+ORFS's every core); placement now also routes like ORFS's (routability-driven,
+`improve_placement`, `optimize_mirroring`, `pin_access`). What remains is work
+ORFS's make does not do: the equivalence check (ORFS: `LEC_CHECK=0`),
+post-route repair on extracted parasitics at three corners, and signoff (DRC,
+LVS, nine-corner STA). SiPath's signoff of this run: DRC 0, LVS match, hold met
+everywhere, setup met at ff but −0.46 ns at tt and −3.38 ns at ss_max (ORFS
+does not check ss), 119 slew violations.
 
 Both flows route to met5 and get the design's own routing adjustments (aes:
 30% on every layer). At gcd's 1.1 ns clock (beyond what sky130 HD closes) ORFS
 repairs harder (40% more cells and area, 56% more wire) and ends 1.0 ns better;
 both layouts are DRC-clean and SiPath's signoff passes everything but setup.
-On aes SiPath's default placement (not routability-driven) leaves the router
-congested: global routing fails with the design's adjustments, detailed
-routing stalls at ~31k violations without them. With routability-driven
-placement (ORFS's default) the routing is clean: WNS at the typical corner
-slightly better than ORFS, 2% less wire, 11% more cell area, TNS worse.
-SiPath's own signoff of that run (nine corners) shows setup −3.85 ns at the
-slow corners and 202 slew violations, and its LVS failed on five cells the
-KLayout deck cannot pair, now excluded from synthesis
-(`sipath/pdks/sky130/lvs_exclude_sky130_fd_sc_hd.cells`). *Wall time includes a
-1,800 s re-route lost to a fixed limit since removed, and signoff work ORFS's
-make does not do (KLayout DRC, LVS, nine-corner STA). ORFS's equivalence check (kepler-formal) is disabled
+On aes, placement that was not routability-driven (the earlier default) left
+the router congested: global routing failed with the design's adjustments.
+Routability-driven placement is now the default and routes clean: WNS at the
+typical corner 0.04 ns behind ORFS, 3% less wire, 15% more cell area. The
+earlier run's LVS failed on cells the KLayout deck cannot pair, now excluded
+from synthesis (`sipath/pdks/sky130/lvs_exclude_sky130_fd_sc_hd.cells`); this
+run's LVS matches. *That wall time includes a 1,800 s re-route lost to a fixed
+limit since removed. ORFS's equivalence check (kepler-formal) is disabled
 (`LEC_CHECK=0`): its binary dies under Rosetta.
 
 ## Workarounds for this OpenROAD build (found by running it)
@@ -663,7 +707,7 @@ make does not do (KLayout DRC, LVS, nine-corner STA). ORFS's equivalence check (
 
 A design is one YAML (or JSON) file. Relative paths are relative to that
 file. Three ways to run it:
-- CLI: `python3 -m sipath run my.yaml [workdir] [--resume] [--config cfg.yaml]`.
+- CLI: `python3 -m sipath run my.yaml [workdir] [--resume] [--explore] [--config cfg.yaml]`.
 - Python: `sipath.designfile.run("my.yaml", workdir)`, or build a
   `sipath.design.Design` yourself and pass `flow_steps=[...]`.
 - MCP: `open_run` with the file's path.

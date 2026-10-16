@@ -76,10 +76,12 @@ TOOLS = [
     {"name": "open_run", "description": "Create a run for an example design (name) or a design file (path to "
      "YAML/JSON). Writes generated inputs, checks every input file exists, and returns a run id. No OpenROAD "
      "process is started yet. resume: pick up the attempt graph already in workdir (recorded steps are not run "
-     "again).",
+     "again). explore: optimize at the typical corner only, for a fast first cut at PPA (then run route_digital "
+     "with detailed: false, or the ppa step after place/cts; its outputs.ppa has area, timing, power and a "
+     "suggested clock period).",
      "inputSchema": _obj({"design": {"type": "string", "description": f"one of {sorted(EXAMPLES)} or a file path"},
                           "workdir": {"type": "string", "description": "absolute directory for checkpoints/logs"},
-                          "resume": {"type": "boolean"}},
+                          "resume": {"type": "boolean"}, "explore": {"type": "boolean"}},
                          ["design"])},
     {"name": "run_step", "description": "Run one step as one or more attempts. Each variant is a params dict "
      "(describe_step lists each step's parameters with types and defaults; values are checked before anything "
@@ -230,7 +232,7 @@ class Server:
     def list_scores(self):
         return {"scores": {k: (f.__doc__ or "").strip() or k for k, f in scores.SCORES.items()}}
 
-    def open_run(self, design, workdir=None, resume=False):
+    def open_run(self, design, workdir=None, resume=False, explore=False):
         """``design``: an example name or a design file (YAML/JSON)."""
         runner = self._runner()
         from . import designfile
@@ -246,7 +248,7 @@ class Server:
         run_id = f"{name}-{uuid.uuid4().hex[:6]}"
         workdir = os.path.abspath(workdir or os.path.join(os.getcwd(), "runs", "mcp", run_id))
         try:
-            flow = designfile.build(d, workdir, runner, resume=bool(resume))
+            flow = designfile.build(d, workdir, runner, resume=bool(resume), explore=bool(explore))
         except ValueError as e:
             raise ToolError(str(e)) from e
         self.runs[run_id] = {"flow": flow, "design": name, "job": None}

@@ -192,7 +192,7 @@ def loaded() -> dict:
     """What plugins added (for provenance and the MCP server)."""
     from . import steps
     builtin = {"synth", "floorplan", "macros", "physical", "place", "cts", "route_analog", "route_digital",
-               "route_repair", "fill", "extract", "signoff", "views", "integrate"}
+               "route_repair", "fill", "extract", "signoff", "views", "integrate", "ppa"}
     return {"plugins": sorted(_LOADED), "steps": sorted(set(steps.STEPS) - builtin),
             "checks": sorted(CHECKS), "harnesses": sorted(HARNESSES), "extensions": sorted(EXTENSIONS),
             "templates": sorted(TEMPLATES)}

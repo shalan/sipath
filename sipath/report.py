@@ -23,7 +23,7 @@ import os
 KEY_METRICS = ("synth_cells", "synth_area_um2", "equiv", "insts", "utilization", "hpwl_um", "wns", "tns", "whs",
                "drc", "wirelength_um", "vias", "antenna_violations", "fill_shapes", "drc_signoff",
                "density_violations", "lvs_match", "signoff_pass", "magic_drc_violations", "xor_violations",
-               "chip_check_pass", "view_corners")
+               "chip_check_pass", "view_corners", "ppa_fmax_mhz", "ppa_power_w")
 
 
 def _rel(path: str, base: str) -> str:
@@ -69,9 +69,14 @@ def collect(workdir: str) -> dict:
             for k in ("def_", "spef", "gds", "verilog", "chip_gds", "netlist", "signoff"):
                 if isinstance(out.get(k), str):
                     files.append((a["id"], k, out[k]))
+    ppa = None  # the last step's PPA first cut (explore mode, or a ppa step)
+    for s in reversed(steps):
+        if s["sel"] and isinstance(s["sel"].get("outputs", {}).get("ppa"), dict):
+            ppa = {"step": s["name"], **s["sel"]["outputs"]["ppa"]}
+            break
     pictures = sorted(glob.glob(os.path.join(workdir, "*.png")) + glob.glob(os.path.join(workdir, "*", "*", "*.png")))
     return {"design": g.get("design", {}), "pdk": g.get("pdk"), "provenance": g.get("provenance", {}),
-            "steps": steps, "signoff": signoff, "files": files, "pictures": pictures}
+            "steps": steps, "signoff": signoff, "ppa": ppa, "files": files, "pictures": pictures}
 
 
 def markdown(workdir: str, r: dict) -> str:
@@ -96,6 +101,20 @@ def markdown(workdir: str, r: dict) -> str:
             err = (a["error"] or "").strip().splitlines()
             out.append(f"- **{a['id']}** ({a.get('status')}), params {a.get('params') or {}}: "
                        f"{' / '.join(err[:3])[:500]}")
+    pp = r.get("ppa")
+    if pp:
+        ar, tm, pw = pp["area"], pp["timing"], pp.get("power") or {}
+        out += ["", f"## PPA (first cut from {pp['step']}: {pp['parasitics']} parasitics, corner {pp['corner']})", "",
+                "| quantity | value |", "|---|---|",
+                f"| cell area | {ar['std_cell_um2']} um2 ({ar['cells']} cells), utilization {ar['utilization']} |",
+                f"| WNS / TNS / WHS | {_fmt(tm['wns_ns'])} / {_fmt(tm['tns_ns'])} / {_fmt(tm['whs_ns'])} ns |"]
+        for c in tm.get("clocks", []):
+            out.append(f"| clock {c['clock']} | period {c['period_ns']} ns, achievable {c['achievable_period_ns']} ns "
+                       f"(fmax {c['fmax_mhz']} MHz), suggested period {c['suggested_period_ns']} ns |")
+        if pw:
+            out.append(f"| power | {pw['total_w']:.3e} W (leakage {pw['leakage_w']:.3e}) |")
+        if pp.get("wirelength_um"):
+            out.append(f"| wirelength ({pp['wirelength_kind']}) | {round(pp['wirelength_um'])} um |")
     so = r["signoff"]
     if so:
         s = so["summary"]
