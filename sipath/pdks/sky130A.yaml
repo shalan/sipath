@@ -159,6 +159,13 @@ io:
   lef_pattern: "${lef_dir}/sky130_ef_io.lef"    # one LEF holds every ef_io master
   roles: {"*gpiov2*": signal, "*analog*": signal, "*vccd*": vccd, "*vssd*": vssd, "*vddio*": vddio,
           "*vssio*": vssio, "*vdda*": vdda, "*vssa*": vssa}
+  # pad timing models per process (sky130_fd_io), read with the corner's cell
+  # Liberty for the pads a design uses: real PAD->IN, OUT->PAD and OE_N arcs
+  liberty:
+    sky130_ef_io__gpiov2_pad_wrapped:
+      tt: ${pdk_root}/${variant}/libs.ref/sky130_fd_io/lib/sky130_ef_io__gpiov2_pad_wrapped_tt_tt_025C_1v80_3v30.lib
+      ss: ${pdk_root}/${variant}/libs.ref/sky130_fd_io/lib/sky130_ef_io__gpiov2_pad_wrapped_ss_ss_100C_1v60_3v00.lib
+      ff: ${pdk_root}/${variant}/libs.ref/sky130_fd_io/lib/sky130_ef_io__gpiov2_pad_wrapped_ff_ff_n40C_1v95_5v50.lib
   corner: sky130_ef_io__corner_pad
   fill: [sky130_ef_io__com_bus_slice_20um, sky130_ef_io__com_bus_slice_10um, sky130_ef_io__com_bus_slice_5um,
          sky130_ef_io__com_bus_slice_1um]

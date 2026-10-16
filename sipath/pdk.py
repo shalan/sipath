@@ -65,6 +65,7 @@ class Pdk:
     corners: list[Corner] = field(default_factory=list)  # empty: one corner from liberty/rcx_rules
     corner_source: str = "single typical corner"
     io_roles: dict = field(default_factory=dict)  # pad master pattern -> role (padplan)
+    io_libs: dict = field(default_factory=dict)  # pad master -> {process (tt/ss/ff): Liberty}: real pad timing
     layer_adjustments: dict = field(default_factory=dict)  # routing layer -> GRT capacity reduction (0..1)
     local_layers: list = field(default_factory=list)  # below the routing stack (cell-local layers)
     min_layer: str = ""
@@ -150,6 +151,8 @@ class Pdk:
             out += list(so.get(k) or [])
         out = list(dict.fromkeys(out))
         out += list(self.io_lefs.values())
+        for by in self.io_libs.values():
+            out += list(by.values())
         for v in self.sram.values():
             out += list(v.values())
         return out
@@ -397,6 +400,11 @@ def from_dict(data: dict, env: dict, source: str = "") -> Pdk:  # noqa: C901
         io_env = dict(env, lef_dir=need("io.lef_dir", io.get("lef_dir", "")))
         for m in io["masters"]:
             io_lefs[m] = _expand(io["lef_pattern"], dict(io_env, master=m))
+    io_libs = {}
+    if io.get("liberty"):
+        io_env = dict(env, lef_dir=io.get("lef_dir", ""))
+        io_libs = {m: {proc: _host_path(_expand(f, io_env)) for proc, f in by.items()}
+                   for m, by in io["liberty"].items()}
     liberty = need("liberty")
     rcx = need("rcx_rules")
     if len(corners) <= 1:
@@ -422,7 +430,7 @@ def from_dict(data: dict, env: dict, source: str = "") -> Pdk:  # noqa: C901
         layers=list(data["layers"]),
         io_lefs=io_lefs, sram={k: need("sram", v) for k, v in (data.get("sram") or {}).items()},
         dont_use=list(cells.get("dont_use", [])), diode_cell=cells.get("diode", ""), corners=corners,
-        corner_source=corner_source, io_roles=dict(io.get("roles", {})),
+        corner_source=corner_source, io_roles=dict(io.get("roles", {})), io_libs=io_libs,
         layer_adjustments=dict(route.get("layer_adjustments") or {}),
         local_layers=list(data.get("local_layers") or []),
         min_layer=route.get("min_layer", data["layers"][0]),

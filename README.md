@@ -598,6 +598,11 @@ cells, 0.71 mW.
 - Every gpiov2 control pin is tied: core-domain pins from tie cells, `*_H`
   pins from the pad's own TIE_HI_ESD/TIE_LO_ESD. The floorplan fails on any
   floating pad input.
+- Pad timing comes from the PDK's pad Liberty (`io.liberty`, per process:
+  sky130_fd_io's gpiov2 tt/ss/ff), read with each corner's cell Liberty for the
+  pad masters the design uses. On mcu8 an input pad's PAD->IN is 1.35 ns at
+  tt and an output pad's OUT->PAD 5.24 ns at ss (the black-box model it
+  replaces said 0.5 ns); the tied control pins select the arcs.
 - The pad ring's supply buses are the core/IO nets (`Design.pad_supplies`).
   Top-level VDD/VSS/VDDA/... terminals sit on the supply pads' bond pins.
 - **Power connector** (`sipath.powerconnect`). pdngen cannot reach these tabs

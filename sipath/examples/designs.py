@@ -530,18 +530,15 @@ def annotate_lef(src: str, annotations: dict[str, tuple[str, str]]) -> str:
 
 
 def blackbox_liberty() -> str:
-    """Pin directions and loads for the analog macros (no vendor Liberty) and
-    the wrapped GPIO pad, so STA and the resizer see drivers and loads. No
-    timing arcs are invented except a fixed pad buffer delay."""
+    """Pin directions and loads for the analog macros (no vendor Liberty), so
+    STA and the resizer see drivers and loads; no timing arcs are invented. The
+    pads' timing comes from the PDK's pad Liberty (io.liberty)."""
     def pin(name, d, cap=0.005, extra=""):
         return f'    pin ("{name}") {{ direction : {d}; capacitance : {cap}; {extra} }}\n'
 
     def bits(base, n, d, cap=0.005):
         return f"    bus ({base}) {{ bus_type : bus{n}; direction : {d}; capacitance : {cap}; }}\n"
 
-    arc = ('timing () { related_pin : "%s"; timing_sense : positive_unate; '
-           'cell_rise (scalar) { values ("0.5"); } cell_fall (scalar) { values ("0.5"); } '
-           'rise_transition (scalar) { values ("0.2"); } fall_transition (scalar) { values ("0.2"); } }')
     out = ['library (mcu8_blackboxes) {', '  delay_model : table_lookup;', '  time_unit : "1ns";',
            '  voltage_unit : "1V";', '  current_unit : "1mA";', '  capacitive_load_unit (1, pf);',
            '  pulling_resistance_unit : "1kohm";', '  nom_voltage : 1.8; nom_temperature : 25; nom_process : 1;',
@@ -554,12 +551,7 @@ def blackbox_liberty() -> str:
            pin("VH", "inout", 0.1), pin("VL", "inout", 0.1), '  }',
            f'  cell ("{DAC}") {{', '    area : 13221;', '    dont_touch : true; dont_use : true;',
            pin("ena", "input"), bits("b", 8, "input"), pin("out", "inout", 0.1),
-           pin("Vhigh", "inout", 0.1), pin("Vlow", "inout", 0.1), '  }',
-           '  cell ("sky130_ef_io__gpiov2_pad_wrapped") {', '    area : 16877;', '    dont_touch : true; dont_use : true;',
-           pin("PAD", "inout", 5.0, arc % "OUT"), pin("IN", "output", 0.005, arc % "PAD"), pin("OUT", "input"),
-           pin("OE_N", "input"), pin("PAD_A_ESD_0_H", "inout", 0.5),
-           pin("TIE_HI_ESD", "output"), pin("TIE_LO_ESD", "output"), bits("DM", 3, "input"),
-           *[pin(p, "input") for p in sorted(set(GPIO_COMMON) | set(GPIO_HV) | {"INP_DIS"})], '  }', '}']
+           pin("Vhigh", "inout", 0.1), pin("Vlow", "inout", 0.1), '  }', '}']
     return "\n".join(out) + "\n"
 
 

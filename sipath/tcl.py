@@ -143,6 +143,14 @@ def corner_libs(pdk: Pdk, d: Design, corner: str) -> list[str]:
     cs = [c for c in pdk.signoff_corners() if c.name == corner]
     libs = [c.liberty for c in cs] + list(d.extra_libs)
     process = cs[0].process if cs else corner
+    # the pads' own timing models (PDK io.liberty), for the pad masters the design uses
+    for master in sorted({p.master for p in d.pads} & set(pdk.io_libs)):
+        by = pdk.io_libs[master]
+        key = corner if corner in by else process if process in by else None
+        if key is None:
+            raise ValueError(f"pad {master}: no Liberty for corner {corner} (process {process})")
+        if by[key] not in libs:
+            libs.append(by[key])
     for m in d.macros:
         if isinstance(m.lib, dict):  # keyed by corner name or by process (ss/tt/ff)
             key = corner if corner in m.lib else process

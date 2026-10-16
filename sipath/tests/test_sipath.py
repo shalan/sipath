@@ -640,6 +640,20 @@ class Sky130Fidelity(unittest.TestCase):
         self.assertIn("-corner ss_max", t)
         self.assertEqual(tcl.rc_setup(self.p, None, self.p.signoff_corners()).count("set_layer_rc -layer met2"), 9)
 
+    def test_pad_liberty_per_process(self):
+        from sipath import designfile
+        d, _ = designfile.load(os.path.join(os.path.dirname(designs.__file__), "mcu8.yaml"))
+        p = self.p
+        names = {c: [os.path.basename(f) for f in tcl.corner_libs(p, d, c) if "gpiov2" in f]
+                 for c in ("tt_nom", "ss_max", "ff_min")}
+        self.assertEqual(names, {"tt_nom": ["sky130_ef_io__gpiov2_pad_wrapped_tt_tt_025C_1v80_3v30.lib"],
+                                 "ss_max": ["sky130_ef_io__gpiov2_pad_wrapped_ss_ss_100C_1v60_3v00.lib"],
+                                 "ff_min": ["sky130_ef_io__gpiov2_pad_wrapped_ff_ff_n40C_1v95_5v50.lib"]})
+        self.assertTrue(all(os.path.isfile(f) for by in p.io_libs.values() for f in by.values()))
+        self.assertTrue(set(p.io_libs["sky130_ef_io__gpiov2_pad_wrapped"].values()) <= set(p.files()))  # mounted
+        with open(d.extra_libs[0]) as fh:  # the black-box Liberty no longer models the pad
+            self.assertNotIn("gpiov2", fh.read())
+
     def test_flow_repairs_on_three_corners_signoff_checks_nine(self):
         self.assertEqual([c.name for c in self.p.analysis_corners()], ["tt_nom", "ss_max", "ff_min"])
         self.assertEqual(len(self.p.signoff_corners()), 9)
@@ -2698,6 +2712,29 @@ class LiveMcuDie(unittest.TestCase):
 
     def test_analog_nets_in_spef(self):
         self.assertEqual(self.flow.steps["extract"].selected.metrics["analog_nets_in_spef"], 4)
+
+    def test_pad_timing_from_the_pad_liberty(self):
+        """P2.5: paths through the GPIO pads carry the pad Liberty's delays (not
+        the old fixed 0.5 ns black box): input PAD->IN, output OUT->PAD."""
+        f = self.flow
+        ex = f.steps["extract"].selected
+        wd = _workdir("padtiming")
+        if not KEEP:
+            self.addCleanup(_rmtree, wd)
+        RUNNER.mount(wd)
+        with OpenRoadSession(wd, RUNNER) as s:
+            s.run(tcl.HELPERS)
+            s.run(tcl.load_checkpoint(f.pdk, f.design, ex.checkpoint))
+            s.run("::flow_timing_prep")
+            rpt = s.run("report_checks -from [get_ports {cfg[0]}] -corner tt_nom -format full\n"
+                        "report_checks -to [get_ports {dout[0]}] -corner ss_max -format full").output
+        def arc(pin):
+            m = re.search(r"^\s*([\d.]+)\s+[\d.]+ [v^] " + re.escape(pin) + r" \(sky130_ef_io__gpiov2_pad_wrapped\)",
+                          rpt, re.M)
+            self.assertIsNotNone(m, f"no path through {pin}:\n{rpt[-2000:]}")
+            return float(m.group(1))
+        self.assertGreater(arc("pad_cfg_0/IN"), 0.8)  # tt PAD->IN ~1.35 ns
+        self.assertGreater(arc("pad_dout_0/PAD"), 2.0)  # ss OUT->PAD ~5.2 ns
 
     def test_phase1_on_die(self):
         f = self.flow
