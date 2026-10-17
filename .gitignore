@@ -7,3 +7,6 @@ __pycache__/
 sipath/examples/hardened/
 # Caravel frame layout (H2 integration only; fetch per sipath/harnesses/sources/SOURCES.txt)
 sipath/harnesses/sources/caravel/chip_io.*
+# packaging (pip install / wheel builds)
+build/
+*.egg-info/
