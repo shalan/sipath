@@ -22,10 +22,10 @@ Verilator lint (param ``verilator``, P2.7): ``--lint-only -Wall`` on the RTL
 (host binary, a native tool, or the image's); warnings counted by code, errors
 fail. Liberty cells and macros the RTL instantiates get empty stub modules.
 
-Timing estimate (param ``timing``): OpenSTA on the netlist with the typical
-Liberty and the SDC, no wires: ``synth_wns_ns`` / ``synth_tns_ns``, so a sweep
-over synthesis variants (``abc`` goal, ``retime``) can be scored
-(``synth_wns_then_area``).
+Timing estimate (param ``timing``): OpenSTA on the netlist at the slow corner
+(``timing_corner``) with the SDC and the Liberty's wire-load model:
+``synth_wns_ns`` / ``synth_tns_ns``, so a sweep over synthesis variants
+(``abc`` goal, ``retime``) can be scored (``synth_wns_then_area``).
 
 Metrics: synth_area_um2, synth_cells, synth_flops, lint_warnings, verilator_warnings, synth_wns_ns, synth_tns_ns.
 """
@@ -354,30 +354,72 @@ read_liberty {std}
 read_verilog {netlist}
 link_design {top}
 read_sdc {sdc}
+{wire_load}
 puts "SYNTHSTA [sta::worst_slack -max] [sta::total_negative_slack -max]"
 """
 
 
+def timing_corner(pdk, name: str | None = None):
+    """The corner synthesis is judged at: ``name``, else the worst-setup corner
+    of the PDK's optimization set (the slow process), else the typical one."""
+    if not pdk.corners:
+        return None
+    cs = pdk.signoff_corners()
+    if name:
+        by = {c.name: c for c in cs}
+        if name not in by:
+            raise ValueError(f"synth: timing_corner {name!r} is not a corner of {pdk.name}: {sorted(by)}")
+        return by[name]
+    slow = [c for c in pdk.analysis_corners() if c.process.lower().startswith("ss")]
+    return slow[0] if slow else pdk.typical()
+
+
+def _corner_libs(pdk, d, corner) -> tuple[str, list[str]]:
+    """(standard-cell Liberty, other Liberty files) at ``corner`` (None: the PDK's single Liberty)."""
+    if corner is None:
+        return _libs(pdk, d)
+    others = list(d.extra_libs)
+    for m in d.macros:
+        if isinstance(m.lib, dict):
+            others.append(m.lib.get(corner.name) or m.lib.get(corner.process) or next(iter(m.lib.values())))
+        elif m.lib:
+            others.append(m.lib)
+    return corner.liberty, others
+
+
+def default_wire_load(liberty: str) -> str | None:
+    """The Liberty's ``default_wire_load`` model name, if it has one."""
+    with open(liberty, errors="replace") as f:
+        head = f.read(200000)
+    m = re.search(r'default_wire_load\s*:\s*"?([^";\s]+)', head)
+    return m.group(1) if m else None
+
+
 def synth_timing(ctx, netlist: str) -> dict:
-    """Setup WNS/TNS of the synthesized netlist: OpenSTA with the typical
-    Liberty and the SDC, no wires (a pre-placement estimate, comparable across
-    synthesis variants). Unconstrained designs give None."""
+    """Setup WNS/TNS of the synthesized netlist: OpenSTA at the slow corner
+    (``timing_corner``) with the SDC and the Liberty's wire-load model (a
+    pre-placement estimate, comparable across synthesis variants, judged the
+    way synth_flow found reliable). Unconstrained designs give None."""
     from .signoff import _runner
     d, pdk = ctx.design, ctx.pdk
-    std, others = _libs(pdk, d)
+    corner = timing_corner(pdk, (ctx.params or {}).get("timing_corner"))
+    std, others = _corner_libs(pdk, d, corner)
+    wl = default_wire_load(std)
     script = ctx.path("synth_sta.tcl")
     with open(script, "w") as f:
         lefs = [pdk.tech_lef, *pdk.cell_lefs, *d.extra_lefs, *[m.lef for m in d.macros]]
         f.write(STA_TCL.format(lefs="\n".join(f"read_lef {x}" for x in lefs), std=std,
                                others="\n".join(f"read_liberty {o}" for o in others), netlist=netlist,
-                               top=d.top, sdc=d.sdc))
+                               top=d.top, sdc=d.sdc,
+                               wire_load=f"set_wire_load_mode top\nset_wire_load_model -name {wl}" if wl else ""))
     binary = getattr(_runner(ctx), "binary", None) or "openroad"
     out = run_tool(ctx, [binary, "-no_init", "-no_splash", "-exit", script], ctx.path("synth_sta.log"), timeout=1800)
     m = re.search(r"SYNTHSTA (\S+) (\S+)", out)
     if not m:
         raise RuntimeError(f"synth: no timing estimate (log {ctx.path('synth_sta.log')})")
     num = lambda x: round(float(x), 4) if abs(float(x)) < 1e29 else None  # noqa: E731
-    return {"wns_ns": num(m.group(1)), "tns_ns": num(m.group(2))}
+    return {"wns_ns": num(m.group(1)), "tns_ns": num(m.group(2)), "corner": corner.name if corner else None,
+            "wire_load": wl}
 
 
 def _liberty_cells(paths) -> dict[str, bool]:
@@ -471,7 +513,8 @@ def synth(ctx):
     ctx.outputs.update(checkpoint=out, netlist=out, synth_log=log, synth_script=script)
     if p.get("timing", True):
         st = synth_timing(ctx, out)
-        ctx.metrics.update(synth_wns_ns=st["wns_ns"], synth_tns_ns=st["tns_ns"])
+        ctx.metrics.update(synth_wns_ns=st["wns_ns"], synth_tns_ns=st["tns_ns"], synth_timing_corner=st["corner"])
+        ctx.outputs["synth_timing"] = st
     if p.get("equiv", "bounded") != "off":
         eq = equivalence(ctx, out)
         ctx.outputs["equiv"] = eq

@@ -215,7 +215,8 @@ Set per attempt in `variants` (design file `flow:` or MCP `run_step`), or as def
 | `frontend` | str | auto | auto, yosys, slang | RTL reader: yosys (read_verilog -sv), slang (read_slang: full SystemVerilog; the image's Yosys must have it), auto (slang for .sv sources when available) |
 | `retime` | bool | false |  | retime registers in generic synthesis (abc -dff, what synth -retime ran); flops with asynchronous set/reset are not moved |
 | `verilator` | str | auto | auto, on, off | Verilator lint (--lint-only -Wall): auto (when Verilator is found: host, native tool or image), on (required), off; errors fail, warnings counted by code |
-| `timing` | bool | true |  | estimate the netlist's setup slack (OpenSTA, typical Liberty, the SDC, no wires): synth_wns_ns, synth_tns_ns, for scoring synthesis variants |
+| `timing` | bool | true |  | estimate the netlist's setup slack (OpenSTA at timing_corner with the SDC and the Liberty's wire-load model): synth_wns_ns, synth_tns_ns, for scoring synthesis variants |
+| `timing_corner` | str | – |  | corner of the estimate (default: the worst-setup corner of the PDK's optimize_corners, e.g. ss_max) |
 | `lint` | bool | true |  | lint the RTL first (implicit nets, hierarchy, undriven / multiply driven nets, combinational loops are errors) |
 | `lint_strict` | bool | false |  | fail on any lint warning (Yosys or Verilator) |
 | `equiv` | str | bounded | bounded, off | check the netlist against the RTL: bounded (equal outputs for equiv_depth cycles from reset, every input sequence) or off |

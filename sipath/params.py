@@ -103,8 +103,10 @@ STEP_PARAMS: dict[str, list[Param]] = {
         Param("verilator", "str", "auto", "Verilator lint (--lint-only -Wall): auto (when Verilator is found: "
               "host, native tool or image), on (required), off; errors fail, warnings counted by code",
               choices=("auto", "on", "off")),
-        Param("timing", "bool", True, "estimate the netlist's setup slack (OpenSTA, typical Liberty, the SDC, "
-              "no wires): synth_wns_ns, synth_tns_ns, for scoring synthesis variants"),
+        Param("timing", "bool", True, "estimate the netlist's setup slack (OpenSTA at timing_corner with the SDC "
+              "and the Liberty's wire-load model): synth_wns_ns, synth_tns_ns, for scoring synthesis variants"),
+        Param("timing_corner", "str", None, "corner of the estimate (default: the worst-setup corner of the "
+              "PDK's optimize_corners, e.g. ss_max)"),
         Param("lint", "bool", True, "lint the RTL first (implicit nets, hierarchy, undriven / multiply driven "
               "nets, combinational loops are errors)"),
         Param("lint_strict", "bool", False, "fail on any lint warning (Yosys or Verilator)"),

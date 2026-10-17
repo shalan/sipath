@@ -2190,8 +2190,24 @@ class FrontEnd(unittest.TestCase):
         self.assertEqual(scores.get("auto")(late), s(late))
         self.assertIsNone(s({}))
 
+    @unittest.skipUnless(SKY130A, "no open_pdks sky130A tree")
+    def test_timing_judged_at_the_slow_corner_with_wire_load(self):
+        from sipath import synth
+        p = load_pdk("sky130A", platforms="/p")
+        c = synth.timing_corner(p)
+        self.assertEqual(c.name, "ss_max")  # worst setup corner of optimize_corners
+        self.assertEqual(synth.timing_corner(p, "tt_nom").name, "tt_nom")
+        with self.assertRaises(ValueError):
+            synth.timing_corner(p, "nope")
+        self.assertEqual(synth.default_wire_load(c.liberty), "Small")
+        std, _ = synth._corner_libs(p, self.design(), c)
+        self.assertIn("ss_100C_1v60", std)
+        import dataclasses
+        self.assertIsNone(synth.timing_corner(dataclasses.replace(p, corners=[])))  # single-corner PDK: its Liberty
+
     def test_params(self):
         from sipath import params
-        params.check("synth", {"frontend": "slang", "abc": "speed", "retime": True, "verilator": "on", "timing": False})
+        params.check("synth", {"frontend": "slang", "abc": "speed", "retime": True, "verilator": "on", "timing": False,
+                               "timing_corner": "ss_max"})
         with self.assertRaises(ValueError):
             params.check("synth", {"abc": "fast"})
