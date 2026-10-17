@@ -1,0 +1,25 @@
+# gcd8_sv: gcd8 in SystemVerilog (package, enum, packed struct), read with slang (P2.7).
+#   python3 -m sipath run sipath/examples/gcd8_sv.yaml [workdir]
+# The synth step lints the RTL (Yosys, Verilator) and synthesizes it; no floorplan
+# DEF: the core is sized from the utilization and the flow places the pins.
+name: gcd8_sv
+top: gcd8_sv
+mode: macro
+pdk: sky130A
+rtl: [rtl/gcd_sv_pkg.sv, rtl/gcd8_sv.sv]
+sdc: rtl/gcd8.sdc
+core_utilization: 0.35
+core_margin: 6.0
+is_core: false
+flow:
+- step: synth
+- step: floorplan
+- step: physical
+- step: place
+- step: cts
+- step: route_analog
+- step: route_digital
+- step: route_repair
+- step: fill                 # metal fill (PDK fill rules); signoff checks density
+- step: extract
+- step: signoff

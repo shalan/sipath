@@ -72,8 +72,21 @@ python3 -m sipath report runs/gcd8 --render   # the run's report page (report.md
   extensions.
 
 **Front end**
-- `synth`: Yosys lint and synthesis (ABC delay or area goal, optional port
-  buffering, the PDK's excluded cells respected).
+- `synth`: Yosys lint and synthesis (optional port buffering, the PDK's
+  excluded cells respected).
+- SystemVerilog through slang (`frontend: auto|yosys|slang`; `auto` reads `.sv`
+  sources with `read_slang` when the image's Yosys has it, built in or as the
+  plugin), for lint, synthesis and the equivalence check alike;
+  `examples/gcd8_sv.yaml` (package, enum, packed struct, function).
+- Verilator lint (`verilator: auto|on|off`): `--lint-only -Wall` on the RTL
+  (host, native tool or image), warnings counted by code, errors fail;
+  Liberty cells and macros the RTL instantiates get stub modules.
+- Synthesis variants as scored attempts: ABC goal `delay` (default mapping
+  toward the clock), `area` (area-oriented), `speed` (delay mapping, then
+  buffering and gate sizing toward the clock), `retime`; each netlist timed
+  by OpenSTA (typical Liberty, the SDC, no wires: `synth_wns_ns`) and picked by
+  `synth_wns_then_area` (met timing first, then area). On aes at 3.6 ns:
+  `delay` −5.75 ns, `area` −5.85 ns, `speed` −0.16 ns at +3.8% area.
 - Black-box Liberty models from a macro's LEF when it has no Liberty (opt-in).
 - RTL-to-netlist equivalence after synthesis: bounded, from reset (10 cycles
   by default); a mismatch fails the step with the counterexample.

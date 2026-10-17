@@ -210,10 +210,14 @@ Set per attempt in `variants` (design file `flow:` or MCP `run_step`), or as def
 
 | parameter | type | default | allowed | description |
 |---|---|---|---|---|
-| `abc` | str | delay | delay, area | ABC mapping goal: delay (the SDC clock period as target) or area |
+| `abc` | str | delay | delay, area, speed | ABC mapping goal: delay (default mapping toward the SDC clock period), area (area-oriented mapping), speed (delay mapping, then buffering and gate sizing toward the period) |
 | `abc_period_ps` | float | – | 1.. | ABC delay target; default: the SDC's first create_clock period [ps] |
+| `frontend` | str | auto | auto, yosys, slang | RTL reader: yosys (read_verilog -sv), slang (read_slang: full SystemVerilog; the image's Yosys must have it), auto (slang for .sv sources when available) |
+| `retime` | bool | false |  | retime registers in generic synthesis (abc -dff, what synth -retime ran); flops with asynchronous set/reset are not moved |
+| `verilator` | str | auto | auto, on, off | Verilator lint (--lint-only -Wall): auto (when Verilator is found: host, native tool or image), on (required), off; errors fail, warnings counted by code |
+| `timing` | bool | true |  | estimate the netlist's setup slack (OpenSTA, typical Liberty, the SDC, no wires): synth_wns_ns, synth_tns_ns, for scoring synthesis variants |
 | `lint` | bool | true |  | lint the RTL first (implicit nets, hierarchy, undriven / multiply driven nets, combinational loops are errors) |
-| `lint_strict` | bool | false |  | fail on any lint warning |
+| `lint_strict` | bool | false |  | fail on any lint warning (Yosys or Verilator) |
 | `equiv` | str | bounded | bounded, off | check the netlist against the RTL: bounded (equal outputs for equiv_depth cycles from reset, every input sequence) or off |
 | `equiv_depth` | int | 10 | 1.. | cycles from reset the equivalence covers |
 | `equiv_reset` | str | – |  | reset port and active level, e.g. rst_n:0 (default: found among rst_n, resetn, reset_n, rstn, nrst (active 0), rst, reset (active 1)) |

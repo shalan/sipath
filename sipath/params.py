@@ -90,13 +90,24 @@ _FAIL = "fail the attempt when setup or hold is not met after the step"
 
 STEP_PARAMS: dict[str, list[Param]] = {
     "synth": [
-        Param("abc", "str", "delay", "ABC mapping goal: delay (the SDC clock period as target) or area",
-              choices=("delay", "area")),
+        Param("abc", "str", "delay", "ABC mapping goal: delay (default mapping toward the SDC clock period), "
+              "area (area-oriented mapping), speed (delay mapping, then buffering and gate sizing toward the "
+              "period)", choices=("delay", "area", "speed")),
         Param("abc_period_ps", "float", None, "ABC delay target; default: the SDC's first create_clock period",
               unit="ps", min=1),
+        Param("frontend", "str", "auto", "RTL reader: yosys (read_verilog -sv), slang (read_slang: full "
+              "SystemVerilog; the image's Yosys must have it), auto (slang for .sv sources when available)",
+              choices=("auto", "yosys", "slang")),
+        Param("retime", "bool", False, "retime registers in generic synthesis (abc -dff, what synth -retime "
+              "ran); flops with asynchronous set/reset are not moved"),
+        Param("verilator", "str", "auto", "Verilator lint (--lint-only -Wall): auto (when Verilator is found: "
+              "host, native tool or image), on (required), off; errors fail, warnings counted by code",
+              choices=("auto", "on", "off")),
+        Param("timing", "bool", True, "estimate the netlist's setup slack (OpenSTA, typical Liberty, the SDC, "
+              "no wires): synth_wns_ns, synth_tns_ns, for scoring synthesis variants"),
         Param("lint", "bool", True, "lint the RTL first (implicit nets, hierarchy, undriven / multiply driven "
               "nets, combinational loops are errors)"),
-        Param("lint_strict", "bool", False, "fail on any lint warning"),
+        Param("lint_strict", "bool", False, "fail on any lint warning (Yosys or Verilator)"),
         Param("equiv", "str", "bounded", "check the netlist against the RTL: bounded (equal outputs for "
               "equiv_depth cycles from reset, every input sequence) or off", choices=("bounded", "off")),
         Param("equiv_depth", "int", 10, "cycles from reset the equivalence covers", min=1),

@@ -53,6 +53,49 @@ class LiveRtl(unittest.TestCase):
         self.assertEqual((s["drc"]["count"], s["lvs"]["match"], s["antenna"]["violations"]), (0, True, 0))
         _check_limits(self, wd, "gcd8")
 
+    def test_systemverilog_through_slang(self):
+        """P2.7: an SV design (package, enum, packed struct, function) read by
+        slang, Verilator-linted, synthesized and proven against its RTL."""
+        from sipath import designfile
+        wd = _workdir("gcd8_sv")
+        if not KEEP:
+            self.addCleanup(_rmtree, wd)
+        d, _ = designfile.load(os.path.join(os.path.dirname(__file__), "..", "examples", "gcd8_sv.yaml"))
+        f = designfile.run(d, wd, RUNNER, flow_steps=[{"step": "synth"}])
+        m = f.steps["synth"].selected.metrics
+        self.assertEqual(m["frontend"], "slang")
+        self.assertEqual(m["equiv"], "equivalent for 10 cycles from reset")
+        self.assertGreater(m["synth_flops"], 20)
+        if "verilator_warnings" in m:  # Verilator found (host, native tool or image)
+            self.assertEqual(m["verilator_warnings"], 0)
+        self.assertGreater(m["synth_wns_ns"], 0)
+
+    def test_abc_sweep_picks_by_score(self):
+        """P2.7: ABC goals (and retiming) as attempts, picked by
+        synth_wns_then_area on a clock tight enough that slack decides."""
+        import dataclasses
+        from sipath import designfile, scores
+        wd = _workdir("abc_sweep")
+        if not KEEP:
+            self.addCleanup(_rmtree, wd)
+        d, _ = designfile.load(os.path.join(os.path.dirname(__file__), "..", "examples", "gcd8.yaml"))
+        sdc = os.path.join(wd, "tight.sdc")
+        with open(d.sdc) as fh, open(sdc, "w") as out:
+            out.write(fh.read().replace("-period 10.0", "-period 2.5"))
+        RUNNER.mount(wd)
+        variants = [{"abc": g, "equiv": "off"} for g in ("delay", "area", "speed")] + \
+                   [{"abc": "speed", "retime": True, "equiv": "off"}]
+        f = designfile.run(dataclasses.replace(d, sdc=sdc), os.path.join(wd, "run"), RUNNER,
+                           flow_steps=[{"step": "synth", "variants": variants, "score": "synth_wns_then_area",
+                                        "parallel": 4}])
+        r = f.steps["synth"]
+        self.assertTrue(all(a.status in ("selected", "rejected") for a in r.attempts), [a.error for a in r.attempts])
+        s = scores.get("synth_wns_then_area")
+        self.assertEqual(r.selected.id, max(r.attempts, key=lambda a: s(a.metrics)).id)
+        areas = {a.params["abc"]: a.metrics["synth_area_um2"] for a in r.attempts if not a.params.get("retime")}
+        self.assertLess(areas["area"], areas["delay"])  # the area goal maps for area
+        self.assertEqual(r.selected.metrics["abc_period_ps"] is None, r.selected.params["abc"] == "area")
+
     def test_macro_without_lib_gets_a_blackbox_model(self):
         from sipath import designfile
         wd = _workdir("rtl_blackbox")

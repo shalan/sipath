@@ -65,8 +65,8 @@ def auto(m):
         return (1, m["wns"], -(m.get("hpwl_um") or 0.0))
     if m.get("hpwl_um") is not None:
         return (0, -m["hpwl_um"])
-    if m.get("synth_area_um2") is not None:  # synthesis: smaller is better
-        return (0, -m["synth_area_um2"])
+    if m.get("synth_area_um2") is not None:  # synthesis: met timing first, then smaller
+        return synth_wns_then_area(m)
     if m.get("chip_check_pass") is not None:  # chip integration: an assembled chip that passes its checks
         return (1, 0) if m["chip_check_pass"] else None
     return None
@@ -77,8 +77,19 @@ def synth_area(m):
     return None if m.get("synth_area_um2") is None else -m["synth_area_um2"]
 
 
+def synth_wns_then_area(m):
+    """Synthesis: met timing (pre-placement estimate) first, then the smallest
+    area; among variants missing timing, the best slack."""
+    if m.get("synth_area_um2") is None:
+        return None
+    wns = m.get("synth_wns_ns")
+    if wns is None:
+        return (1, -m["synth_area_um2"])
+    return (1, -m["synth_area_um2"]) if wns >= 0 else (0, wns)
+
+
 SCORES = {f.__name__: f for f in (setup_wns, hpwl, drc_then_wns, drc_then_slack, wns_then_hpwl, macro_hpwl,
-                                           macro_quick, routability_then_wns, synth_area, auto)}
+                                           macro_quick, routability_then_wns, synth_area, synth_wns_then_area, auto)}
 
 
 def get(name):

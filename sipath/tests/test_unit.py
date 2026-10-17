@@ -1983,7 +1983,7 @@ class McpProtocol(unittest.TestCase):
         self.assertEqual(c.rpc("resources/list")["result"], {"resources": []})
         err, out, _ = c.call("list_designs")
         self.assertFalse(err)
-        self.assertEqual(set(out["designs"]), {"dp8", "dp8_hs", "mcu8", "ihp_add8", "gcd8", "openframe_gcd8", "gcd8_pair"})
+        self.assertEqual(set(out["designs"]), {"dp8", "dp8_hs", "mcu8", "ihp_add8", "gcd8", "gcd8_sv", "openframe_gcd8", "gcd8_pair"})
         self.assertTrue(c.call("run_step", run_id="nope", step="floorplan")[0])
         self.assertTrue(c.call("no_such_tool")[0])
         self.assertEqual(c.rpc("no/such/method")["error"]["code"], -32601)
@@ -2107,3 +2107,91 @@ class FullDeviceLvs(unittest.TestCase):
             p = load_pdk("sky130A", platforms="/p")
             self.assertTrue(os.path.isfile(p.signoff["lvs_full_deck"]))
             self.assertIn(p.signoff["lvs_full_deck"], p.files())  # mounted with the PDK
+
+
+class FrontEnd(unittest.TestCase):
+    """P2.7: RTL readers, ABC goals, Verilator stubs, synthesis scores."""
+
+    def design(self, rtl=("x.v",), **kw):
+        return Design("t", "top", None, "t.sdc", "macro", rtl=list(rtl), rtl_defines={"W": 8}, rtl_includes=["/inc"], **kw)
+
+    def test_readers(self):
+        from sipath import synth
+        d = self.design(("/a/pkg.sv", "/a/top.sv"))
+        self.assertEqual(synth._read_rtl(d, True, "yosys"), ["read_verilog -sv -DW=8 -I/inc /a/pkg.sv /a/top.sv"])
+        self.assertEqual(synth._read_rtl(d, True, "slang"),
+                         ["read_slang --top top --empty-blackboxes -DW=8 -I/inc /a/pkg.sv /a/top.sv"])
+        self.assertEqual(synth._read_rtl(d, True, "slang-plugin")[0], "plugin -i slang")
+
+    def test_frontend_choice(self):
+        from sipath import synth
+        ctx = types.SimpleNamespace(params={"frontend": "auto"}, design=self.design(("t.v",)))
+        self.assertEqual(synth.frontend(ctx), "yosys")  # plain Verilog: no probe
+        ctx = types.SimpleNamespace(params={"frontend": "yosys"}, design=self.design(("t.sv",)))
+        self.assertEqual(synth.frontend(ctx), "yosys")
+        saved = synth.slang_support
+        try:
+            synth.slang_support = lambda c: None
+            ctx = types.SimpleNamespace(params={"frontend": "auto"}, design=self.design(("t.sv",)))
+            self.assertEqual(synth.frontend(ctx), "yosys")  # no slang: Yosys's own SV subset
+            ctx.params = {"frontend": "slang"}
+            with self.assertRaises(RuntimeError):
+                synth.frontend(ctx)
+            synth.slang_support = lambda c: "slang-plugin"
+            ctx.params = {"frontend": "auto"}
+            self.assertEqual(synth.frontend(ctx), "slang-plugin")
+        finally:
+            synth.slang_support = saved
+
+    def test_abc_goals_and_retime(self):
+        from sipath import synth
+        self.assertEqual(synth._abc("L", "", "delay", 2500.0), "abc -liberty L  -D 2500")
+        self.assertEqual(synth._abc("L", "", "delay", None), "abc -liberty L ")
+        self.assertIn("-script +strash;dch,-f;map,-a;topo", synth._abc("L", "", "area", 2500.0))
+        self.assertNotIn("-D", synth._abc("L", "", "area", 2500.0))
+        sp = synth._abc("L", "", "speed", 3600.0)
+        self.assertIn("-D 3600", sp)
+        self.assertIn("map,{D};topo;buffer,-p;upsize,{D};dnsize,{D}", sp)  # Yosys puts "-D 3600" for {D}
+        self.assertNotIn("-script", synth._abc("L", "", "speed", None))  # no target: the default script
+
+    def test_clock_period_from_tcl_variables(self):
+        from sipath import synth
+        with tempfile.TemporaryDirectory() as td:
+            f = os.path.join(td, "c.sdc")
+            with open(f, "w") as fh:
+                fh.write("set clk_name clk\nset clk_period 3.6\ncreate_clock -name $clk_name -period $clk_period [get_ports clk]\n")
+            self.assertEqual(synth.clock_period_ps(f), 3600.0)
+            with open(f, "w") as fh:
+                fh.write("create_clock -period 10.0 [get_ports clk]\n")
+            self.assertEqual(synth.clock_period_ps(f), 10000.0)
+
+    def test_liberty_stubs(self):
+        from sipath import synth
+        lib = ('library (l) {\n  type (bus3) { base_type : array; bit_width : 3; bit_from : 2; bit_to : 0; }\n'
+               '  cell ("mac") {\n    pin ("CLK") { direction : input; }\n'
+               '    bus (D) { bus_type : bus3; direction : input; }\n    pin ("Q") { direction : output; }\n'
+               '    pin ("VPWR") { direction : inout; }\n  }\n  cell ("other") { pin ("A") { direction : input; } }\n}\n')
+        with tempfile.TemporaryDirectory() as td:
+            p = os.path.join(td, "l.lib")
+            with open(p, "w") as fh:
+                fh.write(lib)
+            v = synth.liberty_stubs([p], ["mac"])
+        self.assertEqual(v, "module mac(input CLK, input [2:0] D, output Q, inout VPWR);\nendmodule\n")
+
+    def test_synth_scores(self):
+        s = scores.get("synth_wns_then_area")
+        met_small = {"synth_area_um2": 100.0, "synth_wns_ns": 0.1}
+        met_big = {"synth_area_um2": 120.0, "synth_wns_ns": 2.0}
+        late = {"synth_area_um2": 90.0, "synth_wns_ns": -0.2}
+        later = {"synth_area_um2": 80.0, "synth_wns_ns": -0.5}
+        self.assertGreater(s(met_small), s(met_big))  # both met: smaller area
+        self.assertGreater(s(met_big), s(late))  # met beats late
+        self.assertGreater(s(late), s(later))  # both late: better slack
+        self.assertEqual(scores.get("auto")(late), s(late))
+        self.assertIsNone(s({}))
+
+    def test_params(self):
+        from sipath import params
+        params.check("synth", {"frontend": "slang", "abc": "speed", "retime": True, "verilator": "on", "timing": False})
+        with self.assertRaises(ValueError):
+            params.check("synth", {"abc": "fast"})
