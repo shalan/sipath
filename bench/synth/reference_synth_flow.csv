@@ -1,0 +1,17 @@
+design,recipe,cells,area_um2,wns_ns
+alu32,delay_triple,2020,10870.43,-0.922
+mul16_pipe,balanced_resyn,1860,12463.20,-0.411
+mul32_mac,balanced_resyn,6482,39668.04,-2.584
+fir8,delay_choice_deep,1708,13291.50,0.323
+aes_round,balanced_resyn2x,9475,53537.60,1.422
+sha256_core,delay_triple,8316,65979.53,-0.074
+crc32_8,delay_triple,220,2153.32,-0.030
+rr_arbiter16,delay_choice_deep_v3,393,3065.44,-0.430
+uart,delay_iter_heavy,391,3764.86,0.054
+spi_master,delay_aggressive,479,4868.42,0.203
+apb_timer,delay_choice_deep_v3,1334,11347.13,-0.065
+fifo_sync,area_lut6,2382,27948.05,-0.602
+zx16_core_ahb,delay_iter_heavy,2845,20519.68,-0.173
+zxip,delay_choice_deep_v3,18186,161253.40,-1.238
+ms_psram_ahb,balanced_resyn2x,2685,25149.12,0.117
+uart_apb_sys,delay_iter_heavy,1828,16917.48,3.971

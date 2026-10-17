@@ -31,6 +31,7 @@ python3 -m unittest sipath.tests.test_unit      # unit tests: no OpenROAD, a few
 python3 -m sipath.tests.run_live -j 4          # live tests (real runs), classes in parallel, with times
 python3 -m unittest sipath.tests.test_sipath    # everything, one process
 python3 -m sipath limits runs/gcd8 gcd8        # a run against its regression limits (sipath/tests/limits.yaml)
+python3 bench/synth_bench.py                   # synthesis benchmark: 16 designs (bench/synth)
 python3 -m sipath validate      # inputs + scheduler rules (stand-in sessions, no design)
 python3 -m sipath draw <odb> <svg> [--ring]   # schematic SVG of a checkpoint
 python3 -m sipath render <odb> <png>          # OpenROAD's own layout render
@@ -71,25 +72,16 @@ python3 -m sipath report runs/gcd8 --render   # the run's report page (report.md
   scores, signoff checks, harnesses, design templates and design-file
   extensions.
 
-**Front end**
-- `synth`: Yosys lint and synthesis (optional port buffering, the PDK's
-  excluded cells respected).
-- SystemVerilog through slang (`frontend: auto|yosys|slang`; `auto` reads `.sv`
-  sources with `read_slang` when the image's Yosys has it, built in or as the
-  plugin), for lint, synthesis and the equivalence check alike;
-  `examples/gcd8_sv.yaml` (package, enum, packed struct, function).
-- Verilator lint (`verilator: auto|on|off`): `--lint-only -Wall` on the RTL
-  (host, native tool or image), warnings counted by code, errors fail;
-  Liberty cells and macros the RTL instantiates get stub modules.
-- Synthesis variants as scored attempts: ABC goal `delay` (default mapping
-  toward the clock), `area` (area-oriented), `speed` (delay mapping, then
-  buffering and gate sizing toward the clock), `retime`; each netlist timed
-  by OpenSTA (typical Liberty, the SDC, no wires: `synth_wns_ns`) and picked by
-  `synth_wns_then_area` (met timing first, then area). On aes at 3.6 ns:
-  `delay` −5.75 ns, `area` −5.85 ns, `speed` −0.16 ns at +3.8% area.
-- Black-box Liberty models from a macro's LEF when it has no Liberty (opt-in).
-- RTL-to-netlist equivalence after synthesis: bounded, from reset (10 cycles
-  by default); a mismatch fails the step with the counterexample.
+**Front end** (`synth`; see [Synthesis](#synthesis))
+- Verilog or SystemVerilog (slang), linted by Yosys and Verilator.
+- ABC mapping with 20 measured recipes, mapped at the slow corner without a
+  delay target, given the SDC's boundary model; several recipes in one
+  attempt, the netlist picked by least area meeting timing (else the knee of
+  the slack/area front), judged by OpenSTA with the Liberty wire-load model.
+- Front-end variants (Booth multipliers, parallel-prefix adders) and register
+  names kept through flattening.
+- Bounded RTL-to-netlist equivalence of the selected netlist; black-box
+  Liberty models for macros without one (opt-in).
 
 **Physical design** (`floorplan`, `macros`, `physical`, `place`, `cts`,
 `route_analog`, `route_digital`, `route_repair`, `fill`, `extract`,
@@ -178,12 +170,13 @@ python3 -m sipath report runs/gcd8 --render   # the run's report page (report.md
   and Magic can run on the host while OpenROAD stays in the container.
 - Provenance records the image digest, platform, binary and tool versions.
 
-**Benchmark and tests**
-- `bench/orfs_compare.py`: ORFS's reference designs through ORFS and SiPath
-  from the same inputs, both measured by the same code (results below, gcd
-  and aes).
-- 146 tests (offline and live); offline checks include undefined names, the
-  examples' step parameters and PDK names kept out of the library code.
+**Benchmarks and tests** (see [Benchmarks](#benchmarks))
+- Against ORFS: its reference designs through both flows, and SiPath's own
+  designs through ORFS, measured by the same code.
+- Synthesis: shalan/synth_flow's 16 designs (`bench/synth_bench.py`).
+- 140 unit tests (seconds; undefined names, step parameters of the examples,
+  PDK names kept out of the library code) and 43 live tests (real runs, in
+  parallel), with regression limits per design.
 
 **Known limits**
 - RTL equivalence is bounded, not a full proof.
@@ -193,8 +186,8 @@ python3 -m sipath report runs/gcd8 --render   # the run's report page (report.md
   the OpenFrame wrapper.
 - dp8's XOR shows two sub-0.1 µm² differences on wide analog wires (Magic
   reads their wire-end extensions differently).
-- No SystemVerilog front end yet; full-device LVS (P0.4) not done; half
-  OpenFrame waits on ChipFoundry's licence.
+- Full-device LVS runs but matches neither dp8 nor the ChipFoundry ADC yet
+  (P0.4); half OpenFrame waits on ChipFoundry's licence.
 
 The MCP server exposes `open_run` (an example name or any design file;
 `resume` picks up a workdir), `run_step`, `run_eco`, `job_status`,
@@ -231,6 +224,74 @@ The MCP server exposes `open_run` (an example name or any design file;
   `SIPATH_REQUIRE_DIGEST=0`),
   debug checkpoints for failed attempts, log level. The library logs to the
   `sipath` logger and is silent unless the caller configures logging.
+
+## Synthesis
+
+The `synth` step turns RTL into a flat gate-level netlist with Yosys (a tool
+step: no OpenROAD process). Its defaults come from measurements, its own and
+[shalan/synth_flow](https://github.com/shalan/synth_flow)'s (16 designs, OpenSTA
+at the slow corner with the Liberty wire-load model).
+
+1. **Read.** Yosys's Verilog reader, or slang for SystemVerilog
+   (`frontend: auto|yosys|slang`; `auto` takes slang for `.sv` sources when the
+   image's Yosys has `read_slang`, built in or as the plugin). Lint, synthesis
+   and the equivalence check read the RTL the same way
+   (`examples/gcd8_sv.yaml`: package, enum, packed struct, function).
+2. **Lint.** Yosys: implicit nets, hierarchy errors, undriven or multiply
+   driven nets and combinational loops are errors. Verilator
+   `--lint-only -Wall` when found (`verilator: auto|on|off`; host, native tool
+   or image); library cells and macros the RTL instantiates get stub modules.
+   Warnings are counted, `lint_strict` makes them fatal.
+3. **Generic synthesis.** `synth -flatten -noabc` with the front-end options
+   (`synth_opts`: `booth`, `adder=kogge-stone|han-carlson|sklansky`, `noshare`,
+   `nofsm`, `noalumacc`, `opt_dff_sat`, `opt_full`), optional retiming
+   (`retime`), registers named after the wire they drive (`acc[3]_reg`,
+   `keep_names`).
+4. **Mapping at the slow corner** (`map_corner`, default the timing corner):
+   flops by `dfflibmap`, logic by ABC with a recipe and the boundary model, the
+   SDC's driving cell and output load (else the PDK's defaults for a macro),
+   written as ABC's two-line constraint file in fF. ABC's reader knows only
+   those two statements; an SDC handed to it as is loses the load
+   (`set_load -pin_load` reads as 0), so SiPath resolves the SDC itself.
+5. **Recipe sweep and selection.** `abc_sweep` maps with several recipes in
+   the same attempt, side by side (default `auto`: synth_flow's five delay
+   recipes plus `area_map`; `delay`, `area`, `balanced`, a list, or `off`).
+   Each netlist is timed by OpenSTA at the slow corner with the wire-load
+   model (`synth_wns_ns`, `synth_tns_ns`), and `synth_select` keeps the least
+   area that meets timing, else the knee of the slack/area front, else the
+   best slack. `abc: <recipe>` maps with one recipe. No ABC delay target by
+   default (`abc_target: none|period|<ps>`).
+6. **Checks and proof.** An unmapped cell (e.g. a latch) or an excluded cell
+   fails the step; the selected netlist is proven against the RTL (bounded:
+   equal outputs for every input sequence for `equiv_depth` cycles from reset).
+
+Recipes live in `sipath/synth_recipes/`: 18 from synth_flow (with its notes)
+plus SiPath's `area_map` and `speed_sizing`; a new one is a `.abc` file there.
+Its objective sets (top five per objective on its bench) are the `abc_sweep`
+names. A sweep can also be separate attempts, front ends included:
+
+```yaml
+flow:
+- step: synth
+  sweep: delay                                  # or area, balanced, or a list of recipes
+  synth_opts_sweep: [[], [booth], [adder=kogge-stone], [adder=han-carlson]]
+```
+
+Each recipe x front end becomes an attempt, picked by `synth_select`.
+
+Why these defaults (numbers from the [synthesis bench](#synthesis-1)):
+- **No delay target.** With `abc_target: period`, 4 of 16 designs meet timing
+  against 10 without (both mapped at the typical corner); synth_flow found
+  the target worse on 190 of 256 runs. ABC relaxes against its own wireless
+  model, slack OpenSTA does not see.
+- **Mapped at the slow corner.** 12 of 16 meet timing against 10 mapping at
+  the typical corner; slack better on 14 designs.
+- **Boundary model.** On aes it gains 1.7–3 ns of slack for 1–2% area.
+- **Judged at the slow corner with wire load.** Judged at the typical corner
+  without wires, the estimate shared ABC's blind spot and favoured the delay
+  target.
+- **A sweep, not one recipe.** No recipe wins everywhere: `area_map` is the
+  smallest on gcd8 at 10 ns and the slowest on aes at 3.6 ns.
 
 ## Where OpenROAD comes from
 
@@ -383,48 +444,12 @@ amd64: under Rosetta on Apple silicon). Two ways to avoid the emulation:
   SIPATH_OPENROAD_BINARY=openroad SIPATH_PLATFORM=linux/arm64` (and
   `SIPATH_MAGIC_IMAGE` the same image for the Magic checks). Its tool versions
   differ (OpenROAD 2026-02-17, KLayout 0.30.7, Yosys 0.62), so results differ
-  slightly (gcd8: 158 vs 165 cells). Measurements below.
+  slightly (gcd8: 158 vs 165 cells). Measurements under [Benchmarks](#rosetta-amd64-vs-native-arm64).
 - `native_tools` (`SIPATH_NATIVE_TOOLS=yosys,klayout`): those tools run on the
   host while OpenROAD stays in the image (gcd8 synthesis 10.0 s to 4.4 s with
   Homebrew's Yosys).
 Each run's provenance records the image, platform, binary and native tool
 versions.
-
-**Rosetta (amd64) vs native arm64.** `bench/arch_compare.py gcd8 aes` runs the
-same flows on the ORFS image (amd64, Rosetta) and LibreLane's (arm64), one
-after the other on an idle 18-core Apple M5 Max, 12 threads (wall seconds):
-
-| run | amd64 (Rosetta) | arm64 (native) | arm64 gain |
-|---|---|---|---|
-| gcd8 explore | 17.5 | 11.0 | 1.59x |
-| gcd8 full, to signoff | 63.5 | 34.0 | 1.87x |
-| aes explore | 197.7 | 137.1 | 1.44x |
-| aes full | 3,723 | crashed in post-route repair (2,061 s in) | — |
-
-- Per step (gcd8 and the explore runs), arm64 is 1.3–2.7x faster on
-  OpenROAD work and 2.7–4.8x on signoff tools (KLayout GDS 4.8x, density, LVS
-  and DRC ~3x). In the full aes run its CTS is slower (71 s against 46 s).
-- One detailed-routing iteration on aes is 1.5x faster natively (225 s
-  against 341 s); the whole aes route takes the same time (1,169 s against
-  1,160 s) because the older router converges more slowly (662 violations left
-  after its 5th iteration against 288).
-- aes synthesis is ~650 s on both: the RTL equivalence check runs to its
-  timeout (inconclusive).
-- LibreLane's OpenROAD segfaults in post-route `repair_timing` on aes
-  (`grt::GlobalRouter::addDirtyNet` from a cell swap), the same family as its
-  crash on the OpenFrame example: a bug of that build. The amd64 image stays
-  the default.
-- Threads: with all 18 cores, Docker's VM leaves the host none; LibreLane's
-  arm64 OpenROAD then takes 50 s for an aes global placement it does in 1.9 s
-  at 12 threads (amd64: 3.2 s against 1.2 s), and detailed routing gains under
-  5% past 12. On macOS the default is two thirds of the cores (`threads`;
-  a step can take its own, e.g. `step_defaults: {place: {threads: 8}}`);
-  12 threads also made the amd64 runs 3–34% faster than 18.
-
-**Exploration mode.** `--explore` on gcd8 (ORFS image, Rosetta, while another run used the machine): 47 s from RTL
-to a PPA first cut at global routing; achievable period 3.52 ns (285 MHz)
-against the SDC's 10 ns, suggested `create_clock -period 3.7`, 1,630 µm² of
-cells, 0.71 mW.
 
 ## Layout
 
@@ -442,10 +467,15 @@ cells, 0.71 mW.
 | `analog.py` | NDR route first, then freeze as special wiring |
 | `eco.py`, `equiv.py`, `liberty.py`, `wires.py` | resize/buffer ECO, structural equivalence on Liberty functions, wire re-encoding and restore after RCX |
 | `signoff.py`, `klayout/stream.py`, `minarea.py` | signoff (GDS, DRC, LVS, antennas, independent STA); post-route minimum-area safety net |
+| `synth.py`, `recipes.py`, `synth_recipes/` | the synth step (readers, lint, recipe sweep, boundary model, timing estimate, equivalence); ABC recipes and their objective sets |
+| `lvs_full.py` | full-device LVS with the PDK's own KLayout deck (`sipath lvs`, signoff `lvs_full`) |
+| `limits.py`, `toolchain.py`, `report.py` | regression limits; the locked toolchain (`toolchain.json`); the run report |
 | `pdk.py`, `pdks/*.yaml` | PDK description files and their loader (`load_pdk`) |
 | `design.py`, `designfile.py` | design spec (unset fields from the PDK), design files and `run` |
 | `tcl.py`, `netlist.py`, `scores.py` | generators, Verilog model, named scores |
 | `examples/` | `dp8.yaml`, `mcu8.yaml`, `ihp_add8.yaml` (+ thin `.py` wrappers), `ihp_ring.py`; generators write the inputs under `examples/inputs/` |
+| `tests/` | `test_unit.py` (no tools), `test_live.py` (real runs), `common.py`, `run_live.py` (live classes in parallel), `limits.yaml` |
+| `bench/` | `orfs_compare.py`, `arch_compare.py`, `synth_bench.py` with `bench/synth/` (designs, manifest, pinned external IPs) |
 
 ## What each requirement maps to
 
@@ -662,7 +692,9 @@ cells, 0.71 mW.
   `examples/ihp_ring.py` closes the ring on IHP SG13G2 with nothing
   configured: rotations R0/R270/R0, against sky130's R180/R90/R180.
 
-## Benchmark against ORFS
+## Benchmarks
+
+### Against ORFS
 
 `python3 bench/orfs_compare.py gcd aes` runs ORFS's own sky130hd reference designs
 through ORFS (`make` in the ORFS image) and through SiPath (sky130A, the
@@ -755,6 +787,91 @@ under Rosetta (its own stage times add up to 18–54 s); SiPath's includes
 signoff (KLayout DRC, LVS, nine-corner STA: 19–24 s). mcu8 and ihp_ring (pad
 rings, hard macros, analog supplies) are not compared: they would need ORFS
 footprint scripts written for them.
+
+### Synthesis
+
+`python3 bench/synth_bench.py` runs the synth step alone on shalan/synth_flow's
+16 designs (`bench/synth`: 12 in-house designs and 4 external IPs at pinned
+commits, each with its SDC) on sky130A, and lists the selected netlist next to
+synth_flow's best pre-repair result per design (its `baseline-noD` run: the
+same slow-corner Liberty, OpenSTA with wire load, no delay target, no
+post-synthesis repairs). Slack at ss_max with the Liberty wire-load model;
+the front-end sweep adds Kogge-Stone, Han-Carlson, Sklansky, Booth and
+Booth + Kogge-Stone as attempts.
+
+| design | period (ns) | SiPath WNS (ns) | area (µm²) | recipe | + front-end sweep: WNS | area | front end | synth_flow WNS | area |
+|---|---|---|---|---|---|---|---|---|---|
+| alu32 | 10 | −1.352 | 10,850 | delay_map_resyn | +0.841 | 11,936 | adder=kogge-stone | −0.922 | 10,870 |
+| mul16_pipe | 9 | +0.474 | 17,922 | delay_map_resyn | +1.018 | 14,305 | booth | −0.411 | 12,463 |
+| mul32_mac | 18 | +0.285 | 73,156 | delay_map | +0.054 | 62,125 | adder=han-carlson | −2.584 | 39,668 |
+| fir8 | 12 | +1.347 | 15,664 | delay_map_resyn | +0.008 | 15,441 | adder=sklansky | +0.323 | 13,292 |
+| aes_round | 8 | +0.751 | 59,641 | delay_syn2 | +0.751 | 59,641 | plain | +1.422 | 53,538 |
+| sha256_core | 13 | +1.051 | 71,622 | delay_map_resyn | +1.051 | 71,622 | plain | −0.074 | 65,980 |
+| crc32_8 | 4 | +0.360 | 2,791 | delay_map | +0.360 | 2,791 | plain | −0.030 | 2,153 |
+| rr_arbiter16 | 6 | +0.116 | 3,791 | delay_map | +0.174 | 3,626 | adder=kogge-stone | −0.430 | 3,065 |
+| uart | 4 | +0.308 | 4,079 | delay_map | +0.102 | 3,945 | adder=sklansky | +0.054 | 3,765 |
+| spi_master | 4 | +0.326 | 4,770 | delay_map | +0.325 | 4,735 | adder=kogge-stone | +0.203 | 4,868 |
+| apb_timer | 5 | −1.190 | 11,321 | delay_syn2 | −0.205 | 11,805 | adder=han-carlson | −0.065 | 11,347 |
+| fifo_sync | 4 | +0.025 | 26,671 | delay_map | +0.020 | 26,603 | adder=kogge-stone | −0.602 | 27,948 |
+| zx16_core_ahb | 10 | +0.933 | 22,401 | delay_map | +0.079 | 22,126 | adder=sklansky | −0.173 | 20,520 |
+| zxip | 11 | −0.969 | 156,319 | delay_syn2 | −0.206 | 160,365 | adder=kogge-stone | −1.238 | 161,253 |
+| ms_psram_ahb | 8 | −0.109 | 25,154 | delay_map_resyn | −0.109 | 25,154 | plain | +0.117 | 25,149 |
+| uart_apb_sys | 10 | +3.698 | 17,748 | delay_choice_deep_v3 | +3.698 | 17,748 | plain | +3.971 | 16,917 |
+
+| configuration | designs meeting timing | wall time, 16 designs |
+|---|---|---|
+| defaults (`abc_sweep: auto`, mapped at ss_max) | 12 | 160 s |
+| defaults + front-end sweep | 13 | 688 s |
+| mapped at the typical corner (`map_corner: typical`) | 10 | 158 s |
+| typical corner + `abc_target: period` | 4 | 155 s |
+| synth_flow, best pre-repair result per design | 6 | — |
+
+The selection keeps the least area meeting timing, so a sweep can return less
+slack at less area (fir8). SiPath often meets timing with more area than
+synth_flow's runs (mul32_mac: 73k µm², meeting timing, against 40k missing by
+2.6 ns); synth_flow maps with a stripped 120-cell Liberty and the full flow
+there closes the remaining designs with OpenSTA-guided sizing after synthesis,
+which SiPath leaves to OpenROAD after placement.
+
+### Rosetta (amd64) vs native arm64
+
+ `bench/arch_compare.py gcd8 aes` runs the
+same flows on the ORFS image (amd64, Rosetta) and LibreLane's (arm64), one
+after the other on an idle 18-core Apple M5 Max, 12 threads (wall seconds):
+
+| run | amd64 (Rosetta) | arm64 (native) | arm64 gain |
+|---|---|---|---|
+| gcd8 explore | 17.5 | 11.0 | 1.59x |
+| gcd8 full, to signoff | 63.5 | 34.0 | 1.87x |
+| aes explore | 197.7 | 137.1 | 1.44x |
+| aes full | 3,723 | crashed in post-route repair (2,061 s in) | — |
+
+- Per step (gcd8 and the explore runs), arm64 is 1.3–2.7x faster on
+  OpenROAD work and 2.7–4.8x on signoff tools (KLayout GDS 4.8x, density, LVS
+  and DRC ~3x). In the full aes run its CTS is slower (71 s against 46 s).
+- One detailed-routing iteration on aes is 1.5x faster natively (225 s
+  against 341 s); the whole aes route takes the same time (1,169 s against
+  1,160 s) because the older router converges more slowly (662 violations left
+  after its 5th iteration against 288).
+- aes synthesis is ~650 s on both: the RTL equivalence check runs to its
+  timeout (inconclusive).
+- LibreLane's OpenROAD segfaults in post-route `repair_timing` on aes
+  (`grt::GlobalRouter::addDirtyNet` from a cell swap), the same family as its
+  crash on the OpenFrame example: a bug of that build. The amd64 image stays
+  the default.
+- Threads: with all 18 cores, Docker's VM leaves the host none; LibreLane's
+  arm64 OpenROAD then takes 50 s for an aes global placement it does in 1.9 s
+  at 12 threads (amd64: 3.2 s against 1.2 s), and detailed routing gains under
+  5% past 12. On macOS the default is two thirds of the cores (`threads`;
+  a step can take its own, e.g. `step_defaults: {place: {threads: 8}}`);
+  12 threads also made the amd64 runs 3–34% faster than 18.
+
+### Exploration mode
+
+ `--explore` on gcd8 (ORFS image, Rosetta, while another run used the machine): 47 s from RTL
+to a PPA first cut at global routing; achievable period 3.52 ns (285 MHz)
+against the SDC's 10 ns, suggested `create_clock -period 3.7`, 1,630 µm² of
+cells, 0.71 mW.
 
 ## Workarounds for this OpenROAD build (found by running it)
 
@@ -907,18 +1024,11 @@ flow:                               # steps in order; each continues from the pr
 
 An RTL design needs only `rtl`, `sdc`, and `core_utilization` or `die`
 (see `examples/gcd8.yaml`):
-- **`synth`, a tool step (Yosys, no OpenROAD process)**:
-  - Lint first: implicit nets, hierarchy errors, undriven or multiply driven
-    nets and combinational loops are errors. Warnings are counted;
-    `lint_strict` makes them fatal.
-  - Synthesis on the PDK's typical Liberty, flattened: flops by dfflibmap,
-    logic by ABC with the SDC clock as the delay target (`abc: area` for
-    area). Constants go on tie cells and port assigns get buffers. The PDK's
-    dont_use and exclusion lists bind both mappers.
-  - The netlist is checked: an unmapped cell (e.g. a latch) or an excluded
-    cell fails the step.
-  - Its netlist is the attempt's checkpoint. Variants and scores
-    (`synth_area`) work as for any step.
+- **`synth`, a tool step (Yosys, no OpenROAD process)**: lint (Yosys, and
+  Verilator when found), synthesis with the recipe sweep and selection of
+  [Synthesis](#synthesis), the netlist checked (an unmapped cell such as a
+  latch, or an excluded cell, fails the step) and proven against the RTL
+  (bounded). The selected netlist is the attempt's checkpoint.
 - **Macros without a Liberty file**: with `auto_blackbox: true` (on the design,
   or per macro), the flow writes a black-box model from the macro's LEF into
   `<workdir>/models/` before the run:

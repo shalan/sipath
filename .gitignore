@@ -10,3 +10,6 @@ sipath/harnesses/sources/caravel/chip_io.*
 # packaging (pip install / wheel builds)
 build/
 *.egg-info/
+
+# synthesis benchmark: external designs (bench/synth/fetch_external.sh)
+bench/synth/external/

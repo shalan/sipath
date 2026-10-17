@@ -101,6 +101,8 @@ STEP_PARAMS: dict[str, list[Param]] = {
         Param("abc_sweep", "str", "auto", "recipes mapped in this attempt, the netlist picked by synth_select "
               "(least area meeting timing, else the knee): auto (the delay set plus area_map), delay, area, "
               "balanced (synth_flow's top 5 each), off (delay_map_resyn alone), or names separated by commas"),
+        Param("map_corner", "str", None, "corner whose Liberty dfflibmap and ABC map with: a corner name, typical, "
+              "or (default) the timing corner, the slow one (bench: 12/16 designs meet timing against 10 at typical)"),
         Param("synth_abc", "bool", False, "keep Yosys's generic ABC pass in synth (default: synth -noabc, as "
               "synth_flow; measured mixed: better on aes, worse on gcd8)"),
         Param("abc_target", "str", "none", "ABC delay target ({D} in the recipe): none (measured best on most "

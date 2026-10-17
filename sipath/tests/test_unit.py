@@ -2248,6 +2248,9 @@ class FrontEnd(unittest.TestCase):
         self.assertIn("ss_100C_1v60", std)
         import dataclasses
         self.assertIsNone(synth.timing_corner(dataclasses.replace(p, corners=[])))  # single-corner PDK: its Liberty
+        self.assertEqual(synth.map_corner(p).name, "ss_max")  # mapped where it is judged
+        self.assertEqual(synth.map_corner(p, "typical").name, "tt_nom")
+        self.assertEqual(synth.map_corner(p, "ff_min").name, "ff_min")
 
     def test_params(self):
         from sipath import params
@@ -2285,6 +2288,18 @@ class SynthSelection(unittest.TestCase):
         self.assertIn("best slack", why)
         tie = [self.cand("yosys_default", 0.5, 100.0), self.cand("delay_map", 0.5, 100.0)]
         self.assertEqual(s(tie)[0].params["abc"], "delay_map")  # ties by recipe rank
+
+    def test_signed_declarations_stripped(self):
+        from sipath import synth
+        with tempfile.TemporaryDirectory() as td:
+            p = os.path.join(td, "n.v")
+            with open(p, "w") as fh:
+                fh.write("module m(a, y);\n  input signed [15:0] a;\n  wire signed [15:0] a;\n  output y;\n"
+                         "  sky130_fd_sc_hd__inv_1 u (.A(a[0]), .Y(y));\nendmodule\n")
+            self.assertEqual(synth.strip_signed(p), 2)
+            text = open(p).read()
+            self.assertIn("  input [15:0] a;", text)
+            self.assertEqual(len(parse_verilog(text, "m").instances), 1)  # SiPath's reader takes it now
 
     def test_in_step_sweep_lists(self):
         from sipath import recipes, synth

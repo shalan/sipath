@@ -228,11 +228,12 @@ def abc_boundary(pdk, d, std: str) -> tuple[str, float] | None:
 
 def synth_script(pdk, d, out: str, abc_script: str, port_buffers: bool = True, fe: str = "yosys",
                  retime: bool = False, opts=(), keep_names: bool = True, constr: str | None = None,
-                 synth_abc: bool = False) -> str:
+                 synth_abc: bool = False, corner=None) -> str:
     """Generic synthesis (``synth -noabc``, front-end options), register names
     kept, flops mapped (dfflibmap), logic mapped by ABC with ``abc_script`` (a
-    file with the recipe, {D} resolved) and the boundary model ``constr``."""
-    std, others = _libs(pdk, d)
+    file with the recipe, {D} resolved) and the boundary model ``constr``, on
+    the Liberty of ``corner`` (None: the typical one)."""
+    std, others = _corner_libs(pdk, d, corner) if corner is not None else _libs(pdk, d)
     du = " ".join(f"-dont_use {p}" for p in dont_use(pdk, d))
     flags, post = front_end_options(opts)
     lines = [f"read_liberty -lib -overwrite -setattr liberty_cell {f}" for f in [std, *others]]
@@ -456,6 +457,18 @@ def timing_corner(pdk, name: str | None = None):
     return slow[0] if slow else pdk.typical()
 
 
+def map_corner(pdk, name: str | None = None):
+    """The corner whose Liberty synthesis maps with: ``name``, ``typical`` for
+    the typical one, else (default) the corner it is judged at, the slow one:
+    on the 16-design bench that met timing on 12 designs against 10 when
+    mapping at the typical corner, slack better on 14."""
+    if not pdk.corners:
+        return None
+    if name == "typical":
+        return pdk.typical()
+    return timing_corner(pdk, name)
+
+
 def _corner_libs(pdk, d, corner) -> tuple[str, list[str]]:
     """(standard-cell Liberty, other Liberty files) at ``corner`` (None: the PDK's single Liberty)."""
     if corner is None:
@@ -568,12 +581,10 @@ def synth(ctx):
     period = p.get("abc_period_ps") or clock_period_ps(d.sdc)
     target = abc_target_ps(p.get("abc_target", "none"), period)
     std, _ = _libs(pdk, d)
-    constr = None
+    constr = None  # written into each recipe's own directory (its container's working mount)
     bound = abc_boundary(pdk, d, std) if p.get("abc_boundary", True) else None
     if bound:
-        constr = ctx.path("abc.constr")
-        with open(constr, "w") as f:
-            f.write(f"set_driving_cell {bound[0]}\nset_load {bound[1]}\n")
+        constr = f"set_driving_cell {bound[0]}\nset_load {bound[1]}\n"
         ctx.outputs["abc_boundary"] = {"driving_cell": bound[0], "load_ff": bound[1]}
     names = sweep_recipes(p)
     if len(names) == 1:
@@ -633,9 +644,27 @@ def sweep_recipes(p) -> list[str]:
     return [recipes.resolve(n.strip()) for n in sw.split(",") if n.strip()]
 
 
+_SIGNED = re.compile(r"^(\s*(?:input|output|inout|wire|reg)\s+)signed\s+", re.M)
+
+
+def strip_signed(netlist: str) -> int:
+    """Drop ``signed`` from the gate-level netlist's declarations: Yosys keeps
+    the RTL's signedness on ports (``input signed [15:0] a;``), which a gate
+    netlist does not need and OpenSTA's (and SiPath's) Verilog reader rejects.
+    Returns the declarations changed."""
+    with open(netlist) as f:
+        text = f.read()
+    new, n = _SIGNED.subn(r"\1", text)
+    if n:
+        with open(netlist, "w") as f:
+            f.write(new)
+    return n
+
+
 def _synth_one(ctx, recipe: str, wdir: str, fe: str, target, constr, period):
-    """Map with one recipe in ``wdir``: netlist, checks, area, timing estimate.
-    Returns a candidate (metrics, params, out, log, script, timing, error)."""
+    """Map with one recipe in ``wdir`` (``constr``: ABC's constraint text or
+    None): netlist, checks, area, timing estimate. Returns a candidate
+    (metrics, params, out, log, script, timing, error)."""
     import types
     from . import recipes
     from .netlist import read_verilog
@@ -652,13 +681,19 @@ def _synth_one(ctx, recipe: str, wdir: str, fe: str, target, constr, period):
         with open(abc_file, "w") as f:
             f.write(recipes.materialize(recipe, target, bool(p.get("abc_wire_load", False))) + "\n")
         out, script, log = view.path(f"{d.top}.synth.v"), view.path("synth.ys"), view.path("synth.log")
+        constr_file = None
+        if constr:  # a file next to the recipe: Docker Desktop did not always show one written a level up
+            constr_file = view.path("abc.constr")
+            with open(constr_file, "w") as f:
+                f.write(constr)
         with open(script, "w") as f:
             f.write(synth_script(pdk, d, out, abc_file, p.get("port_buffers", True), fe, bool(p.get("retime", False)),
-                                 p.get("synth_opts") or (), bool(p.get("keep_names", True)), constr,
-                                 bool(p.get("synth_abc", False))))
+                                 p.get("synth_opts") or (), bool(p.get("keep_names", True)), constr_file,
+                                 bool(p.get("synth_abc", False)), map_corner(pdk, p.get("map_corner"))))
         run_tool(view, ["yosys", "-q", "-l", log, "-s", script], view.path("synth.out"))
         if not os.path.isfile(out) or os.path.getsize(out) == 0:
             raise RuntimeError(f"Yosys wrote no netlist at {out}")
+        strip_signed(out)
         std, others = _libs(pdk, d)  # every instance a Liberty cell or a macro; nothing excluded
         lib_cells = _liberty_cells([std, *others])
         known = set(lib_cells) | {lef_macro(m.lef)[0] for m in d.macros}
