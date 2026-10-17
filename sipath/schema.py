@@ -118,6 +118,10 @@ FLOW_STEP = {
     "variants": F("list[dict]", "one parameter dict per attempt (see Step parameters)"),
     "score": F("str", "named score that picks the best attempt"),
     "parallel": F("int", "attempts at once"),
+    "sweep": F("any", "synth: an objective (delay, area, balanced: its five measured ABC recipes) or a list of "
+                      "recipes, one attempt each; selected by synth_select unless score is given"),
+    "synth_opts_sweep": F("list", "synth: front-end option sets, e.g. [[], [booth], [adder=kogge-stone]]; every "
+                                  "recipe runs with each"),
 }
 DESIGN = {
     "name": F("str", "run and report name", required=True),
@@ -296,6 +300,8 @@ def json_schema() -> dict:
                              {"type": "null"}]}
         elif t == "object":
             out = obj(f.fields or {})
+        elif t == "any":
+            out = {}
         else:
             item = t[5:-1] if "[" in t else ""
             if item == "object":

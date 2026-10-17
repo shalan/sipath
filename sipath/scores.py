@@ -88,8 +88,68 @@ def synth_wns_then_area(m):
     return (1, -m["synth_area_um2"]) if wns >= 0 else (0, wns)
 
 
+def _front(cands):
+    """(slack, area) Pareto front of attempts: none faster and smaller."""
+    return [c for c in cands if not any(
+        o.metrics["synth_area_um2"] <= c.metrics["synth_area_um2"] and o.metrics["synth_wns_ns"] >= c.metrics["synth_wns_ns"]
+        and (o.metrics["synth_area_um2"] < c.metrics["synth_area_um2"] or o.metrics["synth_wns_ns"] > c.metrics["synth_wns_ns"])
+        for o in cands if o is not c)]
+
+
+def _knee(cands, clip_ns=None):
+    """The front point closest to the ideal (best slack, least area) with both
+    axes normalized over the front; None under three front points."""
+    best = max(c.metrics["synth_wns_ns"] for c in cands)
+    if clip_ns:
+        cands = [c for c in cands if c.metrics["synth_wns_ns"] >= best - clip_ns]
+    front = _front(cands)
+    if len(front) < 3:
+        return None
+    w = [c.metrics["synth_wns_ns"] for c in front]
+    a = [c.metrics["synth_area_um2"] for c in front]
+    if max(w) - min(w) <= 1e-9 or max(a) - min(a) <= 1e-9:
+        return None
+
+    def dist(c):
+        wn = (max(w) - c.metrics["synth_wns_ns"]) / (max(w) - min(w))
+        an = (c.metrics["synth_area_um2"] - min(a)) / (max(a) - min(a))
+        return (wn * wn + an * an) ** 0.5
+    return min(front, key=lambda c: (dist(c), -c.metrics["synth_wns_ns"], _prio(c)))
+
+
+def _prio(c):
+    from .recipes import priority
+    return priority((c.params or {}).get("abc") or "delay_map_resyn")
+
+
+def synth_select(attempts):
+    """Synthesis selector (shalan/synth_flow's rule): the least area among the
+    attempts meeting timing (synth_wns_ns >= 0); if none meets, the knee of the
+    slack/area front, else the best slack; ties by recipe rank. Returns
+    (chosen attempt, rationale)."""
+    cands = [a for a in attempts if a.metrics.get("synth_area_um2") is not None]
+    if not cands:
+        return None, "no synthesized netlist"
+    timed = [a for a in cands if a.metrics.get("synth_wns_ns") is not None]
+    if not timed:
+        best = min(cands, key=lambda a: (a.metrics["synth_area_um2"], _prio(a)))
+        return best, "no timing estimate: least area"
+    meeting = [a for a in timed if a.metrics["synth_wns_ns"] >= 0]
+    if meeting:
+        best = min(meeting, key=lambda a: (a.metrics["synth_area_um2"], -a.metrics["synth_wns_ns"], _prio(a)))
+        return best, f"least area among {len(meeting)}/{len(timed)} meeting timing"
+    fastest = max(timed, key=lambda a: (a.metrics["synth_wns_ns"], -a.metrics["synth_area_um2"], -_prio(a)))
+    knee = _knee(timed, timed[0].metrics.get("synth_period_ns"))
+    if knee is not None:
+        return knee, (f"none meets timing: knee of the slack/area front (fastest "
+                      f"{fastest.metrics['synth_wns_ns']:+.3f} ns at {fastest.metrics['synth_area_um2']:.0f} um2)")
+    return fastest, "none meets timing: best slack"
+
+
+synth_select.selector = True  # chooses among all attempts (Flow._select), not one attempt's number
+
 SCORES = {f.__name__: f for f in (setup_wns, hpwl, drc_then_wns, drc_then_slack, wns_then_hpwl, macro_hpwl,
-                                           macro_quick, routability_then_wns, synth_area, synth_wns_then_area, auto)}
+                                           macro_quick, routability_then_wns, synth_area, synth_wns_then_area, synth_select, auto)}
 
 
 def get(name):

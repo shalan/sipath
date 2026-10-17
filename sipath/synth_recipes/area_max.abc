@@ -1,0 +1,13 @@
+# area_max — AREA: heaviest — double rewriting + double dc2 + double mapping (sequential cmds removed: no-ops on the combinational network ABC sees)
+strash; ifraig;
+balance; rewrite; refactor; balance; rewrite;
+rewrite -z; balance; refactor -z; rewrite -z; balance;
+dc2;
+balance; rewrite; refactor; balance; rewrite;
+rewrite -z; balance; refactor -z; rewrite -z; balance;
+dc2; strash;
+&get -n; &st; &dch; &nf {D}; &put;
+buffer; topo; upsize {D}; dnsize {D};
+&get -n; &st; &dch; &nf {D}; &put;
+buffer; topo; upsize {D}; dnsize {D};
+stime

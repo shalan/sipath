@@ -27,6 +27,7 @@ include = ["sipath", "sipath.*"]
 # example designs and their committed inputs, the toolchain lock
 sipath = [
     "toolchain.json",
+    "synth_recipes/*",
     "pdks/**/*",
     "klayout/*",
     "templates/**/*",

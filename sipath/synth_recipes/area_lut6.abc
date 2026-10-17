@@ -1,0 +1,7 @@
+# area_lut6 — AREA: dc2 + rewriting + GIA mapping (sequential cmds removed: no-ops on the combinational network ABC sees)
+strash; ifraig; dc2; dc2; strash;
+balance; rewrite; refactor; balance; rewrite;
+rewrite -z; balance; refactor -z; rewrite -z; balance;
+&get -n; &st; &dch; &nf {D}; &put;
+buffer; topo; upsize {D}; dnsize {D};
+stime

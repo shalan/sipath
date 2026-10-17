@@ -133,19 +133,119 @@ def lint_script(pdk, d, fe: str = "yosys") -> str:
     return "\n".join(lines) + "\n"
 
 
-def synth_script(pdk, d, out: str, period_ps: float | None, abc: str, port_buffers: bool = True,
-                 fe: str = "yosys", retime: bool = False) -> str:
+# Yosys flop and latch cell types after `synth`, before dfflibmap (keep_names)
+FF_TYPES = ("$_DFF*", "$_DFFE*", "$_SDFF*", "$_SDFFE*", "$_DFFSR*", "$_DFFSRE*", "$_ALDFF*", "$_ALDFFE*",
+            "$_DLATCH*", "$_DLATCHSR*")
+ADDERS = ("kogge-stone", "han-carlson", "sklansky")
+POST_SYNTH = {"opt_dff_sat": "opt_dff -sat", "opt_full": "opt -full"}
+
+
+def front_end_options(tokens) -> tuple[list[str], list[str]]:
+    """(``synth`` flags, commands after it) for ``synth_opts`` tokens: booth
+    (Booth-encoded multipliers), adder=kogge-stone|han-carlson|sklansky (parallel
+    prefix adders), noshare, nofsm, noalumacc, opt_dff_sat, opt_full (from
+    shalan/synth_flow, where their effect was measured and found design-specific)."""
+    flags, post = [], []
+    for tok in tokens or []:
+        t = str(tok).strip().lower()
+        if t == "booth":
+            flags.append("-booth")
+        elif t.startswith("adder="):
+            arch = t.split("=", 1)[1]
+            if arch not in ADDERS:
+                raise ValueError(f"synth_opts: unknown adder {arch!r} (one of {ADDERS})")
+            flags.append(f"-extra-map +/choices/{arch}.v")
+        elif t in ("noshare", "nofsm", "noalumacc"):
+            flags.append(f"-{t}")
+        elif t in POST_SYNTH:
+            post.append(POST_SYNTH[t])
+        elif t:
+            raise ValueError(f"synth_opts: unknown option {tok!r} (booth, adder=<{'|'.join(ADDERS)}>, noshare, "
+                             f"nofsm, noalumacc, {', '.join(POST_SYNTH)})")
+    if post:  # post-synth optimisation can bring coarse cells back: lower them again
+        post += ["techmap", "opt -fast"]
+    return flags, post
+
+
+def abc_target_ps(target, period_ps: float | None) -> float | None:
+    """The ABC delay target: none (default; synth_flow measured -D to hurt
+    timing at the slow corner on most designs), period (the SDC clock), or ps."""
+    if target in (None, "", "none"):
+        return None
+    if target == "period":
+        return period_ps
+    try:
+        v = float(target)
+    except (TypeError, ValueError):
+        raise ValueError(f"synth: abc_target must be none, period or a number of ps, not {target!r}") from None
+    if v <= 0:
+        raise ValueError("synth: abc_target must be > 0 ps")
+    return v
+
+
+def _liberty_load_unit_ff(liberty: str) -> float:
+    """fF per Liberty capacitance unit (capacitive_load_unit (1, pf) -> 1000)."""
+    with open(liberty, errors="replace") as f:
+        head = f.read(200000)
+    m = re.search(r"capacitive_load_unit\s*\(\s*([0-9.eE+-]+)\s*,\s*\"?(\w+)", head)
+    if not m:
+        return 1000.0
+    return float(m.group(1)) * {"ff": 1.0, "pf": 1000.0, "nf": 1e6}.get(m.group(2).lower(), 1000.0)
+
+
+def abc_boundary(pdk, d, std: str) -> tuple[str, float] | None:
+    """(driving cell, output load in fF) for ABC's constraint file: the SDC's
+    first ``set_driving_cell -lib_cell`` and ``set_load`` (Tcl variables
+    resolved), else the PDK's boundary defaults for an embedded macro (a die's
+    ports are pads); None when neither gives a driving cell. ABC reads only these
+    two statements, with the load in fF (an SDC passed to it as is loses the
+    load: OpenSTA's ``set_load -pin_load`` reads as 0)."""
+    with open(d.sdc) as f:
+        sdc = f.read()
+    vars_ = dict(re.findall(r"^\s*set\s+(\w+)\s+([0-9.eE+-]+)\s*$", sdc, re.M))
+    val = lambda v: float(vars_.get(v.strip("${}"), "nan")) if v.startswith("$") else float(v)  # noqa: E731
+    cell = load = None
+    m = re.search(r"set_driving_cell\b[^\n]*?-lib_cell\s+(\S+)", sdc)
+    if m:
+        cell = m.group(1).split("/")[-1]
+    for ln in sdc.splitlines():
+        toks = ln.split("#", 1)[0].split()
+        if toks[:1] == ["set_load"]:
+            vals = [x for x in toks[1:] if re.fullmatch(r"\$\{?\w+\}?|[0-9.]+(?:[eE][+-]?\d+)?", x)]
+            if vals:
+                load = val(vals[0])
+                break
+    c = dict(pdk.constraints or {}) if d.mode == "macro" else {}
+    if cell is None and c.get("driving_cell"):
+        cell = c["driving_cell"][0]
+    if load is None and c.get("output_load") is not None:
+        load = float(c["output_load"])
+    if not cell:
+        return None
+    ff = (load or 0.0) * _liberty_load_unit_ff(std)
+    return cell, round(ff, 4)
+
+
+def synth_script(pdk, d, out: str, abc_script: str, port_buffers: bool = True, fe: str = "yosys",
+                 retime: bool = False, opts=(), keep_names: bool = True, constr: str | None = None,
+                 synth_abc: bool = False) -> str:
+    """Generic synthesis (``synth -noabc``, front-end options), register names
+    kept, flops mapped (dfflibmap), logic mapped by ABC with ``abc_script`` (a
+    file with the recipe, {D} resolved) and the boundary model ``constr``."""
     std, others = _libs(pdk, d)
     du = " ".join(f"-dont_use {p}" for p in dont_use(pdk, d))
+    flags, post = front_end_options(opts)
     lines = [f"read_liberty -lib -overwrite -setattr liberty_cell {f}" for f in [std, *others]]
     lines += _read_rtl(d, autowire=True, frontend=fe)
     lines += [f"hierarchy -check -top {d.top}",
-              f"synth -top {d.top} -flatten",
+              " ".join([f"synth -top {d.top} -flatten" + ("" if synth_abc else " -noabc"), *flags]),
+              *post,
               *(["abc -dff -D 1"] if retime else []),  # retiming (what synth -retime ran); async-reset flops stay
+              *([f"rename -wire -suffix _reg {' '.join('t:' + x for x in FF_TYPES)}"] if keep_names else []),
               "opt -purge",
               f"dfflibmap -liberty {std} {du}",
               "opt",
-              _abc(std, du, abc, period_ps),
+              f"abc -liberty {std} {du}" + (f" -constr {constr}" if constr else "") + f" -script {abc_script}",
               "setundef -zero",
               "splitnets",
               "opt_clean -purge"]
@@ -161,25 +261,6 @@ def synth_script(pdk, d, out: str, period_ps: float | None, abc: str, port_buffe
     lines += ["opt_clean -purge", "check", f"tee -o {out}.stat stat -liberty {std}",
               f"write_verilog -noattr -noexpr -nohex -nodec {out}"]
     return "\n".join(lines) + "\n"
-
-
-# ABC scripts per goal (Yosys replaces {D} with "-D <target ps>"): area-oriented
-# mapping; the default delay mapping toward the clock; delay mapping, then buffering
-# and gate sizing toward it
-ABC_SCRIPTS = {
-    "area": "+strash;dch,-f;map,-a;topo",
-    "speed": "+strash;dch,-f;map,{D};topo;buffer,-p;upsize,{D};dnsize,{D}",
-}
-
-
-def _abc(std: str, du: str, goal: str, period_ps: float | None) -> str:
-    """The ABC mapping command for ``goal`` (delay | area | speed)."""
-    cmd = f"abc -liberty {std} {du}"
-    if goal in ("delay", "speed") and period_ps:
-        cmd += f" -D {period_ps:g}"
-    if goal == "area" or (goal == "speed" and period_ps):
-        cmd += f" -script {ABC_SCRIPTS[goal]}"
-    return cmd
 
 
 # reset port names and their active level, tried in order when equiv_reset is not given
@@ -353,6 +434,7 @@ read_liberty {std}
 {others}
 read_verilog {netlist}
 link_design {top}
+{constraints}
 read_sdc {sdc}
 {wire_load}
 puts "SYNTHSTA [sta::worst_slack -max] [sta::total_negative_slack -max]"
@@ -401,6 +483,7 @@ def synth_timing(ctx, netlist: str) -> dict:
     pre-placement estimate, comparable across synthesis variants, judged the
     way synth_flow found reliable). Unconstrained designs give None."""
     from .signoff import _runner
+    from .tcl import constraints_setup
     d, pdk = ctx.design, ctx.pdk
     corner = timing_corner(pdk, (ctx.params or {}).get("timing_corner"))
     std, others = _corner_libs(pdk, d, corner)
@@ -410,7 +493,7 @@ def synth_timing(ctx, netlist: str) -> dict:
         lefs = [pdk.tech_lef, *pdk.cell_lefs, *d.extra_lefs, *[m.lef for m in d.macros]]
         f.write(STA_TCL.format(lefs="\n".join(f"read_lef {x}" for x in lefs), std=std,
                                others="\n".join(f"read_liberty {o}" for o in others), netlist=netlist,
-                               top=d.top, sdc=d.sdc,
+                               top=d.top, sdc=d.sdc, constraints="\n".join(constraints_setup(pdk, d)),
                                wire_load=f"set_wire_load_mode top\nset_wire_load_model -name {wl}" if wl else ""))
     binary = getattr(_runner(ctx), "binary", None) or "openroad"
     out = run_tool(ctx, [binary, "-no_init", "-no_splash", "-exit", script], ctx.path("synth_sta.log"), timeout=1800)
@@ -438,10 +521,9 @@ def _liberty_cells(paths) -> dict[str, bool]:
 
 def synth(ctx):
     """RTL to a flat gate-level netlist (Yosys), then the netlist checked
-    against the RTL (equivalence from reset, bounded). params: frontend
-    (auto|yosys|slang), abc (delay|area), abc_period_ps, retime, lint,
-    lint_strict, verilator (auto|on|off), timing, equiv, equiv_depth,
-    equiv_reset, equiv_timeout."""
+    against the RTL (equivalence from reset, bounded). ABC maps with each
+    recipe of ``abc_sweep`` (or ``abc`` alone) and ``synth_select`` keeps one.
+    params: see sipath.params (synth)."""
     from .netlist import read_verilog
     from .signoff import lef_macro
     d, pdk, p = ctx.design, ctx.pdk, ctx.params
@@ -482,39 +564,47 @@ def synth(ctx):
             ctx.metrics["verilator_warnings"] = v["warnings"]
             if v["warnings"] and p.get("lint_strict", False):
                 raise RuntimeError(f"lint: {v['warnings']} Verilator warning(s) (lint_strict): {v['by_code']}")
+    from . import scores
     period = p.get("abc_period_ps") or clock_period_ps(d.sdc)
+    target = abc_target_ps(p.get("abc_target", "none"), period)
+    std, _ = _libs(pdk, d)
+    constr = None
+    bound = abc_boundary(pdk, d, std) if p.get("abc_boundary", True) else None
+    if bound:
+        constr = ctx.path("abc.constr")
+        with open(constr, "w") as f:
+            f.write(f"set_driving_cell {bound[0]}\nset_load {bound[1]}\n")
+        ctx.outputs["abc_boundary"] = {"driving_cell": bound[0], "load_ff": bound[1]}
+    names = sweep_recipes(p)
+    if len(names) == 1:
+        results = [_synth_one(ctx, names[0], ctx.dir, fe, target, constr, period)]
+    else:  # one mapping per recipe, side by side; synth_select picks, the winner alone is proven equivalent
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=min(len(names), 6)) as ex:
+            results = list(ex.map(lambda n: _synth_one(ctx, n, ctx.path(os.path.join("abc", n)), fe, target, constr,
+                                                       period), names))
+    ok = [r for r in results if not r.error]
+    if not ok:
+        raise RuntimeError("synth: no recipe produced a netlist:\n" + "\n".join(f"  {r.params['abc']}: {r.error}"
+                                                                             for r in results))
+    win, why = (ok[0], "the only recipe") if len(results) == 1 else scores.synth_select(ok)
+    if win is None:
+        raise RuntimeError(f"synth: no recipe selected ({why})")
     out = ctx.path(f"{d.top}.synth.v")
-    script = ctx.path("synth.ys")
-    with open(script, "w") as f:
-        f.write(synth_script(pdk, d, out, period, p.get("abc", "delay"), p.get("port_buffers", True), fe,
-                             bool(p.get("retime", False))))
-    log = ctx.path("synth.log")
-    run_tool(ctx, ["yosys", "-q", "-l", log, "-s", script], ctx.path("synth.out"))
-    if not os.path.isfile(out) or os.path.getsize(out) == 0:
-        raise RuntimeError(f"synth: Yosys wrote no netlist at {out}")
-    # every instance must be a Liberty cell or a macro; nothing excluded
-    std, others = _libs(pdk, d)
-    lib_cells = _liberty_cells([std, *others])
-    known = set(lib_cells) | {lef_macro(m.lef)[0] for m in d.macros}
-    insts = read_verilog(out, d.top).instances
-    unmapped = sorted({i.cell for i in insts if i.cell not in known})
-    if unmapped:
-        raise RuntimeError(f"synth: cells left unmapped (no Liberty cell: latches or unsupported logic?): "
-                           f"{unmapped[:10]}")
-    bad = d.excluded_in(out, pdk)
-    if bad:
-        raise RuntimeError(f"synth: netlist uses excluded cells {bad}")
-    with open(out + ".stat") as f:
-        stat = f.read()
-    area = re.findall(r"Chip area for (?:top )?module\s+'?\\?\S+?'?:\s*([0-9.]+)", stat)
-    ctx.metrics.update(synth_cells=len(insts), synth_area_um2=float(area[-1]) if area else None,
-                       synth_flops=sum(1 for i in insts if lib_cells.get(i.cell)),
-                       abc_period_ps=period if p.get("abc", "delay") in ("delay", "speed") else None)
-    ctx.outputs.update(checkpoint=out, netlist=out, synth_log=log, synth_script=script)
-    if p.get("timing", True):
-        st = synth_timing(ctx, out)
-        ctx.metrics.update(synth_wns_ns=st["wns_ns"], synth_tns_ns=st["tns_ns"], synth_timing_corner=st["corner"])
-        ctx.outputs["synth_timing"] = st
+    if win.out != out:
+        import shutil as _sh
+        _sh.copyfile(win.out, out)
+        _sh.copyfile(win.out + ".stat", out + ".stat")
+    ctx.metrics.update(win.metrics)
+    ctx.outputs.update(checkpoint=out, netlist=out, synth_log=win.log, synth_script=win.script)
+    if win.timing:
+        ctx.outputs["synth_timing"] = win.timing
+    if len(results) > 1:
+        ctx.outputs["abc_sweep"] = {"selected": win.params["abc"], "why": why,
+                                    "results": [{"recipe": r.params["abc"], "error": r.error,
+                                                 **{k: r.metrics.get(k) for k in ("synth_wns_ns", "synth_tns_ns",
+                                                                                  "synth_area_um2", "synth_cells")}}
+                                                for r in results]}
     if p.get("equiv", "bounded") != "off":
         eq = equivalence(ctx, out)
         ctx.outputs["equiv"] = eq
@@ -522,3 +612,73 @@ def synth(ctx):
 
 
 synth.tool = True  # the scheduler runs it without an OpenROAD process
+
+
+def sweep_recipes(p) -> list[str]:
+    """The ABC recipes one synth attempt maps with: ``abc`` alone when given,
+    else ``abc_sweep``: auto (synth_flow's five delay recipes plus area_map, so a
+    loose design lands on a lean netlist and a tight one on a fast one), delay,
+    area, balanced, off (delay_map_resyn alone), or recipe names separated by
+    commas."""
+    from . import recipes
+    if p.get("abc"):
+        return [recipes.resolve(p["abc"])]
+    sw = str(p.get("abc_sweep") or "auto")
+    if sw == "off":
+        return ["delay_map_resyn"]
+    if sw == "auto":
+        return recipes.SETS["delay"] + ["area_map"]
+    if sw in recipes.SETS:
+        return list(recipes.SETS[sw])
+    return [recipes.resolve(n.strip()) for n in sw.split(",") if n.strip()]
+
+
+def _synth_one(ctx, recipe: str, wdir: str, fe: str, target, constr, period):
+    """Map with one recipe in ``wdir``: netlist, checks, area, timing estimate.
+    Returns a candidate (metrics, params, out, log, script, timing, error)."""
+    import types
+    from . import recipes
+    from .netlist import read_verilog
+    from .signoff import lef_macro
+    d, pdk, p = ctx.design, ctx.pdk, ctx.params
+    os.makedirs(wdir, exist_ok=True)
+    view = types.SimpleNamespace(dir=wdir, path=lambda n: os.path.join(wdir, n), design=d, pdk=pdk, params=p,
+                                 runner=getattr(ctx, "runner", None), config=getattr(ctx, "config", None),
+                                 session=getattr(ctx, "session", None))
+    cand = types.SimpleNamespace(params={"abc": recipe}, metrics={}, out=None, log=None, script=None, timing=None,
+                                 error=None)
+    try:
+        abc_file = view.path(f"{recipe}.abc")
+        with open(abc_file, "w") as f:
+            f.write(recipes.materialize(recipe, target, bool(p.get("abc_wire_load", False))) + "\n")
+        out, script, log = view.path(f"{d.top}.synth.v"), view.path("synth.ys"), view.path("synth.log")
+        with open(script, "w") as f:
+            f.write(synth_script(pdk, d, out, abc_file, p.get("port_buffers", True), fe, bool(p.get("retime", False)),
+                                 p.get("synth_opts") or (), bool(p.get("keep_names", True)), constr,
+                                 bool(p.get("synth_abc", False))))
+        run_tool(view, ["yosys", "-q", "-l", log, "-s", script], view.path("synth.out"))
+        if not os.path.isfile(out) or os.path.getsize(out) == 0:
+            raise RuntimeError(f"Yosys wrote no netlist at {out}")
+        std, others = _libs(pdk, d)  # every instance a Liberty cell or a macro; nothing excluded
+        lib_cells = _liberty_cells([std, *others])
+        known = set(lib_cells) | {lef_macro(m.lef)[0] for m in d.macros}
+        insts = read_verilog(out, d.top).instances
+        unmapped = sorted({i.cell for i in insts if i.cell not in known})
+        if unmapped:
+            raise RuntimeError(f"cells left unmapped (no Liberty cell: latches or unsupported logic?): {unmapped[:10]}")
+        bad = d.excluded_in(out, pdk)
+        if bad:
+            raise RuntimeError(f"netlist uses excluded cells {bad}")
+        with open(out + ".stat") as f:
+            area = re.findall(r"Chip area for (?:top )?module\s+'?\\?\S+?'?:\s*([0-9.]+)", f.read())
+        cand.metrics.update(synth_cells=len(insts), synth_area_um2=float(area[-1]) if area else None,
+                            synth_flops=sum(1 for i in insts if lib_cells.get(i.cell)), abc_recipe=recipe,
+                            abc_target_ps=target, synth_period_ns=(period / 1000) if period else None)
+        if p.get("timing", True):
+            cand.timing = synth_timing(view, out)
+            cand.metrics.update(synth_wns_ns=cand.timing["wns_ns"], synth_tns_ns=cand.timing["tns_ns"],
+                                synth_timing_corner=cand.timing["corner"])
+        cand.out, cand.log, cand.script = out, log, script
+    except Exception as e:  # one recipe failing does not fail the sweep
+        cand.error = f"{type(e).__name__}: {str(e).strip().splitlines()[-1][:300] if str(e).strip() else ''}"
+    return cand

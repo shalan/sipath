@@ -1,0 +1,2 @@
+# area_map — AREA (SiPath): choices, then area-oriented supergate mapping (map -a); no sizing
+strash; dch -f; map -a; topo

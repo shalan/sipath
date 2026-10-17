@@ -19,6 +19,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+def _recipe_choices():
+    from .recipes import ALIASES, names
+    return names() + sorted(ALIASES)
+
+
 TYPES = {"int": int, "float": (int, float), "bool": bool, "str": str, "list": list, "dict": dict}
 
 
@@ -90,11 +95,26 @@ _FAIL = "fail the attempt when setup or hold is not met after the step"
 
 STEP_PARAMS: dict[str, list[Param]] = {
     "synth": [
-        Param("abc", "str", "delay", "ABC mapping goal: delay (default mapping toward the SDC clock period), "
-              "area (area-oriented mapping), speed (delay mapping, then buffering and gate sizing toward the "
-              "period)", choices=("delay", "area", "speed")),
-        Param("abc_period_ps", "float", None, "ABC delay target; default: the SDC's first create_clock period",
-              unit="ps", min=1),
+        Param("abc", "str", None, "one ABC recipe instead of abc_sweep (sipath/synth_recipes: 18 measured in "
+              "shalan/synth_flow, plus area_map and speed_sizing; aliases delay, area, speed)",
+              choices=tuple(_recipe_choices())),
+        Param("abc_sweep", "str", "auto", "recipes mapped in this attempt, the netlist picked by synth_select "
+              "(least area meeting timing, else the knee): auto (the delay set plus area_map), delay, area, "
+              "balanced (synth_flow's top 5 each), off (delay_map_resyn alone), or names separated by commas"),
+        Param("synth_abc", "bool", False, "keep Yosys's generic ABC pass in synth (default: synth -noabc, as "
+              "synth_flow; measured mixed: better on aes, worse on gcd8)"),
+        Param("abc_target", "str", "none", "ABC delay target ({D} in the recipe): none (measured best on most "
+              "designs), period (the SDC clock), or a number of ps"),
+        Param("abc_period_ps", "float", None, "the period abc_target: period stands for; default: the SDC's first "
+              "create_clock", unit="ps", min=1),
+        Param("abc_wire_load", "bool", False, "ABC sizing (buffer, upsize, dnsize, stime) with the Liberty's "
+              "wire-load model (-c; built into delay_map and delay_map_resyn)"),
+        Param("abc_boundary", "bool", True, "give ABC the driving cell and output load (the SDC's, else the PDK's "
+              "boundary defaults for a macro)"),
+        Param("synth_opts", "list[str]", (), "front-end options: booth, adder=kogge-stone|han-carlson|sklansky, "
+              "noshare, nofsm, noalumacc, opt_dff_sat, opt_full"),
+        Param("keep_names", "bool", True, "name registers after the wire they drive (acc[3]_reg) through "
+              "flattening"),
         Param("frontend", "str", "auto", "RTL reader: yosys (read_verilog -sv), slang (read_slang: full "
               "SystemVerilog; the image's Yosys must have it), auto (slang for .sv sources when available)",
               choices=("auto", "yosys", "slang")),

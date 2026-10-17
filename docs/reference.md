@@ -201,6 +201,8 @@ YAML or JSON; relative paths are relative to the file. Keys not listed are error
 | `variants` | list[dict] |  | one parameter dict per attempt (see Step parameters) |
 | `score` | str |  | named score that picks the best attempt |
 | `parallel` | int |  | attempts at once |
+| `sweep` | any |  | synth: an objective (delay, area, balanced: its five measured ABC recipes) or a list of recipes, one attempt each; selected by synth_select unless score is given |
+| `synth_opts_sweep` | list |  | synth: front-end option sets, e.g. [[], [booth], [adder=kogge-stone]]; every recipe runs with each |
 
 ## Step parameters
 
@@ -210,8 +212,15 @@ Set per attempt in `variants` (design file `flow:` or MCP `run_step`), or as def
 
 | parameter | type | default | allowed | description |
 |---|---|---|---|---|
-| `abc` | str | delay | delay, area, speed | ABC mapping goal: delay (default mapping toward the SDC clock period), area (area-oriented mapping), speed (delay mapping, then buffering and gate sizing toward the period) |
-| `abc_period_ps` | float | – | 1.. | ABC delay target; default: the SDC's first create_clock period [ps] |
+| `abc` | str | – | area_classic, area_lut6, area_map, area_max, balanced_resyn, balanced_resyn2x, delay_aggressive, delay_choice_deep, delay_choice_deep_bb, delay_choice_deep_v3, delay_choice_deep_v4, delay_iter_heavy, delay_map, delay_map_resyn, delay_syn2, delay_triple, orfs_area, orfs_speed, speed_sizing, yosys_default, area, delay, speed | one ABC recipe instead of abc_sweep (sipath/synth_recipes: 18 measured in shalan/synth_flow, plus area_map and speed_sizing; aliases delay, area, speed) |
+| `abc_sweep` | str | auto |  | recipes mapped in this attempt, the netlist picked by synth_select (least area meeting timing, else the knee): auto (the delay set plus area_map), delay, area, balanced (synth_flow's top 5 each), off (delay_map_resyn alone), or names separated by commas |
+| `synth_abc` | bool | false |  | keep Yosys's generic ABC pass in synth (default: synth -noabc, as synth_flow; measured mixed: better on aes, worse on gcd8) |
+| `abc_target` | str | none |  | ABC delay target ({D} in the recipe): none (measured best on most designs), period (the SDC clock), or a number of ps |
+| `abc_period_ps` | float | – | 1.. | the period abc_target: period stands for; default: the SDC's first create_clock [ps] |
+| `abc_wire_load` | bool | false |  | ABC sizing (buffer, upsize, dnsize, stime) with the Liberty's wire-load model (-c; built into delay_map and delay_map_resyn) |
+| `abc_boundary` | bool | true |  | give ABC the driving cell and output load (the SDC's, else the PDK's boundary defaults for a macro) |
+| `synth_opts` | list[str] |  |  | front-end options: booth, adder=kogge-stone|han-carlson|sklansky, noshare, nofsm, noalumacc, opt_dff_sat, opt_full |
+| `keep_names` | bool | true |  | name registers after the wire they drive (acc[3]_reg) through flattening |
 | `frontend` | str | auto | auto, yosys, slang | RTL reader: yosys (read_verilog -sv), slang (read_slang: full SystemVerilog; the image's Yosys must have it), auto (slang for .sv sources when available) |
 | `retime` | bool | false |  | retime registers in generic synthesis (abc -dff, what synth -retime ran); flops with asynchronous set/reset are not moved |
 | `verilator` | str | auto | auto, on, off | Verilator lint (--lint-only -Wall): auto (when Verilator is found: host, native tool or image), on (required), off; errors fail, warnings counted by code |

@@ -45,7 +45,12 @@ class LiveRtl(unittest.TestCase):
             pass
         with open(os.path.join(sy.dir, "bad_equiv.log")) as fh:
             self.assertIn("FAIL", fh.read())
-        self.assertEqual(sy.metrics["abc_period_ps"], 10000.0)
+        self.assertEqual((sy.metrics["synth_period_ns"], sy.metrics["abc_target_ps"]), (10.0, None))  # no -D target
+        sweep = sy.outputs["abc_sweep"]  # abc_sweep auto: the delay set plus area_map, one picked
+        self.assertEqual(len(sweep["results"]), 6)
+        self.assertEqual(sweep["selected"], sy.metrics["abc_recipe"])
+        self.assertIn("meeting timing", sweep["why"])  # 10 ns is loose: the least area that meets it
+        self.assertIn("_reg", open(sy.outputs["netlist"]).read())  # register names kept
         self.assertTrue(f.steps["floorplan"].selected.outputs.get("auto_pins"))
         self.assertTrue(f.steps["physical"].selected.outputs.get("pdn_straps_scaled"))
         s = _read_json(f.steps["signoff"].selected.outputs["signoff"])
@@ -94,7 +99,7 @@ class LiveRtl(unittest.TestCase):
         self.assertEqual(r.selected.id, max(r.attempts, key=lambda a: s(a.metrics)).id)
         areas = {a.params["abc"]: a.metrics["synth_area_um2"] for a in r.attempts if not a.params.get("retime")}
         self.assertLess(areas["area"], areas["delay"])  # the area goal maps for area
-        self.assertEqual(r.selected.metrics["abc_period_ps"] is None, r.selected.params["abc"] == "area")
+        self.assertTrue(all(a.metrics["abc_target_ps"] is None for a in r.attempts))  # default: no -D target
 
     def test_macro_without_lib_gets_a_blackbox_model(self):
         from sipath import designfile

@@ -720,10 +720,11 @@ class SynthUnits(unittest.TestCase):
         lint = synth.lint_script(pdk, d)
         self.assertIn("read_verilog -sv -noautowire", lint)
         self.assertIn("check -assert", lint)
-        sc = synth.synth_script(pdk, d, "/o/gcd8.synth.v", 10000.0, "delay")
-        self.assertIn("synth -top gcd8 -flatten", sc)
-        self.assertIn("-D 10000", sc)  # the SDC clock as ABC's delay target
-        self.assertNotIn("-D ", synth.synth_script(pdk, d, "/o/x.v", 10000.0, "area"))
+        sc = synth.synth_script(pdk, d, "/o/gcd8.synth.v", "/o/r.abc", constr="/o/abc.constr")
+        self.assertIn("synth -top gcd8 -flatten -noabc", sc)
+        self.assertIn("-constr /o/abc.constr -script /o/r.abc", sc)  # recipe file, boundary model
+        self.assertIn("rename -wire -suffix _reg t:$_DFF*", sc)  # register names kept
+        self.assertNotIn(" -D ", sc)  # the delay target lives in the recipe file
         for cell in ("sky130_fd_sc_hd__lpflow_*", "sky130_fd_sc_hd__mux4_4"):  # dont_use, PDK exclusion
             self.assertIn(f"-dont_use {cell}", sc)
         self.assertIn("hilomap -singleton -hicell sky130_fd_sc_hd__conb_1 HI -locell sky130_fd_sc_hd__conb_1 LO", sc)
@@ -1873,7 +1874,8 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(meta["project"]["version"], sipath.__version__)
         self.assertEqual(meta["project"]["scripts"]["sipath"], "sipath.__main__:cli")
         data = meta["tool"]["setuptools"]["package-data"]["sipath"]
-        for needed in ("toolchain.json", "pdks/**/*", "examples/**/*", "templates/**/*", "harnesses/**/*"):
+        for needed in ("toolchain.json", "synth_recipes/*", "pdks/**/*", "examples/**/*", "templates/**/*",
+                       "harnesses/**/*"):
             self.assertIn(needed, data)
 
     def test_flow_caps_parallel(self):
@@ -2143,16 +2145,58 @@ class FrontEnd(unittest.TestCase):
         finally:
             synth.slang_support = saved
 
-    def test_abc_goals_and_retime(self):
+    def test_recipes_targets_and_options(self):
+        from sipath import recipes, synth
+        self.assertEqual(len(recipes.names()), 20)
+        self.assertEqual(recipes.resolve("speed"), "speed_sizing")  # earlier goal names stay
+        with self.assertRaises(ValueError):
+            recipes.resolve("nope")
+        for objective, rs in recipes.SETS.items():
+            self.assertEqual(len(rs), 5, objective)
+            self.assertTrue(all(recipes.resolve(r) for r in rs))
+        self.assertEqual(recipes.materialize("delay_map", None),
+                         "strash; dch -f; map; buffer -c; topo; upsize -c ; dnsize -c ; stime -c")
+        self.assertIn("upsize -c -D 3600", recipes.materialize("delay_map", 3600))
+        self.assertIn("buffer -c", recipes.materialize("orfs_speed", None, wire_load=True))
+        self.assertEqual(synth.abc_target_ps("none", 5000.0), None)  # the default: no target
+        self.assertEqual(synth.abc_target_ps("period", 5000.0), 5000.0)
+        self.assertEqual(synth.abc_target_ps("2500", 5000.0), 2500.0)
+        with self.assertRaises(ValueError):
+            synth.abc_target_ps("soon", 5000.0)
+        flags, post = synth.front_end_options(["booth", "adder=kogge-stone", "noshare", "opt_full"])
+        self.assertEqual(flags, ["-booth", "-extra-map +/choices/kogge-stone.v", "-noshare"])
+        self.assertEqual(post, ["opt -full", "techmap", "opt -fast"])
+        with self.assertRaises(ValueError):
+            synth.front_end_options(["adder=ripple"])
+        sc = synth.synth_script(load_pdk("sky130hd", platforms="/p"),
+                                Design("t", "top", None, "t.sdc", "macro", rtl=["t.v"]), "/o/t.v", "/o/r.abc",
+                                retime=True, opts=["booth"], keep_names=False)
+        self.assertIn("synth -top top -flatten -noabc -booth", sc)
+        self.assertIn("abc -dff -D 1", sc)
+        self.assertNotIn("rename -wire", sc)
+
+    @unittest.skipUnless(SKY130A, "no open_pdks sky130A tree")
+    def test_abc_boundary_from_sdc_or_pdk(self):
         from sipath import synth
-        self.assertEqual(synth._abc("L", "", "delay", 2500.0), "abc -liberty L  -D 2500")
-        self.assertEqual(synth._abc("L", "", "delay", None), "abc -liberty L ")
-        self.assertIn("-script +strash;dch,-f;map,-a;topo", synth._abc("L", "", "area", 2500.0))
-        self.assertNotIn("-D", synth._abc("L", "", "area", 2500.0))
-        sp = synth._abc("L", "", "speed", 3600.0)
-        self.assertIn("-D 3600", sp)
-        self.assertIn("map,{D};topo;buffer,-p;upsize,{D};dnsize,{D}", sp)  # Yosys puts "-D 3600" for {D}
-        self.assertNotIn("-script", synth._abc("L", "", "speed", None))  # no target: the default script
+        p = load_pdk("sky130A", platforms="/p")
+        with tempfile.TemporaryDirectory() as td:
+            lib = os.path.join(td, "l.lib")
+            with open(lib, "w") as fh:
+                fh.write("library (l) {\n  capacitive_load_unit (1, pf);\n}\n")
+            sdc = os.path.join(td, "t.sdc")
+            with open(sdc, "w") as fh:
+                fh.write("set L 0.02\ncreate_clock -period 5 [get_ports clk]\n"
+                         "set_driving_cell -lib_cell sky130_fd_sc_hd__buf_4 -pin X [all_inputs]\n"
+                         "set_load -pin_load $L [all_outputs]\n")
+            d = Design("t", "top", None, sdc, "macro", rtl=["t.v"])
+            self.assertEqual(synth.abc_boundary(p, d, lib), ("sky130_fd_sc_hd__buf_4", 20.0))  # pF -> fF
+            with open(sdc, "w") as fh:
+                fh.write("create_clock -period 5 [get_ports clk]\n")
+            cell, load = synth.abc_boundary(p, d, lib)  # the PDK's macro defaults
+            self.assertEqual(cell, p.constraints["driving_cell"][0])
+            self.assertAlmostEqual(load, p.constraints["output_load"] * 1000, places=2)
+            die = Design("t", "top", None, sdc, "die", rtl=["t.v"])
+            self.assertIsNone(synth.abc_boundary(p, die, lib))  # a die's ports are pads
 
     def test_clock_period_from_tcl_variables(self):
         from sipath import synth
@@ -2211,3 +2255,56 @@ class FrontEnd(unittest.TestCase):
                                "timing_corner": "ss_max"})
         with self.assertRaises(ValueError):
             params.check("synth", {"abc": "fast"})
+
+
+class SynthSelection(unittest.TestCase):
+    """synth_flow's selection rule, the in-step recipe sweep, design-file sweeps."""
+
+    @staticmethod
+    def cand(abc, wns, area, period=5.0):
+        return types.SimpleNamespace(params={"abc": abc}, metrics={"synth_wns_ns": wns, "synth_area_um2": area,
+                                                                    "synth_period_ns": period}, outputs={})
+
+    def test_least_area_meeting_timing(self):
+        s = scores.get("synth_select")
+        self.assertTrue(getattr(s, "selector", False))
+        cs = [self.cand("delay_map", 1.0, 120.0), self.cand("area_map", 0.1, 100.0), self.cand("yosys_default", -0.2, 80.0)]
+        best, why = s(cs)
+        self.assertEqual(best.params["abc"], "area_map")
+        self.assertIn("2/3 meeting timing", why)
+
+    def test_knee_when_nothing_meets(self):
+        s = scores.get("synth_select")
+        cs = [self.cand("delay_map", -0.1, 200.0), self.cand("balanced_resyn", -0.3, 110.0),
+              self.cand("area_map", -2.0, 100.0), self.cand("orfs_area", -0.35, 150.0)]  # orfs_area: dominated
+        best, why = s(cs)
+        self.assertEqual(best.params["abc"], "balanced_resyn")  # the knee, not the fastest
+        self.assertIn("knee", why)
+        best, why = s(cs[:2])  # under three front points: the best slack
+        self.assertEqual(best.params["abc"], "delay_map")
+        self.assertIn("best slack", why)
+        tie = [self.cand("yosys_default", 0.5, 100.0), self.cand("delay_map", 0.5, 100.0)]
+        self.assertEqual(s(tie)[0].params["abc"], "delay_map")  # ties by recipe rank
+
+    def test_in_step_sweep_lists(self):
+        from sipath import recipes, synth
+        self.assertEqual(synth.sweep_recipes({"abc_sweep": "auto"}), recipes.SETS["delay"] + ["area_map"])
+        self.assertEqual(synth.sweep_recipes({"abc_sweep": "area"}), recipes.SETS["area"])
+        self.assertEqual(synth.sweep_recipes({"abc_sweep": "off"}), ["delay_map_resyn"])
+        self.assertEqual(synth.sweep_recipes({"abc_sweep": "delay_map, area_map"}), ["delay_map", "area_map"])
+        self.assertEqual(synth.sweep_recipes({"abc": "speed", "abc_sweep": "auto"}), ["speed_sizing"])  # abc wins
+
+    def test_design_file_sweep_expansion(self):
+        from sipath import designfile, recipes, schema
+        item = designfile.expand_sweep({"step": "synth", "sweep": "delay", "variants": [{"equiv": "off"}],
+                                        "synth_opts_sweep": [[], ["booth"]]})
+        self.assertEqual(len(item["variants"]), 10)
+        self.assertEqual(item["variants"][1], {"equiv": "off", "abc": recipes.SETS["delay"][0], "synth_opts": ["booth"]})
+        self.assertEqual((item["score"], item["parallel"]), ("synth_select", 4))
+        self.assertEqual(designfile.expand_sweep({"step": "place"}), {"step": "place"})
+        with self.assertRaises(ValueError):
+            designfile.expand_sweep({"step": "synth", "sweep": "fastest"})
+        errors = []
+        schema.check_object("flow[0]", schema.FLOW_STEP, {"step": "synth", "sweep": ["delay_map"],
+                                                        "synth_opts_sweep": [["booth"]]}, errors)
+        self.assertEqual(errors, [])

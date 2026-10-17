@@ -130,6 +130,30 @@ def design_from_dict(data: dict, base: str) -> Design:
 EXPLORE_DROP = {"fill", "route_repair", "extract", "signoff", "views", "integrate"}
 
 
+def expand_sweep(item: dict) -> dict:
+    """A synth step's ``sweep`` (an objective of sipath.recipes.SETS or a list of
+    recipes) and ``synth_opts_sweep`` (front-end option sets) as variants: every
+    given variant x recipe x option set, picked by ``synth_select`` unless a
+    score is given; ``parallel`` defaults to 4."""
+    if "sweep" not in item and "synth_opts_sweep" not in item:
+        return item
+    from . import recipes
+    item = dict(item)
+    sweep, opts = item.pop("sweep", None), item.pop("synth_opts_sweep", None)
+    if isinstance(sweep, str):
+        if sweep not in recipes.SETS:
+            raise ValueError(f"{item['step']}: sweep {sweep!r} is not one of {sorted(recipes.SETS)} (or give a list)")
+        sweep = recipes.SETS[sweep]
+    base = item.get("variants") or [{}]
+    recs = list(sweep) if sweep else [None]
+    sets = [list(o) for o in opts] if opts else [None]
+    item["variants"] = [{**b, **({"abc": r} if r else {}), **({"synth_opts": o} if o is not None else {})}
+                        for b in base for r in recs for o in sets]
+    item.setdefault("score", "synth_select")
+    item.setdefault("parallel", 4)
+    return item
+
+
 def explore_flow(spec: list[dict]) -> list[dict]:
     """A design's flow as a fast first cut at PPA (explore mode): no
     equivalence check, global routing only (PPA from its parasitics), no fill,
@@ -228,7 +252,7 @@ def run(path_or_design, workdir: str, runner=None, overrides: dict | None = None
     flow.progress = progress
     parent = None
     for item in spec:
-        item = dict(item, **(overrides or {}).get(item["step"], {}))
+        item = expand_sweep(dict(item, **(overrides or {}).get(item["step"], {})))
         name = item["step"]
         fn = steps_mod.STEPS.get(item.get("fn", name))
         if fn is None:

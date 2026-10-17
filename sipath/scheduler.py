@@ -544,10 +544,17 @@ class Flow:
 
     def _select(self, name, attempts, score_name, score_fn, parent=None, variants=None) -> StepRun:
         ok = [a for a in attempts if a.status == "ok"]
-        for a in ok:
-            a.score = score_fn(a.metrics)
-        ok = [a for a in ok if a.score is not None]
-        best = max(ok, key=lambda a: a.score) if ok else None
+        if getattr(score_fn, "selector", False):  # a rule over all attempts (e.g. synth_select)
+            best, why = score_fn(ok) if ok else (None, "no successful attempt")
+            for a in ok:
+                a.score = 1 if a is best else 0
+            if best is not None:
+                best.outputs["selection"] = why
+        else:
+            for a in ok:
+                a.score = score_fn(a.metrics)
+            ok = [a for a in ok if a.score is not None]
+            best = max(ok, key=lambda a: a.score) if ok else None
         for a in attempts:
             if a.status == "ok":
                 a.status = "selected" if a is best else "rejected"
