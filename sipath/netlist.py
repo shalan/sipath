@@ -186,14 +186,15 @@ def parse_verilog(text: str, top: str | None = None) -> Module:
         declared: dict[str, Port] = {}
         widths: dict[str, int] = {}  # declared name -> width (0: scalar)
 
-        def bits_of() -> list[str]:
-            """An assign operand as bits, most significant first: name, name[i],
-            name[a:b], or {operand, ...}."""
+        def bits_of(consts: bool = False) -> list[str]:
+            """An operand as bits, most significant first: name, name[i],
+            name[a:b], or {operand, ...}; with ``consts`` (instance connections)
+            a sized constant gives one 1'bX per bit."""
             if peek()[1] == "{":
                 take("{")
                 out = []
                 while True:
-                    out += bits_of()
+                    out += bits_of(consts)
                     if peek()[1] == ",":
                         take(",")
                         continue
@@ -202,8 +203,10 @@ def parse_verilog(text: str, top: str | None = None) -> Module:
                 return out
             kind, val = take()
             if kind == "const":
-                raise ValueError(f"verilog parse: constant {val!r} in an assign is not supported "
-                                 "(map constants to tie cells)")
+                if not consts:
+                    raise ValueError(f"verilog parse: constant {val!r} in an assign is not supported "
+                                     "(map constants to tie cells)")
+                return _const_bits(val)
             if peek()[1] == "[":
                 take("[")
                 hi = int(take()[1])
@@ -268,17 +271,14 @@ def parse_verilog(text: str, top: str | None = None) -> Module:
                         pin = f"{pin}[{take()[1]}]"
                         take("]")
                     take("(")
-                    if peek()[1] == "{":  # .P({msb, ..., lsb})
-                        take("{")
-                        items = [ref()]
-                        while peek()[1] == ",":
-                            take(",")
-                            items.append(ref())
-                        take("}")
-                        for k, net in enumerate(reversed(items)):
-                            inst.conns[f"{pin}[{k}]"] = net
-                    elif peek()[1] != ")":
-                        inst.conns[pin] = ref()
+                    if peek()[1] != ")":  # a net, a part-select, a vector or {msb, ..., lsb}
+                        concat = peek()[1] == "{"
+                        bits = bits_of(consts=True)
+                        if len(bits) == 1 and not concat:
+                            inst.conns[pin] = bits[0]
+                        else:
+                            for k, net in enumerate(reversed(bits)):
+                                inst.conns[f"{pin}[{k}]"] = net
                     take(")")
                     if peek()[1] == ",":
                         take(",")
@@ -293,6 +293,21 @@ def parse_verilog(text: str, top: str | None = None) -> Module:
     if top is None:
         return next(iter(modules.values()))
     return modules[top]
+
+
+def _const_bits(val: str) -> list[str]:
+    """A Verilog constant (4'hf, 1'b0, 3'd5, 0) as 1'b0 / 1'b1 bits, most
+    significant first."""
+    m = re.fullmatch(r"(\d+)?'([bBhHdDoO])([0-9a-fA-FxXzZ_]+)", val)
+    if not m:
+        return [val]
+    width = int(m.group(1)) if m.group(1) else 32
+    base = {"b": 2, "h": 16, "d": 10, "o": 8}[m.group(2).lower()]
+    digits = m.group(3).replace("_", "")
+    if any(c in "xXzZ" for c in digits):
+        return [val] if width == 1 else [f"1'b{digits[-1].lower()}"] * width
+    v = int(digits, base)
+    return [f"1'b{(v >> i) & 1}" for i in range(width - 1, -1, -1)]
 
 
 def read_verilog(path, top=None) -> Module:

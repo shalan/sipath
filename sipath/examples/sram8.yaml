@@ -1,0 +1,54 @@
+# sram8: eight sky130 OpenRAM 1 KB SRAMs (32x256, 1rw1r) and the logic between
+# them: SiPath's many-macro example, for comparing macro placement methods
+# (random, mpl, cdlns). All macros are placed by the flow.
+#   python3 -m sipath run sipath/examples/sram8.yaml [workdir]
+name: sram8
+top: sram8
+mode: macro
+pdk: sky130A
+rtl: [rtl/sram8.v]
+sdc: rtl/sram8.sdc
+die: [0, 0, 1800, 1600]
+core_margin: 20.0
+is_core: true
+macro_channel: 30.0
+macros:
+- inst: "bank[0].u_ram"
+  sram: sky130_sram_1kbyte_1rw1r_32x256_8
+  halo: 15.0
+  supplies: {"^vccd1$": VDD, "^vssd1$": VSS}
+- inst: "bank[1].u_ram"
+  sram: sky130_sram_1kbyte_1rw1r_32x256_8
+  halo: 15.0
+  supplies: {"^vccd1$": VDD, "^vssd1$": VSS}
+- inst: "bank[2].u_ram"
+  sram: sky130_sram_1kbyte_1rw1r_32x256_8
+  halo: 15.0
+  supplies: {"^vccd1$": VDD, "^vssd1$": VSS}
+- inst: "bank[3].u_ram"
+  sram: sky130_sram_1kbyte_1rw1r_32x256_8
+  halo: 15.0
+  supplies: {"^vccd1$": VDD, "^vssd1$": VSS}
+- inst: "bank[4].u_ram"
+  sram: sky130_sram_1kbyte_1rw1r_32x256_8
+  halo: 15.0
+  supplies: {"^vccd1$": VDD, "^vssd1$": VSS}
+- inst: "bank[5].u_ram"
+  sram: sky130_sram_1kbyte_1rw1r_32x256_8
+  halo: 15.0
+  supplies: {"^vccd1$": VDD, "^vssd1$": VSS}
+- inst: "bank[6].u_ram"
+  sram: sky130_sram_1kbyte_1rw1r_32x256_8
+  halo: 15.0
+  supplies: {"^vccd1$": VDD, "^vssd1$": VSS}
+- inst: "bank[7].u_ram"
+  sram: sky130_sram_1kbyte_1rw1r_32x256_8
+  halo: 15.0
+  supplies: {"^vccd1$": VDD, "^vssd1$": VSS}
+flow:
+- step: synth
+- step: floorplan
+- step: macros
+  variants: [{method: random, seed: 1}, {method: random, seed: 2}, {method: cdlns}]
+  score: macro_quick
+  parallel: 3

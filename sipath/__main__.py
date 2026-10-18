@@ -24,6 +24,8 @@
     python3 -m sipath mcp               MCP server on stdio (tools: open_run, run_step, run_eco, ...)
     python3 -m sipath toolchain [--check]   locked images and tool versions (--check: the configured
                                       images against the lock, sipath/toolchain.json)
+    python3 -m sipath setup-placer [dir] [--python p]   the macro placer's Python (PyTorch CPU, numpy) for
+                                      the macros method cdlns (default ~/.cache/sipath/placer-venv)
     python3 -m sipath lvs <gds> <top> <schematic.spice ...> --pdk p [--lib cells.spice] [--out dir]
                                       full-device LVS (the PDK's KLayout deck) of a layout, e.g. a macro
     python3 -m sipath limits <workdir> <design> [--file f] [--suggest [--until step]]
@@ -214,6 +216,8 @@ def main(argv) -> int:
         registry.load_plugins(argv[1:])
         print(json.dumps(registry.loaded(), indent=1))
         return 0
+    if cmd == "setup-placer":
+        return setup_placer(argv[1:])
     if cmd == "lvs":
         from .lvs_full import main as lvs_main
         return lvs_main(argv[1:])
@@ -242,6 +246,27 @@ def main(argv) -> int:
         return 0
     print(f"unknown command {cmd}\n{__doc__}")
     return 2
+
+
+def setup_placer(argv) -> int:
+    """Create the macro placer's Python (PyTorch CPU + numpy), for the macros
+    method cdlns: ~/.cache/sipath/placer-venv, or the directory given. Uses a
+    Python PyTorch supports (3.10-3.13; --python to choose)."""
+    import shutil
+    import subprocess
+    dest = os.path.expanduser(next((a for a in argv if not a.startswith("-")), "~/.cache/sipath/placer-venv"))
+    py = argv[argv.index("--python") + 1] if "--python" in argv else next(
+        (p for p in ("python3.12", "python3.13", "python3.11", "python3.10") if shutil.which(p)), None)
+    if not py:
+        print("no Python 3.10-3.13 found for PyTorch; give one with --python")
+        return 2
+    subprocess.run([py, "-m", "venv", dest], check=True)
+    pip = os.path.join(dest, "bin", "pip")
+    subprocess.run([pip, "install", "-q", "--upgrade", "pip"], check=True)
+    subprocess.run([pip, "install", "-q", "torch", "numpy", "--index-url", "https://download.pytorch.org/whl/cpu"],
+                   check=True)
+    print(f"placer Python: {os.path.join(dest, 'bin', 'python')} (set placer_python to use another)")
+    return 0
 
 
 def cli():

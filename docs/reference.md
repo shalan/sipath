@@ -94,6 +94,7 @@ YAML or JSON; relative paths are relative to the file. Keys not listed are error
 |---|---|---|---|
 | `inst` | str | yes | instance name in the netlist |
 | `lef` | path |  | abstract LEF (required unless views gives it) |
+| `sram` | str |  | one of the PDK's SRAM macros (the PDK description's sram table): lef and lib come from the PDK |
 | `views` | path |  | a hardened macro's views directory (python3 -m sipath harden, or the views step): lef, gds, lib, cdl and supplies come from its macro.yaml unless given here |
 | `lib` | lib |  | Liberty: one file, or {corner or process: file}; null for none |
 | `location` | point |  | lower-left (um); null: autoplaced by the macros step |
@@ -177,6 +178,7 @@ YAML or JSON; relative paths are relative to the file. Keys not listed are error
 | `container_cpus` | number |  | CPU limit per container |
 | `container_memory` | str |  | memory limit per container (e.g. 8g) |
 | `image` | str |  | ORFS image (name@sha256:... pins it) |
+| `placer_python` | str |  | Python with PyTorch for the macros method cdlns (sipath setup-placer) |
 | `magic_image` | str |  | image with Magic for the signoff checks magic_drc and xor (docker/magic) |
 | `openroad_binary` | str |  | OpenROAD inside the image (default the ORFS path; openroad for an image with it on PATH) |
 | `platform` | str |  | image platform: linux/amd64, or linux/arm64 for a native arm64 image |
@@ -245,7 +247,8 @@ Set per attempt in `variants` (design file `flow:` or MCP `run_step`), or as def
 
 | parameter | type | default | allowed | description |
 |---|---|---|---|---|
-| `method` | str | random | random, mpl | macro placement: seeded random search with orientation search (random) or OpenROAD's rtl_macro_placer (mpl) |
+| `method` | str | random | random, mpl, cdlns | macro placement: seeded random search with orientation search (random), OpenROAD's rtl_macro_placer (mpl), or Team Macro Polo's CD-LNS placer from the Partcl/HRT challenge (cdlns; needs placer_python) |
+| `placer_seconds` | float | 120.0 | 1.. | time budget of the cdlns placer [s] |
 | `seed` | int | 0 |  | random seed of the search |
 | `samples` | int | 40 | 1.. | candidate locations tried per autoplaced macro |
 | `orients` | list[str] | – | R0, R90, R180, R270, MX, MY, MXR90, MYR90 | orientations to try; default: each macro's orients, else its orient |
@@ -390,6 +393,7 @@ Design file `config:`, a `--config` file, or `SIPATH_<KEY>` environment variable
 | `container_cpus` | number | CPU limit per container |
 | `container_memory` | str | memory limit per container (e.g. 8g) |
 | `image` | str | ORFS image (name@sha256:... pins it) |
+| `placer_python` | str | Python with PyTorch for the macros method cdlns (sipath setup-placer) |
 | `magic_image` | str | image with Magic for the signoff checks magic_drc and xor (docker/magic) |
 | `openroad_binary` | str | OpenROAD inside the image (default the ORFS path; openroad for an image with it on PATH) |
 | `platform` | str | image platform: linux/amd64, or linux/arm64 for a native arm64 image |

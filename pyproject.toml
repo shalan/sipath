@@ -24,7 +24,8 @@ include = ["sipath", "sipath.*"]
 
 [tool.setuptools.package-data]
 # PDK descriptions and decks, KLayout scripts, templates, harness sources, the
-# example designs and their committed inputs, the toolchain lock
+# example designs and their committed inputs, the toolchain lock, the vendored
+# macro placer (run in the placer Python, not imported)
 sipath = [
     "toolchain.json",
     "synth_recipes/*",
@@ -33,4 +34,5 @@ sipath = [
     "templates/**/*",
     "harnesses/**/*",
     "examples/**/*",
+    "third_party/**/*",
 ]

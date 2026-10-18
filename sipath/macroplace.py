@@ -262,7 +262,7 @@ def place(ctx) -> dict:  # noqa: C901
     s.run(MACRO_HPWL)
     s.run(OBJ_TCL)
     method = p.get("method", "random")
-    if method not in ("random", "mpl"):
+    if method not in ("random", "mpl", "cdlns"):
         raise ValueError(f"unknown macro placement method {method!r}")
     seed = p.get("seed", 0)
     rng = random.Random(seed)
@@ -296,6 +296,9 @@ def place(ctx) -> dict:  # noqa: C901
     autos = [m for m in d.macros if m.location is None]
     if method == "mpl" and autos:
         out.update(_mpl(ctx, autos, placed, keepouts, rules, analog, dbu, mbox, core))
+    elif method == "cdlns" and autos:
+        out.update(_cdlns(ctx, autos, placed, keepouts, rules, analog, dbu, mbox, core,
+                          (rx, ry, site_w, row_h)))
     else:
         for m in autos:
             orients = p.get("orients") or m.orients or [m.orient]
@@ -385,7 +388,7 @@ def _mpl(ctx, autos, placed, keepouts, rules, analog, dbu, mbox, core) -> dict:
     for m in d.macros:
         h = m.halo * dbu + (rules.analog_guard / 2 if m.inst in analog else 0)
         h = max(h, rules.channel / 2, rules.pin_clearance / 2) / dbu
-        s.run(f"set_macro_halo -macro_name {q(m.inst)} -halo {{{h:.3f} {h:.3f}}}")
+        s.run(f"set_macro_halo -macro_name [[::flow_inst {q(m.inst)}] getName] -halo {{{h:.3f} {h:.3f}}}")
     # rtl_macro_placer also places the standard cells; they are unplaced again
     # afterwards so every method hands the same kind of checkpoint on
     s.run("set ::flow_mpl_free {}\nforeach i [[ord::get_db_block] getInsts] { "
@@ -414,6 +417,332 @@ def _mpl(ctx, autos, placed, keepouts, rules, analog, dbu, mbox, core) -> dict:
     if problems:
         raise RuntimeError("rtl_macro_placer result breaks the macro rules:\n  " + "\n  ".join(problems))
     return out
+
+
+CDLNS_EXPORT_TCL = r"""
+proc ::flow_cdlns_export {path} {
+  set f [open $path w]
+  set blk [ord::get_db_block]
+  foreach i [$blk getInsts] {
+    set m [$i getMaster]
+    set bb [$i getBBox]
+    if {[$m isBlock]} {
+      puts $f "M [$i getName] [$bb xMin] [$bb yMin] [$bb xMax] [$bb yMax]"
+    } elseif {[$i isPlaced]} {
+      puts $f "C [$i getName] [expr {([$bb xMin] + [$bb xMax]) / 2}] [expr {([$bb yMin] + [$bb yMax]) / 2}] \
+               [expr {double([$bb getDX]) * [$bb getDY]}]"
+    }
+  }
+  foreach b [$blk getBTerms] {
+    set bb [$b getBBox]
+    if {[$bb dx] || [$bb dy] || [$bb xMin]} {
+      puts $f "P [$b getName] [expr {([$bb xMin] + [$bb xMax]) / 2}] [expr {([$bb yMin] + [$bb yMax]) / 2}]"
+    }
+  }
+  foreach n [$blk getNets] {
+    if {[$n isSpecial] || [$n getSigType] in {POWER GROUND}} continue
+    set its [$n getITerms]
+    set bts [$n getBTerms]
+    if {[llength $its] + [llength $bts] < 2} continue
+    puts $f "N"
+    foreach it $its {
+      set i [$it getInst]
+      if {[[$i getMaster] isBlock]} {
+        set bb [$it getBBox]
+        puts $f "I [$i getName] [expr {([$bb xMin] + [$bb xMax]) / 2}] [expr {([$bb yMin] + [$bb yMax]) / 2}] [[$it getMTerm] getName]"
+      } else {
+        puts $f "I [$i getName]"
+      }
+    }
+    foreach bt $bts { puts $f "B [$bt getName]" }
+  }
+  close $f
+}
+"""
+
+
+def placer_python(ctx) -> str:
+    """The Python with PyTorch the cdlns method runs in (config placer_python,
+    else ~/.cache/sipath/placer-venv); an error saying how to make one."""
+    cfg = getattr(ctx, "config", None)
+    py = (getattr(cfg, "placer_python", "") or "").strip() or \
+        os.path.expanduser("~/.cache/sipath/placer-venv/bin/python")
+    if not os.path.isfile(py):
+        raise RuntimeError(f"macros method cdlns needs a Python with PyTorch ({py} not found): run "
+                           "`python3 -m sipath setup-placer`, or set placer_python")
+    return py
+
+
+def legal_start(boxes: list, cw: float, ch: float, gap: float) -> int:
+    """Moves the movable boxes (dicts with centre x, y, w, h, fixed; canvas
+    µm), largest first, to the nearest spot inside the canvas that keeps
+    ``gap`` from every box already placed (the fixed ones first): the spot
+    itself, else a candidate from the canvas edges and the positions abutting
+    a placed box at ``gap``. When that fragments the canvas, the boxes start
+    again from a shelf packing in their row and column order. Returns the
+    number moved; ValueError when a box has no legal spot."""
+    want = {id(b): (b["x"], b["y"]) for b in boxes}
+    try:
+        return _greedy_legal(boxes, cw, ch, gap)
+    except ValueError:
+        movable = [b for b in boxes if not b["fixed"]]
+        for b, (x, y) in zip(movable, _shelves(movable, cw, gap + 2e-3)):
+            b["x"], b["y"] = x, y
+        _greedy_legal(boxes, cw, ch, gap)
+        return sum((b["x"], b["y"]) != want[id(b)] for b in movable)
+
+
+def _shelves(boxes: list, cw: float, gap: float) -> list:
+    """Centres packing ``boxes`` bottom-up into rows ``gap`` apart, keeping
+    their order by y between rows and by x within a row."""
+    order = sorted(range(len(boxes)), key=lambda i: (boxes[i]["y"], boxes[i]["x"]))
+    rows, row, width = [], [], 0.0
+    for i in order:
+        w = boxes[i]["w"] + (gap if row else 0.0)
+        if row and width + w > cw:
+            rows.append(row)
+            row, width, w = [], 0.0, boxes[i]["w"]
+        row.append(i)
+        width += w
+    rows.append(row)
+    out, y = [None] * len(boxes), 0.0
+    for row in rows:
+        h, x = max(boxes[i]["h"] for i in row), 0.0
+        for i in sorted(row, key=lambda i: boxes[i]["x"]):
+            out[i] = (x + boxes[i]["w"] / 2, y + boxes[i]["h"] / 2)
+            x += boxes[i]["w"] + gap
+        y += h + gap
+    return out
+
+
+def _greedy_legal(boxes: list, cw: float, ch: float, gap: float) -> int:
+    g = gap + 1e-3  # strictly clear of the placer's own (dx < size + gap) test
+    placed, moved = [b for b in boxes if b["fixed"]], 0
+
+    def clear(x, y, w, h):
+        return all(abs(x - p["x"]) >= (w + p["w"]) / 2 + gap or abs(y - p["y"]) >= (h + p["h"]) / 2 + gap
+                   for p in placed)
+
+    todo = sorted((b for b in boxes if not b["fixed"]), key=lambda b: -b["w"] * b["h"])
+    spots = {}
+    for b in todo:
+        w, h = b["w"], b["h"]
+        lo_x, hi_x, lo_y, hi_y = w / 2, cw - w / 2, h / 2, ch - h / 2
+        if hi_x < lo_x or hi_y < lo_y:
+            raise ValueError(f"{b['name']} ({w:g} x {h:g} µm) does not fit the canvas ({cw:g} x {ch:g} µm)")
+        x0, y0 = min(max(b["x"], lo_x), hi_x), min(max(b["y"], lo_y), hi_y)
+        if not clear(x0, y0, w, h):
+            xs = {x0, lo_x, hi_x} | {p["x"] + s * ((w + p["w"]) / 2 + g) for p in placed for s in (-1, 1)}
+            ys = {y0, lo_y, hi_y} | {p["y"] + s * ((h + p["h"]) / 2 + g) for p in placed for s in (-1, 1)}
+            xs = [x for x in xs if lo_x <= x <= hi_x]
+            ys = [y for y in ys if lo_y <= y <= hi_y]
+            spot = next(((x, y) for _, x, y in sorted(((x - x0) ** 2 + (y - y0) ** 2, x, y) for x in xs for y in ys)
+                         if clear(x, y, w, h)), None)
+            if spot is None:
+                raise ValueError(f"no legal start for {b['name']}: the macros do not fit the canvas "
+                                 f"({cw:g} x {ch:g} µm) {gap:g} µm apart")
+            x0, y0 = spot
+            moved += 1
+        spots[id(b)] = (x0, y0)
+        placed.append({**b, "x": x0, "y": y0})
+    for b in todo:  # the boxes change only when every one has a spot
+        b["x"], b["y"] = spots[id(b)]
+    return moved
+
+
+def cdlns_spec(text: str, dbu: int, core, edge: int, autos: dict, keepouts, seed: int, seconds: float,
+               gap_um: float, name: str) -> tuple[dict, list]:
+    """The CD-LNS placer's input from a floorplan dump (CDLNS_EXPORT_TCL):
+    canvas = the core less ``edge``; hard macros (movable: ``autos``, a name ->
+    True map, the rest fixed) with their pin offsets; standard cells grouped into
+    fixed soft macros, one per non-empty tile of a G x G grid; keepouts as fixed
+    blocks; IO pins as ports; nets as [owner, slot] lists. Returns (spec, hard
+    macro names in order)."""
+    ox, oy = core[0] + edge, core[1] + edge
+    cw, ch = (core[2] - core[0] - 2 * edge) / dbu, (core[3] - core[1] - 2 * edge) / dbu
+    um = lambda v, o: (float(v) - o) / dbu  # noqa: E731
+    macros, cells, ports, nets, net = {}, {}, {}, [], None
+    for ln in text.splitlines():
+        t = [w.replace("\\[", "[").replace("\\]", "]") for w in ln.split()]  # OpenDB escapes [ ] in names
+        if not t:
+            continue
+        if t[0] == "M":
+            macros[t[1]] = tuple(int(float(v)) for v in t[2:6])
+        elif t[0] == "C":
+            cells[t[1]] = (float(t[2]), float(t[3]), float(t[4]))
+        elif t[0] == "P":
+            ports[t[1]] = (um(t[2], ox), um(t[3], oy))
+        elif t[0] == "N":
+            net = []
+            nets.append(net)
+        elif t[0] in ("I", "B") and net is not None:
+            net.append(t[1:])
+    hard = sorted(macros, key=lambda n: (not autos.get(n, False), n))
+    pins = {n: {} for n in hard}
+    out_m = []
+    for n in hard:
+        x0, y0, x1, y1 = macros[n]
+        out_m.append({"name": n, "x": um((x0 + x1) / 2, ox), "y": um((y0 + y1) / 2, oy), "w": (x1 - x0) / dbu,
+                      "h": (y1 - y0) / dbu, "fixed": not autos.get(n, False)})
+    for k, b in enumerate(keepouts):
+        out_m.append({"name": f"__keepout{k}", "x": um((b[0] + b[2]) / 2, ox), "y": um((b[1] + b[3]) / 2, oy),
+                      "w": (b[2] - b[0]) / dbu, "h": (b[3] - b[1]) / dbu, "fixed": True})
+        hard.append(f"__keepout{k}")
+        pins[hard[-1]] = {}
+    nh = len(out_m)
+    legal_start(out_m, cw, ch, gap_um)  # the placer improves a legal placement; it cannot repair one
+    g = max(4, min(48, int(round((len(cells) / 30) ** 0.5)) or 4))
+    tw, th = (core[2] - core[0]) / g, (core[3] - core[1]) / g
+    tiles = {}
+    tile_of = {}
+    for c, (x, y, a) in cells.items():
+        key = (min(g - 1, max(0, int((x - core[0]) / tw))), min(g - 1, max(0, int((y - core[1]) / th))))
+        s = tiles.setdefault(key, [0.0, 0.0, 0.0])
+        s[0] += x * a
+        s[1] += y * a
+        s[2] += a
+        tile_of[c] = key
+    soft_ix = {}
+    for key, (sx, sy, a) in sorted(tiles.items()):
+        side = min((a ** 0.5) / dbu, tw / dbu, th / dbu)
+        soft_ix[key] = len(out_m)
+        out_m.append({"name": f"__cluster_{key[0]}_{key[1]}", "x": um(sx / a, ox), "y": um(sy / a, oy),
+                      "w": max(side, 0.01), "h": max(side, 0.01), "fixed": False})
+    n = len(out_m)
+    port_ix = {p: n + k for k, p in enumerate(ports)}
+    idx = {name: k for k, name in enumerate(hard)}
+    offsets = [[] for _ in range(nh)]
+    out_nets = []
+    for entries in nets:
+        e, seen_soft = [], set()
+        for t in entries:
+            nm = t[0]
+            if nm in idx and len(t) >= 3:
+                k = idx[nm]
+                x0, y0, x1, y1 = macros[nm]
+                key = t[3] if len(t) > 3 else f"{t[1]},{t[2]}"
+                if key not in pins[nm]:
+                    pins[nm][key] = len(offsets[k])
+                    offsets[k].append([(float(t[1]) - (x0 + x1) / 2) / dbu, (float(t[2]) - (y0 + y1) / 2) / dbu])
+                e.append([k, pins[nm][key]])
+            elif nm in tile_of:
+                s = soft_ix[tile_of[nm]]
+                if s not in seen_soft:
+                    seen_soft.add(s)
+                    e.append([s, 0])
+            elif nm in port_ix:
+                e.append([port_ix[nm], 0])
+        if len(e) >= 2:
+            out_nets.append(e)
+    spec = {"name": name, "canvas": [cw, ch], "num_hard": nh, "macros": out_m,
+            "ports": [list(ports[p]) for p in ports], "pin_offsets": offsets, "nets": out_nets,
+            "grid": [g, g], "seed": seed, "seconds": seconds, "gap": gap_um}
+    return spec, hard[:nh]
+
+
+def _cdlns(ctx, autos, placed, keepouts, rules, analog, dbu, mbox, core, grid) -> dict:
+    """Macro placement by Team Macro Polo's CD-LNS placer (sipath/third_party):
+    a quick mixed-size global placement gives initial macro and cell positions,
+    the cells are grouped into fixed soft macros, the placer moves the macros
+    (in the placer Python, ``placer_seconds``), and the result is snapped to the
+    site and row grid and checked against the macro rules. The cells are left
+    unplaced again, like every method."""
+    import json
+    import subprocess
+    s, d, p = ctx.session, ctx.design, ctx.params
+    rx, ry, site_w, row_h = grid
+    py = placer_python(ctx)
+    for m in autos:  # a fixed orientation: the placer flips nothing
+        s.run(f"[::flow_inst {q(m.inst)}] setOrient {m.orient}")
+    s.run("set ::flow_cdlns_free {}\nforeach i [[ord::get_db_block] getInsts] { "
+          "if {![$i isPlaced] && ![[$i getMaster] isBlock]} { lappend ::flow_cdlns_free $i } }")
+    dump = ctx.path("cdlns_floorplan.txt")
+    try:
+        s.run(f"global_placement -skip_io -density {p.get('quick_density', 0.6)}", timeout=1800)
+        s.run(CDLNS_EXPORT_TCL)
+        s.run(f"::flow_cdlns_export {q(dump)}")
+    finally:
+        s.run("foreach i $::flow_cdlns_free { $i setPlacementStatus NONE }\nunset ::flow_cdlns_free")
+    halo = max([m.halo for m in d.macros] + [0.0])
+    edge = int(max(halo * dbu, rules.pin_clearance))  # the canvas keeps halos and pin clearance off the core edge
+    # spacing the rule check asks of two facing macros (violation), plus room for
+    # snapping both to the site and row grid
+    gap_um = max(2 * halo + ((rules.analog_guard / dbu) if analog else 0.0), rules.channel / dbu,
+                 rules.pin_clearance / dbu) + 2 * max(site_w, row_h) / dbu
+    with open(dump) as f:
+        spec, hard = cdlns_spec(f.read(), dbu, core, edge, {m.inst: True for m in autos}, keepouts,
+                                int(p.get("seed", 0)) or 42, float(p.get("placer_seconds", 120)), gap_um, d.name)
+    spec_path, out_path = ctx.path("cdlns_spec.json"), ctx.path("cdlns_out.json")
+    with open(spec_path, "w") as f:
+        json.dump(spec, f)
+    runner = os.path.join(os.path.dirname(os.path.abspath(__file__)), "third_party", "run_cdlns.py")
+    with open(ctx.path("cdlns.log"), "w") as log:
+        r = subprocess.run([py, runner, spec_path, out_path], stdout=log, stderr=subprocess.STDOUT,
+                           timeout=float(p.get("placer_seconds", 120)) * 3 + 300)
+    if r.returncode != 0 or not os.path.isfile(out_path):
+        tail = open(ctx.path("cdlns.log"), errors="replace").read().strip().splitlines()[-8:]
+        raise RuntimeError(f"cdlns placer failed (exit {r.returncode}, log {ctx.path('cdlns.log')}):\n" +
+                           "\n".join(tail))
+    with open(out_path) as f:
+        pos = json.load(f)["positions"]
+    ctx.outputs["cdlns"] = {"spec": spec_path, "macros": len(hard), "soft_macros": len(spec["macros"]) - spec["num_hard"],
+                            "nets": len(spec["nets"]), "gap_um": round(gap_um, 3), "seconds": spec["seconds"]}
+    by = {m.inst: m for m in autos}
+    missing = sorted(set(by) - set(hard[:len(pos)]))
+    if missing:
+        raise RuntimeError(f"cdlns placer returned no position for {', '.join(missing)}")
+    out, problems = {}, []
+    for (cx, cy), name in zip(pos, hard):
+        m = by.get(name)
+        if m is None:
+            continue
+        x0, y0, x1, y1 = _box_of(s, name)
+        w, h = x1 - x0, y1 - y0
+        x = core[0] + edge + int(round(cx * dbu)) - w // 2
+        y = core[1] + edge + int(round(cy * dbu)) - h // 2
+        x = rx + int(round((x - rx) / site_w)) * site_w  # to the site and row grid
+        y = ry + int(round((y - ry) / row_h)) * row_h
+        x, y, why, moved = _nearest_legal(m, x, y, w, h, placed, core, keepouts, rules, mbox, (rx, ry, site_w, row_h))
+        c = mbox(m, m.orient, x, y)
+        if why:
+            problems.append(f"{name}: {why}")
+        s.run(f"set i [::flow_inst {q(name)}]; $i setOrient {m.orient}; $i setLocation {x} {y}; "
+              "$i setPlacementStatus FIRM")
+        placed.append(c)
+        out[name] = {"mode": "auto", "method": "cdlns", "loc_um": [x / dbu, y / dbu], "orient": m.orient,
+                     "repair_um": round(moved / dbu, 3)}
+    if problems:
+        raise RuntimeError("cdlns result breaks the macro rules:\n  " + "\n  ".join(problems))
+    return out
+
+
+def _nearest_legal(m, x, y, w, h, placed, core, keepouts, rules, mbox, grid, reach: int = 40):
+    """``(x, y)`` if the macro is legal there, else the nearest legal spot among
+    its core-edge snaps (a macro hugs an edge or leaves a full channel) and
+    site/row offsets up to ``reach`` steps. Returns (x, y, rule broken or None,
+    distance moved)."""
+    rx, ry, site_w, row_h = grid
+    hl = mbox(m, m.orient, x, y).halo
+    cands = [(x, y)]
+    snaps_x = [core[0] + hl, core[2] - hl - w]
+    snaps_y = [core[1] + hl, core[3] - hl - h]
+    snaps_x = [rx + -(-(v - rx) // site_w) * site_w if v == snaps_x[0] else rx + ((v - rx) // site_w) * site_w
+               for v in snaps_x]
+    snaps_y = [ry + -(-(v - ry) // row_h) * row_h if v == snaps_y[0] else ry + ((v - ry) // row_h) * row_h
+               for v in snaps_y]
+    cands += [(sx, y) for sx in snaps_x] + [(x, sy) for sy in snaps_y] + [(sx, sy) for sx in snaps_x for sy in snaps_y]
+    step = max(site_w, row_h)
+    for k in range(1, reach + 1):
+        for dx, dy in ((k, 0), (-k, 0), (0, k), (0, -k), (k, k), (-k, -k), (k, -k), (-k, k)):
+            cands.append((x + rx * 0 + dx * step - (dx * step) % site_w, y + dy * step - (dy * step) % row_h))
+    first = None
+    for cx, cy in sorted(set(cands), key=lambda c: abs(c[0] - x) + abs(c[1] - y)):
+        why = violation(mbox(m, m.orient, cx, cy), placed, core, keepouts, rules)
+        if why is None:
+            return cx, cy, None, abs(cx - x) + abs(cy - y)
+        if first is None:
+            first = why
+    return x, y, first, 0
 
 
 def _evaluate(ctx, analog_weight):

@@ -872,3 +872,40 @@ class LiveMcp(unittest.TestCase):
         self.assertTrue(spef.startswith("*SPEF"))
         self.assertIn('*DESIGN "ihp_add8"', spef[:2000])
 
+
+
+@LIVE
+class LiveMacroPlacers(unittest.TestCase):
+    """Eight SRAM macros (sram8) placed by the seeded random search and by the
+    CD-LNS placer (skipped without the placer Python): both legal by the macro
+    rules, both scored by macro_quick."""
+
+    def test_sram8_random_and_cdlns(self):
+        from sipath import designfile
+        from sipath.config import Config
+        from sipath.macroplace import placer_python
+        try:
+            placer_python(types.SimpleNamespace(config=Config()))
+        except RuntimeError as e:
+            self.skipTest(str(e))
+        wd = _workdir("sram8")
+        if not KEEP:
+            self.addCleanup(_rmtree, wd)
+        f = designfile.run(os.path.join(os.path.dirname(__file__), "..", "examples", "sram8.yaml"), wd, RUNNER,
+                           overrides={"macros": {"variants": [{"method": "random", "seed": 1},
+                                                              {"method": "cdlns", "placer_seconds": 20}],
+                                                 "score": "macro_quick", "parallel": 2}})
+        rnd, cd = f.steps["macros"].attempts
+        for a in (rnd, cd):
+            self.assertIn(a.status, ("selected", "rejected"), a.error)
+            placed = a.outputs["macros"]
+            self.assertEqual(sorted(placed), [f"bank[{i}].u_ram" for i in range(8)])
+            self.assertEqual({v["method"] for v in placed.values()}, {a.params["method"]})
+            self.assertGreater(a.metrics["macro_hpwl_um"], 0)
+            self.assertGreater(a.metrics["hpwl_um"], a.metrics["macro_hpwl_um"])
+            self.assertIsNotNone(a.metrics["quick_overflow"])
+        info = cd.outputs["cdlns"]
+        self.assertEqual(info["macros"], 8)
+        self.assertGreater(info["soft_macros"], 0)
+        self.assertTrue(os.path.isfile(info["spec"]))
+        self.assertIn(f.steps["macros"].selected, (rnd, cd))

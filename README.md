@@ -38,6 +38,7 @@ python3 -m sipath render <odb> <png>          # OpenROAD's own layout render
 python3 -m sipath mcp           # MCP server on stdio
 python3 -m sipath harden gcd8 sipath/examples/hardened/gcd8   # a design's hardened-macro views
 python3 -m sipath templates     # design templates; `new <dir> --template openframe` writes a project
+python3 -m sipath setup-placer  # the Python with CPU PyTorch for the cdlns macro placer (~/.cache/sipath)
 python3 -m sipath report runs/gcd8 --render   # the run's report page (report.md / report.html)
 ```
 
@@ -174,8 +175,8 @@ python3 -m sipath report runs/gcd8 --render   # the run's report page (report.md
 - Against ORFS: its reference designs through both flows, and SiPath's own
   designs through ORFS, measured by the same code.
 - Synthesis: shalan/synth_flow's 16 designs (`bench/synth_bench.py`).
-- 140 unit tests (seconds; undefined names, step parameters of the examples,
-  PDK names kept out of the library code) and 43 live tests (real runs, in
+- 144 unit tests (seconds; undefined names, step parameters of the examples,
+  PDK names kept out of the library code) and 44 live tests (real runs, in
   parallel), with regression limits per design.
 
 **Known limits**
@@ -461,7 +462,7 @@ versions.
 | `steps.py` | `floorplan`, `macros`, `physical`, `place`, `cts`, `route_analog`, `route_digital`, `route_repair`, `extract` |
 | `padplan.py`, `powerconnect.py` | pad plan rules; straps from supply tabs to the grid |
 | `chip.py` | pad ring (ICeWall) |
-| `macroplace.py` | hard macros: frozen, seeded random search with orientation search, or `rtl_macro_placer`; channel / pin-side / analog-guard rules; quick placement + global route score |
+| `macroplace.py` | hard macros: frozen, seeded random search with orientation search, `rtl_macro_placer`, or the CD-LNS placer (`third_party/`, run in the placer Python); channel / pin-side / analog-guard rules; quick placement + global route score |
 | `congestion.py` | global-route congestion reports (regions, overflow, worst box, nets) |
 | `datapath.py` | column / array / bit-slice / block packing, re-abut after sizing, structure check |
 | `analog.py` | NDR route first, then freeze as special wiring |
@@ -512,14 +513,32 @@ versions.
   allowed orientation (`orients`), objective = macro-net HPWL + 4 × analog-net
   HPWL over placed terminals (pin-accurate, so orientation and pin side
   count); or `method="mpl"`: `rtl_macro_placer` with keepouts as temporary
-  blockages, its result checked against the same rules. Rules:
+  blockages, its result checked against the same rules; or `method="cdlns"`:
+  Team Macro Polo's CD-LNS placer from the Partcl/HRT Macro Placement
+  Challenge 2026 (coordinate descent + large-neighbourhood search +
+  annealing; the best-ranked CPU-only entry), run for `placer_seconds` in a
+  separate Python with PyTorch (`sipath setup-placer`, config
+  `placer_python`). SiPath exports the floorplan after a quick mixed-size
+  global placement: macros with pin offsets, standard cells clustered into
+  movable soft macros, IO pins, keepouts as fixed blocks. It hands the placer a
+  legal start (the placer improves a legal placement but cannot repair one),
+  with spacing that includes the halos, channel, pin clearance and snapping
+  room. The result is snapped to the site/row grid and checked against the same
+  rules. Rules:
   halo, `macro_channel` (no sliver channel between macros or to the core
   edge), `macro_pin_clearance` (space in front of pin edges),
   `analog_guard` (extra space around analog macros and a standard-cell
   blockage band; rows are cut under it). Every attempt is then scored the same
   way: quick gpl + detailed placement + global route of the standard cells
   (then unplaced again), `macro_quick` = least overflow, then quick HPWL +
-  4 × analog HPWL. mcu8 sweeps 3 seeds, an orientation search and mpl.
+  4 × analog HPWL. mcu8 sweeps 3 seeds, an orientation search and mpl;
+  `examples/sram8.yaml` (eight sky130 1 KB SRAMs, `sram:` names the PDK's
+  macro) compares random seeds with cdlns. Measured so far, the random search
+  wins on SiPath's score. cdlns has the lowest macro-net HPWL on sram8 (146k
+  against 151k µm), but it packs the SRAMs ~36 µm apart, and the quick
+  global route of the glue logic overflows more (39 against 7; total HPWL
+  628k against 574k µm). On mcu8 (two movable macros) its `macro_cost_um` is
+  58,329 against 53,061 for the best seed. mpl cannot tile sram8 (MPL-0003).
 - **Datapath**: `column` (one cell per row), `array` (abutted rows) and
   `slices` (generic bit-slice: `cells[bit][stage]`, stage columns aligned
   across bits, optional gaps and rows per slice), FIRM. Placed before taps,
@@ -1132,4 +1151,6 @@ SiPath is licensed under the [Apache License 2.0](LICENSE). Third-party files ke
 - `sipath/pdks/sky130/sky130_stdcell.lvs` derives from OpenROAD-flow-scripts (BSD 3-Clause);
 - `sipath/klayout/stream.py` follows ORFS `def2stream.py` (BSD 3-Clause);
 - the ChipFoundry IP views under `sipath/examples/inputs/chipfoundry/` keep their vendors'
-  licenses, as listed in `SOURCES.txt`.
+  licenses, as listed in `SOURCES.txt`;
+- the CD-LNS macro placer and the challenge's `Benchmark` under `sipath/third_party/`
+  (Apache-2.0, unchanged; provenance in its `README.md`).

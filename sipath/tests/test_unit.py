@@ -55,6 +55,16 @@ class BusNetlist(unittest.TestCase):
         with self.assertRaises(ValueError):
             m.to_verilog()
 
+    def test_part_selects_vectors_and_constants_in_connections(self):
+        back = parse_verilog("module t(a, b);\n input [7:0] a;\n input [3:0] b;\n wire [1:0] w;\n"
+                             " RAM u (.A(a[5:3]), .B(b), .C({w, 2'b10, a[0]}), .D(a[7]), .E());\nendmodule\n")
+        c = back.instances[0].conns
+        self.assertEqual([c[f"A[{k}]"] for k in range(3)], ["a[3]", "a[4]", "a[5]"])
+        self.assertEqual([c[f"B[{k}]"] for k in range(4)], ["b[0]", "b[1]", "b[2]", "b[3]"])
+        self.assertEqual([c[f"C[{k}]"] for k in range(5)], ["a[0]", "1'b0", "1'b1", "w[0]", "w[1]"])
+        self.assertEqual(c["D"], "a[7]")
+        self.assertNotIn("E", c)
+
     def test_mcu8_sar_controller(self):
         m, _ = designs.mcu8_netlist()
         sar = [i for i in m.instances if i.name.startswith("u_sar.")]
@@ -1077,7 +1087,7 @@ class HardenedViewsAndFill(unittest.TestCase):
                                                      {"tt_nom": os.path.join(v, "blk__tt_nom.lib")}))
         self.assertEqual((m0.location, m0.supplies), ((1, 2), {"^VDD$": "VDD", "^VSS$": "VSS"}))
         self.assertEqual(m1.gds, os.path.join(self.tmp, "mine.gds"))  # given in the entry: relative to the design file
-        with self.assertRaisesRegex(ValueError, r"macros\[0\]: lef or views is required"):
+        with self.assertRaisesRegex(ValueError, r"macros\[0\]: lef, views or sram is required"):
             designfile.design_from_dict(dict(base, macros=[{"inst": "u0"}]), self.tmp)
         with self.assertRaisesRegex(FileNotFoundError, "harden the macro first"):
             designfile.design_from_dict(dict(base, macros=[{"inst": "u0", "views": "nowhere"}]), self.tmp)
@@ -1985,7 +1995,7 @@ class McpProtocol(unittest.TestCase):
         self.assertEqual(c.rpc("resources/list")["result"], {"resources": []})
         err, out, _ = c.call("list_designs")
         self.assertFalse(err)
-        self.assertEqual(set(out["designs"]), {"dp8", "dp8_hs", "mcu8", "ihp_add8", "gcd8", "gcd8_sv", "openframe_gcd8", "gcd8_pair"})
+        self.assertEqual(set(out["designs"]), {"dp8", "dp8_hs", "mcu8", "ihp_add8", "gcd8", "gcd8_sv", "openframe_gcd8", "gcd8_pair", "sram8"})
         self.assertTrue(c.call("run_step", run_id="nope", step="floorplan")[0])
         self.assertTrue(c.call("no_such_tool")[0])
         self.assertEqual(c.rpc("no/such/method")["error"]["code"], -32601)
@@ -2323,3 +2333,58 @@ class SynthSelection(unittest.TestCase):
         schema.check_object("flow[0]", schema.FLOW_STEP, {"step": "synth", "sweep": ["delay_map"],
                                                         "synth_opts_sweep": [["booth"]]}, errors)
         self.assertEqual(errors, [])
+
+
+class MacroPlacerCdlns(unittest.TestCase):
+    """The cdlns macro placement method: SiPath's export to the challenge's Benchmark."""
+
+    def test_legal_start_separates_overlapping_macros(self):
+        from sipath.macroplace import legal_start
+        box = lambda n, x, y, fixed=False: {"name": n, "x": x, "y": y, "w": 40.0, "h": 30.0, "fixed": fixed}  # noqa: E731
+        boxes = [box("a", 50, 50), box("b", 55, 52), box("c", 60, 48), box("k", 50, 50, fixed=True)]
+        self.assertEqual(legal_start(boxes, 200, 120, 5.0), 3)
+        self.assertEqual((boxes[3]["x"], boxes[3]["y"]), (50, 50))  # fixed boxes stay
+        for i, p in enumerate(boxes):
+            self.assertTrue(p["w"] / 2 <= p["x"] <= 200 - p["w"] / 2 and p["h"] / 2 <= p["y"] <= 120 - p["h"] / 2)
+            for q in boxes[i + 1:]:
+                self.assertTrue(abs(p["x"] - q["x"]) >= 45 or abs(p["y"] - q["y"]) >= 35, (p, q))
+        with self.assertRaisesRegex(ValueError, "no legal start"):
+            legal_start([box(c, 50, 50) for c in "abcdefg"], 130, 70, 5.0)
+
+    DUMP = "\n".join([
+        "M u_a 100000 100000 140000 130000", "M u_b 300000 300000 340000 330000", "M u_fixed 10000 10000 40000 40000",
+        "C c1 60000 60000 2000000", "C c2 61000 62000 2000000", "C c3 380000 380000 4000000",
+        "P in 0 200000", "P out 400000 200000",
+        "N", "I u_a 140000 115000 Q", "I c1", "I c2",
+        "N", "I u_a 100000 115000 D", "B in",
+        "N", "I u_b 340000 315000 Q", "B out", "I c3",
+        "N", "I c1",  # one owner: dropped
+        ""])
+
+    def test_spec_from_a_floorplan_dump(self):
+        from sipath import macroplace
+        core = (0, 0, 400000, 400000)
+        spec, hard = macroplace.cdlns_spec(self.DUMP, 1000, core, 10000, {"u_a": True, "u_b": True},
+                                           [(200000, 0, 220000, 20000)], 7, 30.0, 4.0, "t")
+        self.assertEqual(hard, ["u_a", "u_b", "u_fixed", "__keepout0"])  # movable first, then fixed, keepouts
+        self.assertEqual(spec["num_hard"], 4)
+        self.assertEqual(spec["canvas"], [380.0, 380.0])  # the core less the edge on each side
+        a = spec["macros"][0]
+        self.assertEqual((a["x"], a["y"], a["w"], a["h"], a["fixed"]), (110.0, 105.0, 40.0, 30.0, False))
+        self.assertTrue(spec["macros"][2]["fixed"] and spec["macros"][3]["fixed"])
+        self.assertEqual(spec["pin_offsets"][0], [[20.0, 0.0], [-20.0, 0.0]])  # Q and D from u_a's centre
+        self.assertEqual(spec["ports"], [[-10.0, 190.0], [390.0, 190.0]])
+        self.assertEqual(len(spec["nets"]), 3)
+        n0 = spec["nets"][0]
+        self.assertEqual(n0[0], [0, 0])
+        self.assertEqual(len(n0), 2)  # c1 and c2 share a cluster: one soft owner
+        nm = len(spec["macros"])
+        self.assertIn([nm, 0], spec["nets"][1])  # the port 'in'
+        self.assertEqual((spec["seed"], spec["seconds"], spec["gap"]), (7, 30.0, 4.0))
+
+    def test_params_and_placer_python(self):
+        from sipath import macroplace, params
+        params.check("macros", {"method": "cdlns", "placer_seconds": 60})
+        ctx = types.SimpleNamespace(config=types.SimpleNamespace(placer_python="/nonexistent/python"))
+        with self.assertRaisesRegex(RuntimeError, "setup-placer"):
+            macroplace.placer_python(ctx)

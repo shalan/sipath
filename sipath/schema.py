@@ -47,6 +47,8 @@ PDN = {
 MACRO = {
     "inst": F("str", "instance name in the netlist", required=True),
     "lef": F("path", "abstract LEF (required unless views gives it)"),
+    "sram": F("str", "one of the PDK's SRAM macros (the PDK description's sram table): lef and lib come "
+                     "from the PDK"),
     "views": F("path", "a hardened macro's views directory (python3 -m sipath harden, or the views step): "
                        "lef, gds, lib, cdl and supplies come from its macro.yaml unless given here"),
     "lib": F("lib", "Liberty: one file, or {corner or process: file}; null for none"),
@@ -103,6 +105,7 @@ CONFIG = {
     "container_cpus": F("number", "CPU limit per container"),
     "container_memory": F("str", "memory limit per container (e.g. 8g)"),
     "image": F("str", "ORFS image (name@sha256:... pins it)"),
+    "placer_python": F("str", "Python with PyTorch for the macros method cdlns (sipath setup-placer)"),
     "magic_image": F("str", "image with Magic for the signoff checks magic_drc and xor (docker/magic)"),
     "openroad_binary": F("str", "OpenROAD inside the image (default the ORFS path; openroad for an image with it on PATH)"),
     "platform": F("str", "image platform: linux/amd64, or linux/arm64 for a native arm64 image"),
@@ -266,8 +269,8 @@ def validate(data: dict, required: bool = True) -> None:
             if data.get(k) is not None:
                 errors.append(f"{k}: not allowed with harness (the frame's wrapper template sets it)")
     for k, m in enumerate(data.get("macros") or []):
-        if isinstance(m, dict) and not m.get("lef") and not m.get("views"):
-            errors.append(f"macros[{k}]: lef or views is required")
+        if isinstance(m, dict) and not m.get("lef") and not m.get("views") and not m.get("sram"):
+            errors.append(f"macros[{k}]: lef, views or sram is required")
     if required and not data.get("netlist") and not data.get("rtl"):
         errors.append("netlist or rtl: one is required")
     from . import registry

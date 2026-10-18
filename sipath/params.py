@@ -144,8 +144,10 @@ STEP_PARAMS: dict[str, list[Param]] = {
     ],
     "floorplan": [],
     "macros": [
-        Param("method", "str", "random", "macro placement: seeded random search with orientation search (random) "
-              "or OpenROAD's rtl_macro_placer (mpl)", choices=("random", "mpl")),
+        Param("method", "str", "random", "macro placement: seeded random search with orientation search (random), "
+              "OpenROAD's rtl_macro_placer (mpl), or Team Macro Polo's CD-LNS placer from the Partcl/HRT challenge "
+              "(cdlns; needs placer_python)", choices=("random", "mpl", "cdlns")),
+        Param("placer_seconds", "float", 120.0, "time budget of the cdlns placer", unit="s", min=1),
         Param("seed", "int", 0, "random seed of the search"),
         Param("samples", "int", 40, "candidate locations tried per autoplaced macro", min=1),
         Param("orients", "list[str]", None, "orientations to try; default: each macro's orients, else its orient",

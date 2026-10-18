@@ -92,7 +92,7 @@ def design_from_dict(data: dict, base: str) -> Design:
                 if m.get(k) is None and got.get(k) is not None:
                     m[k] = got[k]
                     roots[k] = vdir
-        m["lef"] = _path(roots["lef"], m["lef"])
+        m["lef"] = _path(roots["lef"], m["lef"]) if m.get("lef") else ""  # sram: from the PDK (build)
         for k in ("gds", "cdl"):
             if m.get(k):
                 m[k] = _path(roots[k], m[k])
@@ -211,6 +211,14 @@ def build(d: Design, workdir: str, runner, config=None, resume: bool = False, ex
     if d.harness:  # before resolve: the harness sets supplies, PDN and floorplan
         from . import harness
         harness_info = harness.get(d.harness, d.harness_options).apply(d, pdk, os.path.abspath(workdir))
+    for m in d.macros:  # sram: the PDK's SRAM macro views
+        if m.sram:
+            entry = pdk.sram.get(m.sram)
+            if entry is None:
+                raise ValueError(f"macro {m.inst}: sram {m.sram!r} is not one of {d.pdk}'s: {sorted(pdk.sram)}")
+            m.lef = m.lef or entry.get("lef", "")
+            if m.lib is None:
+                m.lib = entry.get("lib")
     d.resolve(pdk)
     from . import blackbox
     models = blackbox.generate(d, pdk, os.path.join(os.path.abspath(workdir), "models"))  # opt-in only

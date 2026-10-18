@@ -111,11 +111,14 @@ proc ::flow_supply_pin_data {inst_name} {
 }
 proc ::flow_inst {name} {
   set inst [[ord::get_db_block] findInst $name]
+  # an escaped Verilog name (\bank[0].u_ram) is kept with its brackets escaped
+  if {$inst eq "NULL"} { set inst [[ord::get_db_block] findInst [string map {[ \\[ ] \\]} $name]] }
   if {$inst eq "NULL"} { error "no instance $name" }
   return $inst
 }
 proc ::flow_net {name} {
   set net [[ord::get_db_block] findNet $name]
+  if {$net eq "NULL"} { set net [[ord::get_db_block] findNet [string map {[ \\[ ] \\]} $name]] }
   if {$net eq "NULL"} { error "no net $name" }
   return $net
 }

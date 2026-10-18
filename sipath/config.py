@@ -20,6 +20,8 @@ openroad_binary        SIPATH_OPENROAD_BINARY    OpenROAD inside the image (defa
 platform               SIPATH_PLATFORM           image platform (linux/amd64; linux/arm64 for a native arm64 image)
 magic_image            SIPATH_MAGIC_IMAGE        image with Magic (signoff magic_drc / xor; docker/magic)
 native_tools           SIPATH_NATIVE_TOOLS       tools run on the host instead of the image (e.g. klayout,yosys)
+placer_python          SIPATH_PLACER_PYTHON      Python with PyTorch for the macros step's cdlns method
+                                                 (default ~/.cache/sipath/placer-venv, `sipath setup-placer`)
 require_digest         SIPATH_REQUIRE_DIGEST     refuse an image not pinned by digest (default on)
 debug_failed           SIPATH_DEBUG_FAILED       write a debug ODB for failed attempts
 log_level              SIPATH_LOG_LEVEL          ``logging`` level of the ``flow`` logger
@@ -39,6 +41,7 @@ ENV = {"threads": "SIPATH_THREADS", "command_timeout": "SIPATH_TIMEOUT", "tool_t
        "container_cpus": "SIPATH_CPUS", "container_memory": "SIPATH_MEMORY", "image": "SIPATH_OPENROAD_IMAGE",
        "openroad_binary": "SIPATH_OPENROAD_BINARY", "platform": "SIPATH_PLATFORM",
        "magic_image": "SIPATH_MAGIC_IMAGE", "native_tools": "SIPATH_NATIVE_TOOLS",
+       "placer_python": "SIPATH_PLACER_PYTHON",
        "require_digest": "SIPATH_REQUIRE_DIGEST", "debug_failed": "SIPATH_DEBUG_FAILED",
        "log_level": "SIPATH_LOG_LEVEL"}
 
@@ -70,6 +73,7 @@ class Config:
     platform: str = "linux/amd64"
     magic_image: str = MAGIC_IMAGE  # sipath/orfs-magic, built from docker/magic/Dockerfile
     native_tools: list = field(default_factory=list)  # e.g. ["klayout", "yosys"]: host binaries, not the image's
+    placer_python: str = ""  # empty: ~/.cache/sipath/placer-venv/bin/python (macros method cdlns)
     require_digest: bool = True  # an image not pinned by digest is refused (SIPATH_REQUIRE_DIGEST=0 allows it)
     debug_failed: bool = False
     log_level: str = "WARNING"

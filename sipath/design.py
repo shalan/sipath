@@ -71,6 +71,7 @@ class Macro:
     # no lib: write a black-box Liberty model from the LEF (sipath.blackbox); None: the design's auto_blackbox
     auto_blackbox: bool | None = None
     analog: bool | None = None  # None: analog if it connects to an analog net or analog supply
+    sram: str | None = None  # one of the PDK's SRAM macros (its sram table): lef and lib from there
 
 
 @dataclass
