@@ -13,6 +13,7 @@ gcd8:
   signoff_pass: true
   lvs_match: true
 dp8:
+  max_analog_coupling_ff: 1.5    # worst analog net from digital nets; ana_in[0] unshielded took ~3 fF
   min_wns_ns: 0.59
   min_whs_ns: 0.0
   max_drc: 0
@@ -31,6 +32,7 @@ dp8_hs:
   signoff_pass: true
   lvs_match: true
 mcu8:
+  max_analog_coupling_ff: 12.5   # vref_hi 9.7 fF from met1/met2 runs along the ADC pins; vref_lo 31 fF unguarded
   min_wns_ns: 6.56
   min_whs_ns: 0.0
   max_drc: 0

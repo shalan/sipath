@@ -150,6 +150,9 @@ class Design:
     analog_supplies: list = field(default_factory=list)  # supply nets routed like analog nets (e.g. VDDA)
     analog_supply_layers: tuple | None = None  # (lowest, highest): wide upper metal only
     analog_supply_ndr: dict | None = None
+    analog_shield: list = field(default_factory=list)  # analog nets with grounded shield wires beside them
+    analog_shield_net: str = ""  # the shields' net; default: the core ground
+    analog_keepaway: bool = False  # obstructions on the layers above/below shielded nets (no digital wires there)
     pdk: str = ""  # PDK description name or file (used by design files and the CLI)
     dont_use: list = field(default_factory=list)  # extra cell patterns this design never uses
     allow_excluded: list = field(default_factory=list)  # PDK-excluded cells this design uses on purpose (waivers)
@@ -268,6 +271,11 @@ class Design:
                 problems.append(f"rtl include directory {inc} not found")
         if self.mode == "die" and not self.die:
             problems.append("die mode needs die box")
+        stray = [n for n in self.analog_shield if n not in self.analog_nets]
+        if stray:
+            problems.append(f"analog_shield names nets that are not analog_nets: {stray}")
+        if self.analog_keepaway and not self.analog_shield:
+            problems.append("analog_keepaway applies to the analog_shield nets; none given")
         if pdk is not None:
             self.resolve(pdk)
             top = pdk.layer_index(pdk.max_layer_macro)

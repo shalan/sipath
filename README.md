@@ -100,7 +100,9 @@ python3 -m sipath report runs/gcd8 --render   # the run's report page (report.md
   `improve_placement` and `optimize_mirroring`; fences and clusters;
   structured datapaths (column, array, bit-slice) with well-tap slots;
   tie-cell fanout repair.
-- CTS, then routing: analog nets first and frozen; digital
+- CTS, then routing: analog nets first and frozen, optionally shielded
+  (grounded wires on both sides) with an adjacent-layer keep-away, and their
+  coupling to digital nets reported and bounded; digital
   routing with repair on global-route parasitics, antenna repair loops,
   incremental patch routes; post-route timing repair on extracted parasitics
   re-routes only the nets it changed (a full re-route past a quarter of the
@@ -175,8 +177,8 @@ python3 -m sipath report runs/gcd8 --render   # the run's report page (report.md
 - Against ORFS: its reference designs through both flows, and SiPath's own
   designs through ORFS, measured by the same code.
 - Synthesis: shalan/synth_flow's 16 designs (`bench/synth_bench.py`).
-- 144 unit tests (seconds; undefined names, step parameters of the examples,
-  PDK names kept out of the library code) and 44 live tests (real runs, in
+- 155 unit tests (seconds; undefined names, step parameters of the examples,
+  PDK names kept out of the library code) and 45 live tests (real runs, in
   parallel), with regression limits per design.
 
 **Known limits**
@@ -465,7 +467,8 @@ versions.
 | `macroplace.py` | hard macros: frozen, seeded random search with orientation search, `rtl_macro_placer`, or the CD-LNS placer (`third_party/`, run in the placer Python); channel / pin-side / analog-guard rules; quick placement + global route score |
 | `congestion.py` | global-route congestion reports (regions, overflow, worst box, nets) |
 | `datapath.py` | column / array / bit-slice / block packing, re-abut after sizing, structure check |
-| `analog.py` | NDR route first, then freeze as special wiring |
+| `analog.py` | NDR route first, then freeze as special wiring; SPEF coupling report |
+| `shield.py` | grounded shields beside analog nets (clip, via or tie strap to ground), adjacent-layer keep-away |
 | `eco.py`, `equiv.py`, `liberty.py`, `wires.py` | resize/buffer ECO, structural equivalence on Liberty functions, wire re-encoding and restore after RCX |
 | `signoff.py`, `klayout/stream.py`, `minarea.py` | signoff (GDS, DRC, LVS, antennas, independent STA); post-route minimum-area safety net |
 | `synth.py`, `recipes.py`, `synth_recipes/` | the synth step (readers, lint, recipe sweep, boundary model, timing estimate, equivalence); ABC recipes and their objective sets |
@@ -504,9 +507,59 @@ versions.
   after, and a change fails the attempt. Before extraction the exact regular
   wiring is restored from the DEF saved at freeze time (geometry compared),
   because OpenRCX skips special nets; `extract` fails if an analog net has no
-  `*D_NET` in the SPEF. ECOs re-freeze first and restore again before their
+  `*D_NET` in the SPEF. The router keeps only the minimum spacing from
+  special wiring, so the NDR spacing alone would protect an analog wire only
+  from what was routed before it. Guard obstructions around the frozen
+  wiring (`route_analog` `guard`, default on; cut around pins) keep digital
+  wires the NDR spacing. Before the guard, mcu8's router laid
+  `core.pad_ch_0_i` 0.25 µm from `vref_lo` for 340 µm. ECOs re-freeze first and restore again before their
   own extraction. CTS gets explicit `-clk_nets`; analog nets are rejected as
   clock nets, and their terminals must be unchanged after CTS (both modes).
+- **Analog coupling**: `extract` reads every corner's SPEF and writes
+  `analog_coupling.json`/`.md`: per analog net its total capacitance, its
+  coupling to digital nets (sum and largest aggressors, worst corner) and to
+  the other analog nets. Metrics `analog_coupling_ff` (worst net) and
+  `analog_aggressor_ff`; step limits `max_analog_coupling_ff` /
+  `max_analog_aggressor_ff` fail the attempt, and regression limits can bound
+  them. On mcu8 before shielding, `vref_lo` took 31 fF from `core.pad_ch_0_i` (24 % of its
+  130 fF) and `vref_hi` 9.8 fF; on dp8 the clock put 2.8 fF on `ana_in[0]`.
+- **Shields** (`shield.py`, design `analog_shield: [nets]`): OpenROAD's router
+  does not shield signal nets, so SiPath draws them. A shielded net gets an
+  NDR (`ANALOG_SH`) whose spacing leaves room for a shield on each side. Once
+  the analog nets are frozen, every straight segment gets a minimum-width
+  wire of `analog_shield_net` (default: the core ground) on both sides at the
+  minimum spacing, clipped around every other shape on that layer with the
+  spacing rule (other nets, the net's own vias and corners, macro and pad
+  pins and obstructions, IO pins, notches against other ground shapes).
+  A piece is grounded where it touches a ground shape on its layer, or by a
+  via where it crosses one on the layer below or above. The via's pad sits
+  flush with the shield's inner edge, so the spacing to the analog wire never
+  shrinks. Failing that, a tie strap runs outward on the next layer
+  (`shield_tie_um`, default 30 µm; never on the pin-access layers). It ends in a
+  ground shape on its own layer, or through a via into one on the shield's
+  layer or on the layer beyond. A piece that reaches no ground is dropped, never left floating.
+  Shields stay on layers above every placed standard cell's own shapes. Coverage per
+  net is reported (`analog_shield`, metric `analog_shield_coverage`) and a
+  short between special nets fails the step. `analog_keepaway: true` adds
+  routing obstructions on the layers just above and below each shielded
+  segment and its shields (not on pin-access layers, cut around pins).
+  dp8 shields `ana_in[0]`: 93 % covered (tie straps to the met4 stripes),
+  coupling from digital nets 2.8 → 0.0 fF, total capacitance 20 → 38 fF (the
+  usual price), signoff DRC 0, LVS match, antennas 0. mcu8 shields all four
+  analog nets (47–91 % coverage) and signs off clean (DRC 0, LVS match,
+  timing met at nine corners). Coupling from digital nets, before → after:
+
+  | net | before (fF) | guard + shields (fF) |
+  |---|---|---|
+  | vref_lo | 31.2 | 0.09 |
+  | ana_in | 0.29 | 0.01 |
+  | dac_out | 1.15 | 0.58 |
+  | vref_hi | 9.8 | 9.7 |
+
+  `vref_hi`'s remainder comes from met1/met2 digital runs about 2 µm beside its
+  met3 run along the ADC's pin edge. That is coupling between layers, which a
+  same-layer shield does not stop and the keep-away (as wide as the shields)
+  does not reach.
 - **Hard macros** (`macroplace.py`): `Macro(location=...)` is frozen
   (LOCKED). Otherwise `method="random"`: legal positions on the row/site grid
   from `random.Random(seed)` (some pushed against a core edge), each in every
@@ -1015,6 +1068,7 @@ macros:
   abstract: true                    # signoff on the LEF abstract (DRC around it, LVS black box);
                                     # the written GDS still carries its layout
 analog_nets: [ana_in]               # routed first with an NDR, then frozen
+analog_shield: [ana_in]             # grounded shield wires on both sides (analog_keepaway: adjacent layers too)
 analog_supplies: [VDDA, VSSA]
 pdn: {straps: [{layer: met4, width: 1.6, pitch: 54.28, offset: 27.14}], rings: false}
 datapaths: [{name: add, kind: slices, cells: [[u.ra_0, u.fa_0], [u.ra_1, u.fa_1]], origin: [30, 30]}]

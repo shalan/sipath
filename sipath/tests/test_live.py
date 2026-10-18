@@ -331,6 +331,16 @@ class LiveSoftMacro(unittest.TestCase):
             self.assertEqual(a.metrics["parasitics"], "rcx")
             self.assertIn("timing_met", a.metrics)
 
+    def test_shielded_analog_net(self):
+        # ana_in[0] is shielded (grounded wires on both sides, tie straps to the met4 stripes);
+        # without them the clock couples ~3 fF onto it
+        sh = self.flow.steps["route_analog"].selected.outputs["analog_shield"]["ana_in[0]"]
+        self.assertGreater(sh["coverage"], 0.85)
+        self.assertGreater(sh["vias"], 0)
+        cc = _read_json(self.flow.steps["extract"].selected.outputs["analog_coupling"])
+        self.assertLess(cc["ana_in[0]"]["digital_ff"], 0.5)
+        self.assertGreater(cc["ana_in[0]"]["total_ff"], cc["ana_in[1]"]["total_ff"])  # the shields add ground cap
+
     def test_signoff_physical_and_timing(self):
         so = self.flow.steps["signoff"].selected
         s = _read_json(so.outputs["signoff"])

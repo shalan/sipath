@@ -40,6 +40,9 @@ YAML or JSON; relative paths are relative to the file. Keys not listed are error
 | `analog_supplies` | list[str] |  | supply nets routed like analog nets (e.g. VDDA) |
 | `analog_supply_layers` | list[str] |  | lowest and highest layer of analog supplies |
 | `analog_supply_ndr` | dict |  | NDR of analog supplies |
+| `analog_shield` | list[str] |  | analog nets with grounded shield wires on both sides (route_analog) |
+| `analog_shield_net` | str |  | net of the shields; default: the core ground |
+| `analog_keepaway` | bool |  | no digital wiring on the layers just above and below the shielded nets |
 | `extra_lefs` | list[path] |  | more LEFs (black boxes, pads) |
 | `extra_libs` | list[path] |  | more Liberty files |
 | `is_core` | bool |  | the design is a chip core (routing to the PDK's top layer); false: embedded macro |
@@ -294,6 +297,8 @@ Set per attempt in `variants` (design file `flow:` or MCP `run_step`), or as def
 | parameter | type | default | allowed | description |
 |---|---|---|---|---|
 | `iters` | int | 20 | 1.. | detailed-router iterations for the analog nets |
+| `guard` | bool | true |  | routing obstructions around the frozen analog wiring so digital wires keep the analog NDR spacing (the router keeps only the minimum spacing from special wiring) |
+| `shield_tie_um` | float | 30.0 | 0.. | longest strap from a shield to ground when no ground shape crosses it (analog_shield) [um] |
 | `threads` | int | – | 1.. | OpenROAD threads for this step's attempts (set_thread_count; signoff: also KLayout DRC); unset: the run's threads, shared among the attempts running at once |
 
 ### route_digital
@@ -358,6 +363,8 @@ Set per attempt in `variants` (design file `flow:` or MCP `run_step`), or as def
 | parameter | type | default | allowed | description |
 |---|---|---|---|---|
 | `require_grid_connected` | bool | false |  | fail when check_power_grid finds a supply net not connected to its terminals |
+| `max_analog_coupling_ff` | float | – | 0.. | fail when an analog net's coupling to digital nets (sum, worst corner) exceeds this [fF] |
+| `max_analog_aggressor_ff` | float | – | 0.. | fail when one digital net couples more than this onto an analog net (worst corner) [fF] |
 | `fail_on_violation` | bool | false |  | fail the attempt when setup or hold is not met after the step |
 | `threads` | int | – | 1.. | OpenROAD threads for this step's attempts (set_thread_count; signoff: also KLayout DRC); unset: the run's threads, shared among the attempts running at once |
 

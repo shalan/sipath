@@ -348,6 +348,151 @@ class Equivalence(unittest.TestCase):
             tt("A + (B", ["A", "B"])
 
 
+class SpefCoupling(unittest.TestCase):
+    SPEF = """*SPEF "ieee 1481-1999"
+*C_UNIT 1 PF
+
+*NAME_MAP
+*1 ana\\.in
+*2 clk
+*3 vref
+*4 d0
+
+*D_NET *1 0.050
+*CONN
+*I *10:A I
+*CAP
+1 *1:1 0.040
+2 *1:2 *2:5 0.003
+3 *1:2 *3:1 0.002
+4 *1:3 *20:Y 0.001
+*RES
+1 *1:1 *1:2 1.0
+*END
+
+*D_NET *2 0.020
+*CONN
+*I *30:Y O
+*CAP
+1 *2:5 0.010
+2 *2:6 *1:3 0.004
+*END
+
+*D_NET *4 0.010
+*CONN
+*I *20:Y O
+*CAP
+1 *4:1 0.009
+*END
+"""
+
+    def test_pairs_from_either_section_and_instance_pins(self):
+        pairs, total = analog.spef_coupling(self.SPEF)
+        self.assertAlmostEqual(pairs[("ana.in", "clk")], 7.0)  # 3 fF in ana's section + 4 fF in clk's
+        self.assertAlmostEqual(pairs[("ana.in", "vref")], 2.0)
+        self.assertAlmostEqual(pairs[("ana.in", "d0")], 1.0)  # far node *20:Y is d0's driver pin
+        self.assertAlmostEqual(total["ana.in"], 50.0)
+
+    def test_report_splits_digital_and_analog(self):
+        path = os.path.join(tempfile.mkdtemp(), "x.spef")
+        with open(path, "w") as f:
+            f.write(self.SPEF)
+        r = analog.coupling_report([path], ["ana.in", "vref"])["ana.in"]
+        self.assertAlmostEqual(r["digital_ff"], 8.0)
+        self.assertEqual([o for o, _ in r["aggressors"]], ["clk", "d0"])
+        self.assertEqual(list(r["analog_ff"]), ["vref"])
+
+
+class Shielding(unittest.TestCase):
+    """Shield wires beside an analog net: offset, clipping, grounding, keep-away."""
+
+    def setUp(self):
+        from sipath import shield
+        self.sh = shield
+        lay = {"dir": "HORIZONTAL", "width": 300, "space": 300, "area": 0}
+        self.rules = shield.Rules({"met3": lay, "met4": dict(lay, dir="VERTICAL")},
+                                  {"met3": [(10 ** 12, 300)], "met4": [(10 ** 12, 300)]}, 5)
+        self.vias = {"met3": {"name": "M3M4", "pads": {"met3": (-190, -190, 190, 190), "met4": (-200, -200, 200, 200)}}}
+        self.special = [("ana", "met3", "wire", (0, 1000, 20000, 1600)),     # the analog wire, 0.6 um wide
+                        ("VSS", "met4", "wire", (10000, 0, 11600, 5000)),    # a ground stripe crossing it
+                        ("d0", "met3", "wire", (4000, 2000, 5000, 3000))]    # another net near its top side
+
+    def test_pieces_clipped_grounded_and_floating_ones_dropped(self):
+        r = self.sh.plan(["ana"], "VSS", self.special, [], [], self.rules, ["met3", "met4"], {"met3", "met4"},
+                         self.vias)["ana"]
+        self.assertEqual(sorted(r["pieces"]), [("met3", (0, 400, 20000, 700)), ("met3", (5300, 1900, 20000, 2200))])
+        self.assertEqual(r["dropped"], 1)  # the top piece left of d0 crosses no ground
+        # a via per piece on the stripe, its met3 pad flush with the shield's inner edge
+        self.assertEqual(sorted(r["vias"]), [("M3M4", 10800, 510), ("M3M4", 10800, 2090)])
+        self.assertEqual((r["covered"], r["sides"]), (34700, 40000))
+
+    def test_no_via_on_or_beside_another_ground_via(self):
+        # a grid via already sits where the top shield's via would go (the stripe crossing): that piece is
+        # dropped rather than stacking cuts; the bottom one still gets its via
+        special = self.special + [("VSS", "met4", "via", (10650, 1950, 10950, 2250))]
+        r = self.sh.plan(["ana"], "VSS", special, [], [], self.rules, ["met3", "met4"], {"met3", "met4"},
+                         self.vias)["ana"]
+        self.assertEqual(r["vias"], [("M3M4", 10800, 510)])
+        self.assertEqual(r["dropped"], 2)
+
+    def test_no_sliver_touch_with_another_ground_shape(self):
+        from sipath.shield import _sliver
+        self.assertTrue(_sliver((0, 0, 1000, 300), (960, 250, 2000, 600), 300))  # 40 x 50 overlap: a neck
+        self.assertFalse(_sliver((0, 0, 1000, 300), (500, 0, 2000, 300), 300))   # a full-width join
+        self.assertFalse(_sliver((0, 0, 1000, 300), (1000, 0, 2000, 300), 300))  # abutting: not an overlap
+
+    def test_shield_keeps_the_spacing_from_the_wire(self):
+        (top, _, _), (bot, _, _) = self.sh.candidates((0, 1000, 20000, 1600), "met3", self.rules, 300)
+        self.assertEqual(top[1] - 1600, 300)
+        self.assertEqual(1000 - bot[3], 300)
+        self.assertEqual(self.sh.candidates((0, 0, 500, 600), "met3", self.rules, 300), [])  # a via landing
+
+    def test_layers_not_allowed_are_reported(self):
+        r = self.sh.plan(["ana"], "VSS", self.special, [], [], self.rules, ["met3", "met4"], {"met4"}, self.vias)
+        self.assertEqual((r["ana"]["pieces"], r["ana"]["skipped_layers"]), ([], ["met3"]))
+
+    def test_tie_strap_to_a_parallel_stripe(self):
+        # a met4 analog wire beside a parallel met4 ground stripe: nothing crosses its shields, so the
+        # right one gets a met3 strap with a via on the shield and one inside the stripe; the left one
+        # reaches no ground and is dropped
+        special = [("ana", "met4", "wire", (10000, 0, 10600, 30000)), ("VSS", "met4", "wire", (20000, 0, 21600, 30000))]
+        r = self.sh.plan(["ana"], "VSS", special, [], [], self.rules, ["met3", "met4"], {"met3", "met4"}, self.vias,
+                         strap_layers={"met3"}, reach=15000)["ana"]
+        self.assertEqual(r["pieces"], [("met4", (10900, 0, 11200, 30000))])
+        self.assertEqual(r["ties"], [("met3", (10910, 14810, 20990, 15190))])
+        self.assertEqual(sorted(r["vias"]), [("M3M4", 11100, 15000), ("M3M4", 20800, 15000)])
+        self.assertEqual(r["dropped"], 1)
+        none = self.sh.plan(["ana"], "VSS", special, [], [], self.rules, ["met3", "met4"], {"met3", "met4"},
+                            self.vias, strap_layers={"met3"}, reach=5000)["ana"]  # the stripe is out of reach
+        self.assertEqual((none["pieces"], none["dropped"]), ([], 2))
+
+    def test_tie_strap_to_a_stripe_one_layer_beyond(self):
+        # a met2 shield (outside the rows: nothing crosses it), a met3 strap outward, a via up into a met4 stripe
+        lay = lambda w: {"dir": "VERTICAL", "width": w, "space": w, "area": 0}  # noqa: E731
+        rules = self.sh.Rules({"met2": lay(140), "met3": lay(300), "met4": lay(300)},
+                              {"met2": [(10 ** 12, 140)], "met3": [(10 ** 12, 300)], "met4": [(10 ** 12, 300)]}, 5)
+        vias = {"met2": {"name": "M2M3", "pads": {"met2": (-140, -185, 140, 185), "met3": (-165, -165, 165, 165)}},
+                "met3": self.vias["met3"]}
+        special = [("ana", "met2", "wire", (10000, 0, 10280, 30000)), ("VSS", "met4", "wire", (15000, 0, 16600, 30000))]
+        r = self.sh.plan(["ana"], "VSS", special, [], [], rules, ["met2", "met3", "met4"], {"met2", "met3", "met4"},
+                         vias, strap_layers={"met3"}, reach=10000)["ana"]
+        self.assertEqual(r["pieces"], [("met2", (10420, 0, 10560, 30000))])
+        self.assertEqual(r["ties"], [("met3", (10395, 14810, 15990, 15190))])
+        self.assertEqual(sorted(r["vias"]), [("M2M3", 10560, 15000), ("M3M4", 15800, 15000)])
+
+    def test_guard_keeps_the_ndr_spacing_and_clears_pins(self):
+        boxes = self.sh.guard({"ana": {"met3": 600}}, self.special, [("met3", (5000, 2000, 5500, 2500))], [],
+                              self.rules)
+        self.assertEqual(boxes, [("met3", (-300, 700, 4700, 1900)), ("met3", (5800, 700, 20300, 1900))])
+        self.assertEqual(self.sh.guard({"ana": {"met3": 300}}, self.special, [], [], self.rules), [])  # NDR = minimum
+
+    def test_keepaway_cut_around_pins(self):
+        boxes = self.sh.keepaway({"ana"}, self.special, [("met4", (15000, 1000, 15500, 1500))], [], self.rules,
+                                 ["met3", "met4"], set())
+        self.assertEqual(boxes, [("met4", (0, 400, 14700, 2200)), ("met4", (15800, 400, 20000, 2200))])
+        self.assertEqual(self.sh.keepaway({"ana"}, self.special, [], [], self.rules, ["met3", "met4"], {"met4"}), [])
+
+
 class DefParsing(unittest.TestCase):
     DEF = """
 NETS 2 ;

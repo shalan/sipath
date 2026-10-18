@@ -767,11 +767,58 @@ llength [$net getITerms]
 """
 
 
+def shield_nets(ctx, sh_rules) -> dict:
+    """Grounded shield wires beside the analog_shield nets (sipath.shield),
+    drawn as special wiring of the shield net once the analog nets are frozen;
+    with analog_keepaway, obstructions on the layers above and below them.
+    Fails on a short between special nets; reports coverage per net."""
+    from . import shield
+    d, s = ctx.design, ctx.session
+    rules, vias = sh_rules
+    layers = list(ctx.pdk.layers)
+    dbu = int(s.value("[ord::get_db_block] getDbUnitsPerMicron"))
+    net = d.analog_shield_net or d.net("VSS")
+    special, insts, bterms, core_top = shield.dump(s)
+    lo, hi = layers.index(d.min_route_layer), layers.index(d.max_route_layer)
+    # above the standard cells' own shapes (a layer the PDK does not route lies below its routing layers)
+    core_top, core_cell = core_top
+    cell_top = layers.index(core_top) if core_top in layers else -1
+    allowed = {ly for k, ly in enumerate(layers) if k > cell_top and lo <= k <= hi}
+    ctx.outputs["analog_shield_layers"] = sorted(allowed, key=layers.index)
+    ctx.outputs["standard_cell_top_layer"] = [core_top, core_cell] if core_top else None
+    straps = allowed - set(d.analog_row_blocked_layers)  # straps cross rows: never on the pin-access layers
+    plan = shield.plan(list(d.analog_shield), net, special, insts, bterms, rules, layers, allowed, vias,
+                       strap_layers=straps, reach=int(round(float(ctx.params.get("shield_tie_um", 30.0)) * dbu)))
+    ctx.outputs["analog_shield_shapes"] = shield.draw(s, net, plan, rules.grid)
+    rep = shield.summary(plan, dbu)
+    ctx.outputs["analog_shield"] = rep
+    ctx.metrics["analog_shield_coverage"] = round(min(r["coverage"] for r in rep.values()), 4)
+    if d.analog_keepaway:
+        barred = set(d.analog_row_blocked_layers) | {ly for k, ly in enumerate(layers) if not lo <= k <= hi}
+        special = shield.dump(s)[0]
+        boxes = shield.keepaway(set(d.analog_shield), special, insts, bterms, rules, layers, barred)
+        ctx.outputs["analog_keepaway_obstructions"] = shield.obstruct(s, boxes)
+    _no_supply_shorts(ctx, layers)
+    return rep
+
+
 def route_analog(ctx):
     d, s = ctx.design, ctx.session
     if not d.analog_nets and not d.analog_supplies:
         return
     s.run(tcl.analog_ndr(d))
+    from . import shield
+    dbu = int(s.value("[ord::get_db_block] getDbUnitsPerMicron"))
+    sh_rules = shield.tech(s, list(ctx.pdk.layers)) if d.analog_nets else None
+    ndr_sp = {n: dict(d.analog_ndr["spacing"]) for n in d.analog_nets}  # um, per net and layer
+    if d.analog_shield:  # room for a shield on each side of the shielded nets
+        sp = shield.ndr_spacing(sh_rules[0], d.analog_ndr, dbu)
+        w = " ".join(f"{k} {v}" for k, v in d.analog_ndr["width"].items() if k in sp)
+        s.run(f"create_ndr -name ANALOG_SH -width {{{w}}} -spacing {{{' '.join(f'{k} {v}' for k, v in sp.items())}}}")
+        for n in d.analog_shield:
+            s.run(f"assign_ndr -ndr ANALOG_SH -net {q(n)}")
+            ndr_sp[n] = dict(sp)
+        ctx.outputs["analog_shield_ndr_spacing_um"] = sp
     s.run(tcl.routing_layers(d, ctx.pdk))
     supplies = list(d.analog_supplies)
     if supplies:
@@ -821,6 +868,13 @@ def route_analog(ctx):
         s.run(SUPPLY_UNPARK.replace("@NET@", q(net)))
     ctx.outputs["analog_shapes"] = analog.freeze_nets(s, routed, ctx.path("analog_routed.def"))
     ctx.outputs["analog_def"] = ctx.path("analog_routed.def")  # analog nets restored from this before RCX
+    if d.analog_shield:
+        shield_nets(ctx, sh_rules)
+    if d.analog_nets and ctx.params.get("guard", True):
+        special, insts, bterms, _ = shield.dump(s)
+        boxes = shield.guard({n: {ly: int(round(v * dbu)) for ly, v in sp.items()} for n, sp in ndr_sp.items()},
+                             special, insts, bterms, sh_rules[0])
+        ctx.outputs["analog_guard_obstructions"] = shield.obstruct(s, boxes)
     if supplies:  # strap each supply pad's tab to its routed wire
         from . import powerconnect
         die = tuple(map(int, tcl_words(s.value("set b [[ord::get_db_block] getDieArea]; "
@@ -1374,6 +1428,46 @@ def extract(ctx):
     if absent:
         raise RuntimeError(f"analog nets missing from the SPEF: {absent}")
     ctx.metrics["analog_nets_in_spef"] = len(nets)
+    if nets:
+        analog_coupling(ctx, [spef, *corner_spefs.values()])
+
+
+def analog_coupling(ctx, spefs: list[str]) -> dict:
+    """Coupling onto the analog nets from the SPEFs (analog_coupling.json /
+    .md): metrics analog_coupling_ff (worst net's digital coupling) and
+    analog_aggressor_ff (largest single digital aggressor); the limits
+    max_analog_coupling_ff / max_analog_aggressor_ff fail the attempt."""
+    import json
+    rep = analog.coupling_report(list(dict.fromkeys(spefs)), ctx.design.analog_nets)
+    path = ctx.path("analog_coupling.json")
+    with open(path, "w") as f:
+        json.dump(rep, f, indent=1)
+    lines = ["| analog net | total (fF) | from digital (fF) | largest aggressors (fF) | other analog nets (fF) |",
+             "|---|---|---|---|---|"]
+    for n, r in rep.items():
+        ag = ", ".join(f"{o} {v:.2f}" for o, v in r["aggressors"][:5]) or "-"
+        an = ", ".join(f"{o} {v:.2f}" for o, v in r["analog_ff"].items()) or "-"
+        lines.append(f"| {n} | {r['total_ff']:.2f} | {r['digital_ff']:.2f} | {ag} | {an} |")
+    with open(ctx.path("analog_coupling.md"), "w") as f:
+        f.write("\n".join(lines) + "\n")
+    ctx.outputs["analog_coupling"] = path
+    worst = max(rep.items(), key=lambda kv: kv[1]["digital_ff"])
+    aggr = max(((n, *r["aggressors"][0]) for n, r in rep.items() if r["aggressors"]), key=lambda t: t[2],
+               default=None)
+    ctx.metrics["analog_coupling_ff"] = float(worst[1]["digital_ff"])
+    ctx.metrics["analog_aggressor_ff"] = aggr[2] if aggr else 0.0
+    bad = []
+    lim = ctx.params.get("max_analog_coupling_ff")
+    if lim is not None:
+        bad += [f"{n}: {r['digital_ff']:.2f} fF from digital nets (> {lim:g})" for n, r in rep.items()
+                if r["digital_ff"] > lim]
+    lim = ctx.params.get("max_analog_aggressor_ff")
+    if lim is not None:
+        bad += [f"{n}: {o} couples {v:.2f} fF (> {lim:g})" for n, r in rep.items() for o, v in r["aggressors"]
+                if v > lim]
+    if bad:
+        raise RuntimeError(f"analog coupling over the limit ({path}):\n  " + "\n  ".join(bad))
+    return rep
 
 
 def signoff(ctx):

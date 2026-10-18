@@ -184,6 +184,10 @@ STEP_PARAMS: dict[str, list[Param]] = {
     "cts": [],
     "route_analog": [
         Param("iters", "int", 20, _ITERS + " for the analog nets", min=1),
+        Param("guard", "bool", True, "routing obstructions around the frozen analog wiring so digital wires keep "
+              "the analog NDR spacing (the router keeps only the minimum spacing from special wiring)"),
+        Param("shield_tie_um", "float", 30.0, "longest strap from a shield to ground when no ground shape crosses "
+              "it (analog_shield)", unit="um", min=0),
     ],
     "route_digital": [
         Param("detailed", "bool", True, "detailed routing; off: stop after global routing and its repair, with "
@@ -231,6 +235,10 @@ STEP_PARAMS: dict[str, list[Param]] = {
     "extract": [
         Param("require_grid_connected", "bool", False, "fail when check_power_grid finds a supply net not "
               "connected to its terminals"),
+        Param("max_analog_coupling_ff", "float", None, "fail when an analog net's coupling to digital nets "
+              "(sum, worst corner) exceeds this", unit="fF", min=0),
+        Param("max_analog_aggressor_ff", "float", None, "fail when one digital net couples more than this onto "
+              "an analog net (worst corner)", unit="fF", min=0),
         Param("fail_on_violation", "bool", False, _FAIL),
     ],
     "signoff": [

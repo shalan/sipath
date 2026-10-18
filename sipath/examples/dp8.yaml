@@ -24,6 +24,7 @@ pdn:
   - [met1, met4]
   rings: false
 analog_nets: ['ana_in[0]', 'ana_in[1]']
+analog_shield: ['ana_in[0]']   # grounded shields beside it; ana_in[1] left bare for contrast
 datapaths:
 - name: adder
   kind: slices

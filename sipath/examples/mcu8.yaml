@@ -293,6 +293,7 @@ pdn:
   ring_connect_to_pads: true
   ring_pad_layers: [met3]
 analog_nets: [ana.ana_in, ana.dac_out, ana.vref_hi, ana.vref_lo]
+analog_shield: [ana.ana_in, ana.dac_out, ana.vref_hi, ana.vref_lo]   # grounded shields beside each
 analog_supplies: [VDDA, VSSA]
 clock_nets: [core.pad_clk_i]
 datapaths:

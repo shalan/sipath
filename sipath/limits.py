@@ -17,6 +17,8 @@ A limits file maps a design name to its limits; the default is
       signoff_pass: true
       lvs_match: true
 
+Designs with analog nets can also bound ``max_analog_coupling_ff`` (the worst
+analog net's coupling to digital nets) and ``max_analog_aggressor_ff``.
 ``min_*`` / ``max_*`` bound a number; any other key must equal the run's value.
 A limit whose quantity the run does not have is a violation: a missing result
 is a failed run.
@@ -52,7 +54,8 @@ def run_metrics(workdir: str, until: str | None = None) -> dict:
     atts = [a for a in g["attempts"] if a["step"] in names and a.get("started_at")]
     end = max((a.get("finished_at") or 0) for a in sel)
     out = {"wns_ns": m.get("wns"), "whs_ns": m.get("whs"), "drc": m.get("drc"), "wirelength_um": m.get("wirelength_um"),
-           "insts": m.get("insts"), "runtime_s": round(end - min(a["started_at"] for a in atts), 1) if atts else None}
+           "insts": m.get("insts"), "analog_coupling_ff": m.get("analog_coupling_ff"),
+           "analog_aggressor_ff": m.get("analog_aggressor_ff"), "runtime_s": round(end - min(a["started_at"] for a in atts), 1) if atts else None}
     so = (sel[-1].get("outputs") or {}).get("signoff") if until == "signoff" else None
     if so and os.path.isfile(so):
         with open(so) as f:
@@ -91,8 +94,8 @@ def check(workdir: str, entry: dict) -> list[str]:
 def suggest(workdir: str, until: str | None = None) -> dict:
     """A limits entry from a good run: setup slack may lose a quarter (at least
     0.25 ns) but stays met when met, hold stays met, DRC stays at the run's
-    count, wirelength and instances may grow 10%, wall time may double (+30 s:
-    machine load)."""
+    count, wirelength and instances may grow 10%, analog coupling 20% + 0.5 fF,
+    wall time may double (+30 s: machine load)."""
     m = run_metrics(workdir, until)
     if "error" in m:
         raise ValueError(m["error"])
@@ -107,6 +110,9 @@ def suggest(workdir: str, until: str | None = None) -> dict:
     for k in ("wirelength_um", "insts"):
         if m.get(k):
             e[f"max_{k}"] = int(math.ceil(round(m[k] * 1.10, 6)))
+    for k in ("analog_coupling_ff", "analog_aggressor_ff"):  # +20 % and 0.5 fF: routing varies a little
+        if m.get(k) is not None:
+            e[f"max_{k}"] = round(m[k] * 1.2 + 0.5, 2)
     if m["runtime_s"]:
         e["max_runtime_s"] = int(math.ceil(round(m["runtime_s"] * 2 + 30, 6)))
     for k in ("signoff_pass", "lvs_match"):

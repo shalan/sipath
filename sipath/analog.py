@@ -246,3 +246,79 @@ def is_frozen(session, nets: list[str]) -> bool:
     if len(flags) != 1:
         raise RuntimeError(f"analog nets partly frozen: {flags}")
     return flags == {"1"}
+
+
+_CUNIT = {"FF": 1.0, "PF": 1e3, "NF": 1e6, "UF": 1e9}
+
+
+def spef_coupling(text: str) -> tuple[dict, dict]:
+    """Coupling capacitance between nets in a SPEF: ({(a, b): fF} with a < b,
+    {net: total fF}). A coupling cap is written once, in either net's *CAP
+    section; its far node is a net's internal node (*N:k), an instance pin
+    (*I in some net's *CONN) or a port."""
+    m = re.search(r"^\*C_UNIT\s+([\d.eE+-]+)\s+(\w+)", text, re.M)
+    scale = float(m.group(1)) * _CUNIT[m.group(2).upper()] if m else 1e3
+    names = {}
+    nm = text.find("*NAME_MAP")
+    if nm >= 0:
+        end = text.find("\n*PORTS", nm)
+        end = text.find("\n*D_NET", nm) if end < 0 else end
+        for k, v in re.findall(r"^\*(\d+) (\S+)$", text[nm:end], re.M):
+            names["*" + k] = v.replace("\\", "")
+    name = lambda t: names.get(t, t.replace("\\", ""))  # noqa: E731
+    owner, total, caps = {}, {}, []
+    for sec in re.split(r"^\*D_NET ", text, flags=re.M)[1:]:
+        head, _, rest = sec.partition("\n")
+        tok = head.split()
+        net = name(tok[0])
+        total[net] = float(tok[1]) * scale
+        conn = re.search(r"^\*CONN\n(.*?)^\*(?:CAP|RES|END)", rest, re.M | re.S)
+        for ln in (conn.group(1).splitlines() if conn else []):
+            t = ln.split()
+            if len(t) >= 2 and t[0] in ("*I", "*P"):
+                owner[t[1]] = net
+        cap = re.search(r"^\*CAP\n(.*?)^\*(?:RES|END)", rest, re.M | re.S)
+        for ln in (cap.group(1).splitlines() if cap else []):
+            t = ln.split()
+            if len(t) == 4:
+                caps.append((net, t[2], float(t[3]) * scale))
+    pairs = {}
+    for net, far, c in caps:
+        other = owner.get(far)
+        if other is None:
+            base = far.split(":")[0] if ":" in far else far
+            other = name(base) if base in names or ":" in far else name(far)
+        if other == net or c <= 0:
+            continue
+        key = (net, other) if net < other else (other, net)
+        pairs[key] = pairs.get(key, 0.0) + c
+    return pairs, total
+
+
+def coupling_report(spefs: list[str], analog_nets: list[str], top: int = 10) -> dict:
+    """Per analog net, from every corner's SPEF (the worst value of each pair):
+    total capacitance, coupling to digital nets (sum and the ``top`` largest
+    aggressors) and to the other analog nets."""
+    worst, totals = {}, {}
+    for path in spefs:
+        with open(path) as f:
+            pairs, total = spef_coupling(f.read())
+        for k, v in pairs.items():
+            worst[k] = max(worst.get(k, 0.0), v)
+        for k, v in total.items():
+            totals[k] = max(totals.get(k, 0.0), v)
+    ana = set(analog_nets)
+    out = {}
+    for n in analog_nets:
+        dig, other = {}, {}
+        for (a, b), v in worst.items():
+            if n in (a, b):
+                o = b if a == n else a
+                (other if o in ana else dig)[o] = v
+        aggr = sorted(dig.items(), key=lambda kv: -kv[1])
+        out[n] = {"total_ff": round(totals.get(n, 0.0), 4),
+                  "digital_ff": round(sum(dig.values(), 0.0), 4),
+                  "aggressors": [[o, round(v, 4)] for o, v in aggr[:top]],
+                  "aggressor_count": len(aggr),
+                  "analog_ff": {o: round(v, 4) for o, v in sorted(other.items())}}
+    return out

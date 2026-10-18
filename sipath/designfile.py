@@ -28,6 +28,7 @@ PATH_FIELDS = ("netlist", "sdc", "floorplan_def")
 SIMPLE = ("name", "top", "mode", "die", "core_margin", "analog_nets", "analog_ndr", "analog_row_blocked_layers",
           "is_core", "min_route_layer", "max_route_layer", "clock_ports", "clock_nets", "keepouts", "pad_supplies",
           "pad_kinds", "analog_supplies", "analog_supply_layers", "analog_supply_ndr", "macro_channel",
+          "analog_shield", "analog_shield_net", "analog_keepaway",
           "macro_pin_clearance", "analog_guard", "layer_adjustments", "pad_masters", "pdk", "dont_use",
           "allow_excluded", "step_defaults", "rtl_defines", "core_utilization", "aspect_ratio", "auto_blackbox",
           "plugins", "extensions", "supply_names", "harness", "harness_options")
