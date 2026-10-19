@@ -2115,7 +2115,10 @@ class ConfigTests(unittest.TestCase):
             self.assertTrue(all(os.path.isfile(out[k]) for k in ("netlist", "floorplan_def", "sdc")))
 
     def test_package_metadata(self):
-        import tomllib
+        try:
+            import tomllib
+        except ImportError:  # Python 3.10 (tomllib is 3.11+); the newer CI jobs check this
+            self.skipTest("tomllib needs Python 3.11")
         root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         with open(os.path.join(root, "pyproject.toml"), "rb") as fh:
             meta = tomllib.load(fh)

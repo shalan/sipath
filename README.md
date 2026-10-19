@@ -19,237 +19,161 @@ and a signed-off GDS**. It is built to be steered by an AI agent:
 - signoff (DRC, LVS, STA) is the judge of what counts.
 
 A person can drive the same steps from the CLI or Python. PDKs and designs are
-data: `sipath/pdks/sky130hd.yaml` and `sipath/pdks/ihp-sg13g2.yaml` describe the
-PDKs, and a design file (YAML/JSON) describes a design and its steps.
+data: a PDK description (`sipath/pdks/*.yaml`; Sky130 from an open_pdks tree is
+the most complete, IHP SG13G2 the second PDK) and a design file (YAML or JSON)
+that describes a design and its steps.
 
 ```bash
-python3 -m sipath run sipath/examples/dp8.yaml   # mode 1: soft macro, floorplan from a DEF (sky130A, open_pdks)
-python3 -m sipath run mcu8                     # mode 2: MCU die, pad ring + hard macros (example name)
-python3 -m sipath run ihp_add8                 # a soft macro on the second PDK (IHP SG13G2)
-python3 -m sipath pdks                         # PDK descriptions available
-python3 -m sipath run sipath/examples/gcd8.yaml runs/x --explore  # first-cut PPA in a minute, suggested clock
-python3 -m sipath run mcu8 runs/mcu8 --resume  # continue an interrupted run (finished work is kept)
-python3 -m sipath run dp8 --config my.yaml -v  # run configuration file, INFO logging
-python3 -m unittest sipath.tests.test_unit      # unit tests: no OpenROAD, a few seconds
-python3 -m sipath.tests.run_live -j 4          # live tests (real runs), classes in parallel, with times
-python3 -m unittest sipath.tests.test_sipath    # everything, one process
-python3 -m sipath limits runs/gcd8 gcd8        # a run against its regression limits (sipath/tests/limits.yaml)
-python3 bench/synth_bench.py                   # synthesis benchmark: 16 designs (bench/synth)
-python3 -m sipath validate      # inputs + scheduler rules (stand-in sessions, no design)
+# runs
+python3 -m sipath run sipath/examples/gcd8.yaml          # RTL to signoff (soft macro, sky130A)
+python3 -m sipath run mcu8                               # a die: pad ring, hard macros, analog (example name)
+python3 -m sipath run ihp_add8                           # a soft macro on IHP SG13G2
+python3 -m sipath run sipath/examples/gcd8.yaml runs/x --explore   # first-cut PPA in a minute, suggested clock
+python3 -m sipath run mcu8 runs/mcu8 --resume            # continue an interrupted run (finished work is kept)
+python3 -m sipath run dp8 --config my.yaml -v            # a run configuration file, INFO logging
+python3 -m sipath report runs/gcd8 --render              # the run's report page (report.md / report.html)
+
+# setup and tools
+python3 -m sipath install-pdk      # the locked open_pdks release through ciel (downloads; --dry-run prints it)
+python3 -m sipath toolchain --check   # configured images and installed PDK trees against the lock
+python3 -m sipath setup-placer     # the Python with CPU PyTorch for the cdlns macro placer (~/.cache/sipath)
+python3 -m sipath pdks             # PDK descriptions available
+python3 -m sipath templates        # design templates; `new <dir> --template openframe` writes a project
+python3 -m sipath harden gcd8 sipath/examples/hardened/gcd8   # a design's hardened-macro views
 python3 -m sipath draw <odb> <svg> [--ring]   # schematic SVG of a checkpoint
 python3 -m sipath render <odb> <png>          # OpenROAD's own layout render
-python3 -m sipath mcp           # MCP server on stdio
-python3 -m sipath harden gcd8 sipath/examples/hardened/gcd8   # a design's hardened-macro views
-python3 -m sipath templates     # design templates; `new <dir> --template openframe` writes a project
-python3 -m sipath setup-placer  # the Python with CPU PyTorch for the cdlns macro placer (~/.cache/sipath)
-python3 -m sipath install-pdk   # the locked open_pdks release through ciel (downloads; --dry-run prints the command)
-python3 -m sipath report runs/gcd8 --render   # the run's report page (report.md / report.html)
+python3 -m sipath mcp              # MCP server on stdio
+
+# tests and benchmarks
+python3 -m unittest sipath.tests.test_unit      # unit tests: no OpenROAD, seconds
+python3 -m sipath.tests.run_live -j 4          # live tests (real runs), classes in parallel, with times
+python3 -m sipath limits runs/gcd8 gcd8        # a run against its regression limits
+python3 -m sipath validate                     # example inputs and scheduler rules
+python3 bench/orfs_compare.py gcd aes          # against OpenROAD-flow-scripts
+python3 bench/synth_bench.py                   # synthesis benchmark: 16 designs
 ```
+
+## Contents
+
+[Features](#features) · [Synthesis](#synthesis) · [PDKs](#pdks) ·
+[Runtimes](#runtimes) · [How the flow works](#how-the-flow-works) ·
+[Signoff](#signoff) · [Agents (MCP)](#agents-mcp) · [Benchmarks](#benchmarks) ·
+[Design files](#design-files) · [Examples](#examples) · [Modules](#modules) ·
+[Workarounds](#workarounds-for-this-openroad-build) · [License](#license)
 
 ## Features
 
 **Inputs and configuration**
-- Design files in YAML or JSON, checked against a schema (every unknown key
-  and wrong type listed at once); the JSON Schema and `docs/reference.md` are
-  generated from the same declarations.
+- Design files in YAML or JSON, checked against a schema before anything runs
+  (every unknown key and wrong type listed at once). The JSON Schema and
+  `docs/reference.md` are generated from the same declarations.
 - Typed step parameters, resolved variant > design `step_defaults` > PDK
   `step_defaults` > declared default; `describe_step` lists them.
-- PDKs as data: sky130A/B, sky130A_hs, sky130hd (ORFS platform files), IHP
-  SG13G2; sky130 the most complete (corners, routing, power grid, IO, signoff
-  decks, fill rules, Magic rc file, cell exclusions, LVS black boxes).
-- Run configuration from a file or `SIPATH_*` variables: threads (default:
-  every core, as ORFS; two thirds of them on macOS; per step with the
-  `threads` parameter of every OpenROAD step, and shared among a step's
-  attempts running at once), timeouts,
-  parallel cap, container limits, image and digest pinning, Magic image,
-  native tools, OpenROAD binary, platform.
-- Reproducible toolchain: the images are locked by digest with their tool
-  versions and the open_pdks release by commit (`sipath/toolchain.json`;
-  `python3 -m sipath toolchain --check` compares the configured images and the
-  installed PDK trees). An unpinned image or a PDK tree of another release is
-  refused by default, and each run records the release it used. `pyproject.toml` packages it (`sipath` console script); the
-  example inputs are committed and their generators leave current files alone.
-- Regression limits per design (`sipath/tests/limits.yaml`: setup/hold slack,
-  DRC, LVS, signoff, wirelength, instances, wall time), one checker
-  (`sipath limits`, `--suggest` from a good run); the live tests check their
-  runs against it. Tests split into unit (`test_unit`, seconds) and live
-  (`test_live`, run in parallel by `sipath.tests.run_live`).
-- Plugins (`plugins:` or the `sipath.plugins` entry points) add steps,
-  scores, signoff checks, harnesses, design templates and design-file
-  extensions. A flow can also name a step function by import path
-  (`- step: mypkg.checks:inst_count`, or `fn:` under another name). It is
-  imported on first use, with typed parameters from its `params` attribute,
-  and gets variants, scores and resume like the built-in steps.
+- PDKs as data: sky130A/B (open_pdks), sky130A_hs, sky130hd (ORFS platform
+  files), IHP SG13G2.
+- Run configuration from a file, `SIPATH_*` variables or a design file's
+  `config:`: threads (every core by default, two thirds on macOS; per step;
+  shared among a step's attempts running at once), timeouts, parallel cap,
+  container limits, images, native tools, OpenROAD binary, platform.
+- Reproducible toolchain: images locked by digest with their tool versions,
+  and the open_pdks release locked by commit (`sipath/toolchain.json`). An
+  unpinned image or a PDK tree of another release is refused by default, and
+  each run records what it used. Packaged with `pyproject.toml` (`sipath`
+  console script).
+- Plugins (`plugins:` or the `sipath.plugins` entry points) add steps, scores,
+  signoff checks, harnesses, design templates and design-file extensions. A
+  flow can also name a step function by import path
+  (`- step: mypkg.checks:inst_count`), with typed parameters from its `params`
+  attribute.
 
 **Front end** (`synth`; see [Synthesis](#synthesis))
 - Verilog or SystemVerilog (slang), linted by Yosys and Verilator.
-- ABC mapping with 20 measured recipes, mapped at the slow corner without a
-  delay target, given the SDC's boundary model; several recipes in one
-  attempt, the netlist picked by least area meeting timing (else the knee of
-  the slack/area front), judged by OpenSTA with the Liberty wire-load model.
-- Front-end variants (Booth multipliers, parallel-prefix adders) and register
+- ABC mapping with 20 measured recipes, at the slow corner, without a delay
+  target, given the SDC's boundary model; several recipes in one attempt, the
+  netlist picked by least area meeting timing (else the knee of the
+  slack/area front), judged by OpenSTA with the Liberty wire-load model.
+- Front-end variants (Booth multipliers, parallel-prefix adders); register
   names kept through flattening.
 - Bounded RTL-to-netlist equivalence of the selected netlist; black-box
   Liberty models for macros without one (opt-in).
 
-**Physical design** (`floorplan`, `macros`, `physical`, `place`, `cts`,
-`route_analog`, `route_digital`, `route_repair`, `fill`, `extract`,
-`signoff`, `views`, `integrate`)
+**Physical design**
 - Soft macro (floorplan from a DEF, a die box or a target utilization; pins
   placed automatically) or full die (pad ring generated from rules, every IO
   control pin tied).
-- Hard macros: placed by the design or automatically (halos, cut rows),
-  per-macro supply connections and grids, abstract or full-layout signoff;
-  hardened views reused with `views: <dir>`.
+- Hard macros: fixed by the design, or placed by a seeded random search with
+  orientation search, OpenROAD's `rtl_macro_placer`, or the CD-LNS placer from
+  the Macro Placement Challenge 2026; every result checked against halo,
+  channel, pin-clearance and analog-guard rules and scored by a quick place
+  and route. Per-macro supply connections and grids; signoff on the abstract
+  or the full layout; hardened views reused with `views: <dir>`.
 - Power grid (rings, straps scaled to the design) and a power connector for
   pins the grid generator cannot reach (pad tabs, analog macro tabs, harness
-  supply pins); 3.3 V analog supplies routed with a non-default rule.
-- Placement: timing- and routability-driven (as ORFS), then
+  supply pins); 3.3 V analog supplies routed with a wide non-default rule.
+- Placement driven by timing and routability (as ORFS), then
   `improve_placement` and `optimize_mirroring`; fences and clusters;
-  structured datapaths (column, array, bit-slice) with well-tap slots;
-  tie-cell fanout repair.
-- CTS, then routing: analog nets first and frozen, optionally shielded
-  (grounded wires on both sides) with an adjacent-layer keep-away, and their
-  coupling to digital nets reported and bounded; digital
-  routing with repair on global-route parasitics, antenna repair loops,
-  incremental patch routes; post-route timing repair on extracted parasitics
-  re-routes only the nets it changed (a full re-route past a quarter of the
-  nets), checked for equivalence; zero-extension corners squared.
-- Metal fill with the PDK's rules, up to the design's top routing layer.
-- In-flow repair on three corners (sky130: typical, worst setup `ss_max`,
-  worst hold `ff_min`; the PDK's `optimize_corners`); OpenRCX extraction and
-  signoff timing at all nine (tt/ss/ff x min/nom/max interconnect).
+  structured datapaths (column, array, bit-slice) with well-tap slots.
+- Analog nets routed first with a non-default rule and frozen, kept at that
+  spacing from later digital wiring, optionally shielded (grounded wires on
+  both sides) with an adjacent-layer keep-away; their coupling to digital
+  nets is reported and bounded.
+- Digital routing with repair on global-route parasitics, antenna repair
+  loops and incremental patch routes; post-route timing repair on extracted
+  parasitics that re-routes only the nets it changed, checked for equivalence.
+- Metal fill with the PDK's rules; in-flow repair on three corners, OpenRCX
+  extraction and signoff timing at all nine.
 
-**Exploration mode** (`--explore`, `run(..., explore=True)`)
-- A first cut at PPA to set the SDC before a full run: the design's own flow
+**Exploration mode** (`--explore`)
+- A first cut at PPA to set the SDC before a full run: the design's flow
   without the equivalence check, detailed routing, post-route repair, fill,
-  extraction, signoff, views or integration, optimized at the typical corner
-  only. Timing and power come from global-routing parasitics (placement
-  estimates when the flow stops before routing).
-- `ppa.json` / `ppa.md` and the run report give cell area, utilization,
-  WNS/TNS/WHS, total power, wirelength, and per clock the achievable period
-  (period − WNS), fmax and a suggested `create_clock` period (achievable +
-  5%, the `ppa` step's `margin`).
+  extraction or signoff, optimized at the typical corner, with timing and
+  power from global-routing parasitics.
+- `ppa.json` / `ppa.md` give cell area, utilization, WNS/TNS/WHS, power,
+  wirelength and, per clock, the achievable period, fmax and a suggested
+  `create_clock` period (achievable + 5%).
 
-**Signoff**
-- Full-device LVS with the PDK's own KLayout deck (open_pdks `sky130.lvs`:
-  high-voltage MOS, MIM caps, poly/diffusion resistors, diodes), as the opt-in
-  signoff check `lvs_full` and as `sipath lvs <gds> <top> <schematic...>` for a
-  macro. Schematics are prepared for the deck (device-name aliases from the
-  PDK file, the device prefix on CDL models, cell SPICE for black-box cells,
-  parallel MOS merged as the deck merges the layout's). Not yet matching: on
-  the ChipFoundry ADC (10 s) the vendor schematic lacks its `decoder3to8`
-  block; on dp8 (13 s) the deck's extraction and the PDK's cell netlists
-  disagree (parallel devices merged across cells, tap diodes and tie resistors
-  not extracted, well/substrate pins of the cells). The standard-cell LVS
-  remains the gating check.
-- KLayout DRC (the deck's rule groups run in parallel), metal density
-  (gating for top-level layouts, reported for embedded macros), KLayout LVS
-  against a reference netlist (tie cells and supplies handled; macros and IO
-  cells as black boxes when asked), antennas, independent STA (setup, hold,
-  slew/cap/fanout, parasitic coverage, unconstrained endpoints), harness
-  conformance.
-- Opt-in Magic DRC and a Magic-vs-KLayout stream-out XOR.
+**Signoff** (see [Signoff](#signoff))
+- KLayout DRC (rule groups in parallel), metal density, standard-cell LVS,
+  antennas, independent nine-corner STA, harness conformance; opt-in Magic
+  DRC, a Magic-vs-KLayout XOR and full-device LVS with the PDK's own deck.
 - One summary (`signoff.json`); a required check that fails fails the run.
-- Every check is also a step of its own (`drc`, `density`, `lvs`, `lvs_full`,
-  `antenna`, `timing`, `magic_drc`, `xor`, `harness`): each runs alone on the
-  parent's database, in its own process, resumable, with its own variants.
-  `lvs_full` brings the LVS reference netlist; every check on the layout streams
-  the GDS itself.
+  Every check is also a step of its own (`drc`, `lvs`, `timing`, ...).
 
 **Frames and chips**
 - Harnesses (OpenFrame, Caravel): the design is the frame's wrapper (template
-  die and pins, every frame supply pin, power grid, routing limits). Pins that
-  overhang the boundary are clipped for routing and restored at signoff;
-  loopback nets are never buffered; the routed wrapper is checked against the
-  template pin by pin.
-- `integrate`: the hardened wrapper placed in the frame's layout by Magic and
-  the chip GDS checked (die, wrapper position, contents unchanged); the seal
-  ring is left to tape-out.
-- Hardened macro views (`views`, `sipath harden`): abstract LEF, Liberty per
-  corner, GDS, LVS subcircuit, SPEF, netlists, `macro.yaml`.
-- Design templates (`sipath templates`, `sipath new --template openframe`):
-  wrapper, starter core, SDC and design file, ready to run.
+  die and pins, every frame supply pin, power grid, routing limits), checked
+  against the template pin by pin; `integrate` places the signed-off wrapper
+  in the frame's layout and checks the chip GDS.
+- Hardened macro views (`views`, `sipath harden`) and design templates
+  (`sipath templates`, `sipath new --template openframe`).
 
-**Exploration and execution**
+**Execution**
 - Attempt graph: variants per step run in parallel, named scores choose,
   resume, cancel, provenance; a failed attempt writes no checkpoint.
-- ECOs (resize, buffer) checked for structural equivalence and timing
-  regression.
-- MCP server for agents (runs, steps, ECOs, jobs, step descriptions).
-- A run report (`report.md` / `report.html`) after every step;
-  `sipath report --render` adds a layout picture.
-
-**Runtimes**
-- OpenROAD from the ORFS image (amd64, the default), any image with OpenROAD
-  on PATH (e.g. LibreLane's arm64 image), or a native binary; Yosys, KLayout
-  and Magic can run on the host while OpenROAD stays in the container.
-- Provenance records the image digest, platform, binary and tool versions.
-
-**Benchmarks and tests** (see [Benchmarks](#benchmarks))
-- Against ORFS: its reference designs through both flows, and SiPath's own
-  designs through ORFS, measured by the same code.
-- Synthesis: shalan/synth_flow's 16 designs (`bench/synth_bench.py`).
-- 163 unit tests (seconds; undefined names, step parameters of the examples,
-  PDK names kept out of the library code) and 45 live tests (real runs, in
-  parallel), with regression limits per design.
-- CI (GitHub Actions):
-  - `unit` runs on every push and pull request (Python 3.10, 3.12, 3.14). It runs the unit tests (those
-    needing an open_pdks tree skip with the reason), checks that the generated
-    reference docs are current, and checks the wheel's package data.
-  - `live` runs nightly or on demand. It uses the locked ORFS image and the
-    locked open_pdks release (fetched by `sipath install-pdk`), in two parallel
-    jobs (the mcu8 chip, everything else), with regression limits
-    except wall time (`SIPATH_LIMITS_IGNORE=max_runtime_s`), and keeps the logs of a failed run.
-  - On Linux the containers run as the calling user (`--user`), so files they
-    write stay the user's; `SIPATH_DOCKER_AS_ROOT=1` keeps the image's user.
+- ECOs (resize, buffer) checked for structural equivalence and timing loss.
+- MCP server for agents; a run report after every step.
+- Regression limits per design and one checker (`sipath limits`); unit and
+  live tests; CI on GitHub Actions (unit tests on every push, live tests
+  nightly).
 
 **Known limits**
 - RTL equivalence is bounded, not a full proof.
+- Full-device LVS runs but matches neither dp8 nor the ChipFoundry ADC yet;
+  the standard-cell LVS is the gating check.
+- No second voltage domain: 3.3 V analog supplies are routed to macro pins,
+  but there is no 3.3 V (hvl) cell region, level shifting or voltage-aware
+  check.
+- PDKs: Sky130 has signoff decks; IHP SG13G2 routes to DEF and SPEF without
+  them; no gf180mcu yet.
+- No gate-level simulation.
 - Six sky130 HD cells are kept out of synthesis: the KLayout LVS deck cannot
   pair them (`sipath/pdks/sky130/lvs_exclude_sky130_fd_sc_hd.cells`).
 - The arm64 image's OpenROAD crashes in the repair after global routing on
-  the OpenFrame wrapper.
+  the OpenFrame wrapper and on aes.
 - dp8's XOR shows two sub-0.1 µm² differences on wide analog wires (Magic
   reads their wire-end extensions differently).
-- Full-device LVS runs but matches neither dp8 nor the ChipFoundry ADC yet
-  (P0.4); half OpenFrame waits on ChipFoundry's licence.
-
-The MCP server exposes `open_run` (an example name or any design file;
-`resume` picks up a workdir), `run_step`, `run_eco`, `job_status`,
-`cancel_job`, `list_jobs`, `list_attempts`, `get_outputs`,
-`query_checkpoint`, `draw_checkpoint` and `render_checkpoint` (plus
-`list_designs`, `list_scores`).
-- `run_step` / `run_eco` are jobs. In the foreground they send
-  `notifications/progress` as attempts start and end (when the request has a
-  `progressToken`). With `background: true` they return a job id at once.
-- `cancel_job`, or `notifications/cancelled` for the request, kills the
-  job's OpenROAD processes. Its attempts end `cancelled` with no checkpoint;
-  the step can be run again (in a fresh attempt directory).
-- Arguments are checked before anything runs (step, score, parallel,
-  parameter names per step, ECO ops): a bad one is a tool error.
-- Resources: each run's `graph.json` and every attempt's DEF, SPEF (per
-  corner), reports, debug checkpoint and pictures, as
-  `flow://<run>/<attempt>/<name>`.
-- `query_checkpoint` runs Tcl on a fresh process with `write_*`, `exec`,
-  `file`, `source`, `socket` removed and `open` limited to the session's own
-  result files: a guard against accidental writes, not a security sandbox.
-
-**Runs are resumable and configured.**
-- `graph.json` records every attempt: params, parent, status, checkpoint,
-  metrics, process, timing (phases and slowest Tcl commands), the
-  OpenROAD transcript tail of a failed attempt, the run configuration and
-  the image digest. `--resume` (or `resume=True`) rebuilds the graph: a step
-  asked again with the same parent, variants and score returns its recorded
-  result; attempts of an interrupted sweep that finished are kept and only
-  the rest run. A selected attempt's directory is never deleted, and no
-  attempt directory is reused.
-- `sipath.config` (file, `SIPATH_*` environment, a design file's `config:`
-  section): threads, command timeout, parallel cap, container CPU/memory,
-  image (pinned by digest by default; an unpinned image is refused unless
-  `SIPATH_REQUIRE_DIGEST=0`),
-  debug checkpoints for failed attempts, log level. The library logs to the
-  `sipath` logger and is silent unless the caller configures logging.
+- On mcu8, `vref_hi` keeps 9.7 fF of coupling from digital wires on the
+  layers below it.
 
 ## Synthesis
 
@@ -280,16 +204,19 @@ at the slow corner with the Liberty wire-load model).
    those two statements; an SDC handed to it as is loses the load
    (`set_load -pin_load` reads as 0), so SiPath resolves the SDC itself.
 5. **Recipe sweep and selection.** `abc_sweep` maps with several recipes in
-   the same attempt, side by side (default `auto`: synth_flow's five delay
-   recipes plus `area_map`; `delay`, `area`, `balanced`, a list, or `off`).
-   Each netlist is timed by OpenSTA at the slow corner with the wire-load
-   model (`synth_wns_ns`, `synth_tns_ns`), and `synth_select` keeps the least
-   area that meets timing, else the knee of the slack/area front, else the
-   best slack. `abc: <recipe>` maps with one recipe. No ABC delay target by
-   default (`abc_target: none|period|<ps>`).
+   the same attempt (default `auto`: synth_flow's five delay recipes plus
+   `area_map`; `delay`, `area`, `balanced`, a list, or `off`). Each netlist is
+   timed by OpenSTA at the slow corner with the wire-load model
+   (`synth_wns_ns`, `synth_tns_ns`), and `synth_select` keeps the least area
+   that meets timing, else the knee of the slack/area front, else the best
+   slack. `abc: <recipe>` maps with one recipe. No ABC delay target by default
+   (`abc_target: none|period|<ps>`).
 6. **Checks and proof.** An unmapped cell (e.g. a latch) or an excluded cell
-   fails the step; the selected netlist is proven against the RTL (bounded:
-   equal outputs for every input sequence for `equiv_depth` cycles from reset).
+   fails the step; the selected netlist is proven against the RTL (Yosys
+   miter, cell functions from the Liberty file): equal outputs for every input
+   sequence for `equiv_depth` (10) cycles from reset. A mismatch fails the step
+   with the counterexample. It is bounded, not a full proof (induction needs
+   a register correspondence the synthesized names do not give).
 
 Recipes live in `sipath/synth_recipes/`: 18 from synth_flow (with its notes)
 plus SiPath's `area_map` and `speed_sizing`; a new one is a `.abc` file there.
@@ -305,7 +232,7 @@ flow:
 
 Each recipe x front end becomes an attempt, picked by `synth_select`.
 
-Why these defaults (numbers from the [synthesis bench](#synthesis-1)):
+Why these defaults (numbers from the [synthesis bench](#synthesis-bench)):
 - **No delay target.** With `abc_target: period`, 4 of 16 designs meet timing
   against 10 without (both mapped at the typical corner); synth_flow found
   the target worse on 190 of 256 runs. ABC relaxes against its own wireless
@@ -319,486 +246,374 @@ Why these defaults (numbers from the [synthesis bench](#synthesis-1)):
 - **A sweep, not one recipe.** No recipe wins everywhere: `area_map` is the
   smallest on gcd8 at 10 ns and the slowest on aes at 3.6 ns.
 
-## Where OpenROAD comes from
+Macros without a Liberty file: with `auto_blackbox: true` (on the design, or
+per macro), a black-box model is written from the macro's LEF into
+`<workdir>/models/` (pin directions with buses, a default pin capacitance,
+the LEF's area, no timing arcs, supply pins left out). Yosys resolves the
+instance with it and OpenROAD links against it; paths through the macro are
+not timed, and the run's provenance lists each model and any pin whose
+direction had to be assumed. It is off by default: without it, synthesis
+fails and the message names the macros and the ways out.
+
+## PDKs
+
+A PDK description (`sipath/pdks/*.yaml`, or a path to one) names the views,
+routing stack, special cells (tap/endcap optional, tie hi/lo, diode, CTS
+buffers), supply pins, PDN and analog defaults, RC, tracks, corners, the IO
+library, the SRAM macros and the signoff decks. The library code names no
+PDK layer or cell (a unit test greps for it); the same code runs IHP SG13G2.
+
+**Sky130 is first class** (`pdk: sky130A` or `sky130B`): every view comes from
+an open_pdks tree (`$PDK_ROOT`, default `~/.ciel`, as installed by ciel),
+mounted into the container.
+- **Release pinned.** `sipath/toolchain.json` locks open_pdks `8afc8346…`.
+  Every run reads the tree's `SOURCES` file (else ciel's `versions/<commit>`
+  path) and records it in its provenance (`pdk_release`). A tree of another
+  release, or one that says none, is refused unless `SIPATH_REQUIRE_PDK=0`,
+  and that run records the mismatch. `python3 -m sipath install-pdk` installs
+  the locked release; `toolchain --check` compares the installed trees.
+- **Views.** hd standard cells (fd + ef LEFs), the nom tech LEF, `tracks.info`,
+  `sky130_ef_io` pads with their gpiov2 Liberty, the OpenRAM
+  `sky130_sram_macros` (a design names one with `sram:`).
+- **Corners.** Nine signoff corners, tt/ss/ff (tt_025C_1v80, ss_100C_1v60,
+  ff_n40C_1v95) × nom/min/max interconnect, each with its own Liberty and RCX
+  rules. Estimation RC is the calibrated nominal table scaled per layer and
+  via by each corner's tech LEF. Extraction runs once per RCX rule file (3
+  SPEFs), each read into the 3 corners that share it. Placement, CTS and
+  routing repair on `optimize_corners` (tt_nom, ss_max, ff_min): on aes, nine
+  corners made each parasitics estimate ~18x slower (143 s against 8 s);
+  signoff still checks all nine.
+- **Design rules.** Max transition 0.75 ns, max fanout 10, max capacitance
+  0.2 pF, applied before the design's SDC. Boundary defaults (inv_2 driving
+  cell, 33.4 fF output load) apply to embedded macros only, since a die's
+  ports are bond pads. Standard-cell slew/cap/fanout violators are counted
+  (`drv_*`); IO-ring, pad, macro and port violators are listed apart.
+- **Reference flow settings.** Tap distance 13 µm; clock nets on met3 and up;
+  CTS clkbuf_2/4/8 with a clkbuf_16 root; decap and fill cells; met4/met5
+  straps (153.6/153.18 µm) and core ring; repair margins (setup 0.025 ns, hold
+  0.1 ns after placement and CTS, 0.05 ns after global route).
+- **Excluded cells.** Each Sky130 description reads the PDK's
+  `drc_exclude.cells` (53 hd, 51 hs cells: all `lpflow`, some drives,
+  `xor3`/`xnor3`, `mux4_4`, `fa_4`, ...). Sizing, buffering and CTS cannot
+  choose them, a netlist that uses one is refused at validation (waive with
+  `allow_excluded`), and an ECO to one is refused. Designs add patterns with
+  `dont_use`.
+- **High-speed library.** `pdk: sky130A_hs` (extends sky130A) runs on
+  `sky130_fd_sc_hs` (unit site 0.48 × 3.33 µm, its own tracks, special cells
+  and boundary defaults). Example: `examples/dp8_hs.yaml`.
+
+`sky130hd` (the ORFS platform copy inside the image) remains a fallback when
+no open_pdks tree is installed. The PDKs read from ORFS platform files
+(sky130hd, IHP SG13G2) are pinned with the ORFS image's digest; for a native
+binary set `$SIPATH_PLATFORMS` to an ORFS `flow/platforms` directory.
+
+**IHP SG13G2** (`pdk: ihp-sg13g2`): standard cells and sg13g2 IO pads from the
+ORFS platform tree; routes to a DEF and three-corner SPEF and closes a pad ring
+(`examples/ihp_ring.py`), without signoff decks.
+
+## Runtimes
 
 `find_openroad()` uses, in order: `$SIPATH_OPENROAD`, `openroad` on PATH, then
 the ORFS docker image (the digest locked in `sipath/toolchain.json`, or
-`$SIPATH_OPENROAD_IMAGE`) if it is already pulled. With docker, the host directories are mounted at the
-same path, so file names in Tcl are the same inside and outside.
+`$SIPATH_OPENROAD_IMAGE`) if it is already pulled. Host directories are
+mounted at the same path, so file names in Tcl are the same inside and
+outside. On Linux the containers run as the calling user, so the files they
+write stay the user's (`SIPATH_DOCKER_AS_ROOT=1` keeps the image's user).
 
-**Sky130 is first class** (`pdk: sky130A` or `sky130B`, `sipath/pdks/sky130A.yaml`):
-every view comes from an open_pdks tree (`$PDK_ROOT`, default `~/.ciel`, as
-installed by ciel/volare), mounted into the container. The release is pinned:
-`sipath/toolchain.json` locks open_pdks `8afc8346…`, and every run reads the
-tree's `SOURCES` file (else ciel's `versions/<commit>` path) and records it in
-its provenance (`pdk_release`). A tree of another release, or one that says no
-release, is refused unless `SIPATH_REQUIRE_PDK=0`, and that run records the
-mismatch. `python3 -m sipath install-pdk` installs the locked release through
-ciel. The PDKs read from ORFS platform files (sky130hd, sky130A_hs, IHP) are
-pinned with the ORFS image's digest.
-- hd standard cells (fd + ef LEFs), the nom tech LEF, `tracks.info`,
-  `sky130_ef_io` pads, the OpenRAM `sky130_sram_macros`;
-- 9 signoff corners, tt/ss/ff (tt_025C_1v80, ss_100C_1v60, ff_n40C_1v95) ×
-  nom/min/max interconnect. Each corner reads its own Liberty and RCX rules.
-  Its estimation RC is the calibrated nominal table scaled per layer and per
-  via by that corner's tech LEF (sheet and cut resistance, area and edge
-  capacitance). Extraction runs once per RCX rule file (3 SPEFs), each read
-  into the 3 corners that share it. Placement, CTS and routing repair on
-  `optimize_corners` (tt_nom, ss_max, ff_min): on aes, nine corners against one made
-  each parasitics estimate ~18x slower (143 s against 8 s);
-  signoff still checks all nine;
-- the PDK's design rules (max transition 0.75 ns, max fanout 10, max
-  capacitance 0.2 pF) applied before the design SDC. Its boundary defaults
-  (inv_2 driving cell, 33.4 fF output load) apply to embedded macros only,
-  since a die's ports are bond pads. Standard-cell slew/cap/fanout violators
-  are counted (`drv_*`, `drv_clean`); IO-ring, pad, macro and port violators
-  are listed apart (`drv_excluded`, by master type);
-- the reference flow settings:
-  - tap distance 13 µm;
-  - clock nets on met3 and up;
-  - CTS clkbuf_2/4/8 with a clkbuf_16 root;
-  - decap + fill cells;
-  - met4/met5 reference straps (153.6/153.18 µm) and core ring;
-  - repair margins (setup 0.025 ns, hold 0.1 ns after placement/CTS and
-    0.05 ns after global route).
-
-**High-speed library**: `pdk: sky130A_hs` (`sipath/pdks/sky130A_hs.yaml`, extends
-sky130A) runs on `sky130_fd_sc_hs` (unit site 0.48 × 3.33 µm, its own tracks,
-tap/endcap/fill/CTS/diode cells and boundary defaults from the PDK's hs
-config). Example: `sipath/examples/dp8_hs.yaml`.
-
-**Cells with known layout problems** are never used: each Sky130 description
-reads the PDK's `drc_exclude.cells` (53 hd, 51 hs cells: all `lpflow`, some
-small/large drives, `xor3`/`xnor3`, `mux4_4`, `fa_4`, ...). Sizing, buffering
-and CTS cannot choose them (`set_dont_use`), a netlist that instantiates one
-is refused at validation (waive with `allow_excluded`), an ECO to one is
-refused, and the PDK's special cells may not be on the list. Designs add their
-own patterns with `dont_use`.
-
-**Signoff** (`signoff` step, `sipath/signoff.py`) on the final database:
-- physical, with KLayout from the image and the PDK's decks:
-  - the routed DEF streamed to GDS with every cell's layout, supply nets
-    labelled. A cell that no GDS defines (a LEF-only macro) makes DRC/LVS
-    impossible and fails them. Each macro's GDS keeps its own cells:
-    names that clash with a library or another macro are renamed, not merged
-    (the ADC and DAC both carry a different `follower_amp`). Library GDS
-    load first-definition-wins (the IO libraries repeat cells);
-  - DRC: open_pdks `sky130A_mr.drc`, every marker counts. Markers are also
-    counted by owner: `top` (the design's own geometry) or the macro or
-    library whose cell they are reported in;
-  - LVS: `sipath/pdks/sky130/sky130_stdcell.lvs` (derived from ORFS's
-    sky130hd deck), against a reference netlist from OpenROAD's
-    `write_cdl` after the supply connections are re-applied. The netlist
-    takes only the PDK subcircuits the design uses (the PDK's
-    `macro_sparecell` is broken), writes tie cells as the poly shorts their
-    layout is, lists the supplies as ports, and gives the hs decaps'
-    three-node transistors their fourth node. Black boxes are compared as
-    their pins only (LEF abstract vs pin-only subcircuit) and listed in
-    `lvs.blackboxed`. They are macros with `lvs: blackbox`, and the PDK's
-    `signoff.lvs_blackbox` masters (Sky130: the IO cells, whose ESD/HV
-    devices are outside the deck). A macro with neither a `cdl` nor
-    `lvs: blackbox` fails LVS;
-  - antennas (`check_antennas`).
-- timing, in a fresh OpenROAD process from only the final netlist, Liberty,
-  SDC and per-corner SPEF:
-  - setup and hold on all 9 corners;
-  - slew/cap/fanout on standard cells;
-  - parasitic annotation: a loaded net without parasitics fails; dangling
-    tie outputs and IO-ring abutment nets are listed;
-  - unconstrained endpoints (analog and pad ports listed apart).
-
-`signoff.json` holds every result; a failed required check fails the attempt.
-Measured:
-- dp8 and dp8_hs pass: DRC 0, LVS match, antenna 0, timing met on 9 corners.
-- mcu8: the ChipFoundry macros are signed off as abstracts (`abstract: true`),
-  and their GDS is merged into the written GDS (`inputs/chipfoundry/*/views`).
-  - Signoff passes: DRC 0, LVS match (0 errors; the macros and IO cells are
-    black boxes), antenna 0, setup +8.70 ns, hold +0.066 ns on 9 corners,
-    design rules clean.
-  - On the full layouts, KLayout's deck finds 95 markers inside the vendor
-    cells: in the ADC, 86 `capm.2b_a`, 6 `hvtp.2` and 2 `nsdm.1`; in the
-    DAC, 1 `nwell.6`. These are for ChipFoundry to address.
-
-Found and fixed while adding signoff:
-- The supply-tab connectors (`sipath/powerconnect.py`) had three faults:
-  - they copied off-grid pin edges from the DAC and `ef_io` LEFs (1 nm off
-    the 5 nm grid); shapes are now snapped inward to the manufacturing grid;
-  - they put vias next to ones the analog router had already placed (cuts
-    merged into illegal shapes); positions already covered are now left out
-    and the arrays are centred;
-  - they left a 0.1 µm notch to a same-net fill shape; such gaps are now
-    filled.
-
-  mcu8's top-level DRC went from 12 markers to 0.
-- Found by LVS on mcu8 (DRC cannot see any of these):
-  - A real VDD–VSS short: a connector's met4 landing patch crossed a VSS
-    stripe. Landings now avoid other nets on every layer between the strap
-    and its target. Each step that adds connectors fails if special shapes
-    of two nets touch (`special_shorts`).
-  - Floating ESD clamps: the plain `*_hvc` power pads leave DRN_HVC and
-    SRC_BDY_HVC as tabs to be routed. mcu8 now uses the `*_clamped` pads,
-    as Caravel does, whose clamps are wired inside.
-  - 158 untapped row pieces beside the SRAM, whose n-wells floated. Row
-    pieces shorter than 2 × tap distance + tap + endcaps are cut, and the
-    `physical` step fails on any row without a tap (`rows_without_tap`).
-- LVS deck and reference, for black boxes:
-  - KLayout 0.30.7 crashes on `connect_implicit` for the gpiov2 pad, and
-    when the extracted netlist is edited. Pin pieces are joined through
-    private per-pin layers instead.
-  - The SPICE reader upcases names, so black boxes are blanked under both
-    spellings.
-  - PDK LEF quirks: a pin declared twice, and overlapping pins (merged in
-    the reference, reported as `abstract_shorts`).
-- OpenRCX re-orders each net's wire and drops its RECT patches, the router's
-  minimum-area patches among them. Every extraction now restores the routing
-  from a DEF written just before (`steps.run_rcx`, geometry checked);
-  before, routed DEFs lacked those patches (signoff DRC: m3.6).
-- Cells added after the power grid was built (CTS buffers, fillers, tie
-  cells, diodes) had unconnected supply pins in the database; the global
-  connections are re-applied after each step that adds cells.
-- A post-route minimum-area repair (`sipath/minarea.py`) stays as a safety
-  net; it normally finds nothing. It never patches nets with a non-default
-  rule or islands touching macros, pads or pins, and changes nothing at all
-  when it would patch an implausible number of islands (more than 10 or 2 %
-  of the nets): it reports instead.
-
-`sky130hd` (the ORFS platform copy inside the image) remains as a fallback
-when no open_pdks tree is installed; for a native binary set
-`$SIPATH_PLATFORMS` to an ORFS `flow/platforms` directory.
-
-On this machine there is no native `openroad`; runs use the image's
-OpenROAD `26Q3-1867-g84e3ff1eb2` (linux/amd64 under emulation).
-
-
-**Runtimes (P1.1).** The default is the ORFS image (`openroad/orfs`, locked by digest,
-amd64: under Rosetta on Apple silicon). Two ways to avoid the emulation:
+The default is the ORFS image (`openroad/orfs`, amd64: under Rosetta on Apple
+silicon). Two ways to avoid the emulation:
 - an arm64 image with the tools on PATH, e.g. LibreLane's multi-arch image:
   `SIPATH_OPENROAD_IMAGE=ghcr.io/librelane/librelane:3.0.16
   SIPATH_OPENROAD_BINARY=openroad SIPATH_PLATFORM=linux/arm64` (and
   `SIPATH_MAGIC_IMAGE` the same image for the Magic checks). Its tool versions
-  differ (OpenROAD 2026-02-17, KLayout 0.30.7, Yosys 0.62), so results differ
-  slightly (gcd8: 158 vs 165 cells). Measurements under [Benchmarks](#rosetta-amd64-vs-native-arm64).
+  differ (OpenROAD 2026-02-17, Yosys 0.62), so results differ slightly (gcd8:
+  158 against 165 cells). Measurements under
+  [Benchmarks](#rosetta-amd64-against-native-arm64).
 - `native_tools` (`SIPATH_NATIVE_TOOLS=yosys,klayout`): those tools run on the
   host while OpenROAD stays in the image (gcd8 synthesis 10.0 s to 4.4 s with
   Homebrew's Yosys).
-Each run's provenance records the image, platform, binary and native tool
-versions.
 
-## Layout
+Magic (opt-in checks) runs from `config.magic_image`
+(`docker build -t sipath/orfs-magic:8.3.685 docker/magic`). Each run's
+provenance records the image digest, platform, binary, tool versions and the
+PDK release.
 
-| module | role |
-|---|---|
-| `session.py` | `OpenRoadSession`: one process per attempt; Tcl in over stdin, result/errorInfo back through files (OpenROAD's stdout re-emits bytes on lines > 4 KiB); a Tcl error, or a `break`/`continue` outside a loop, raises `TclError` (`return` is a normal completion). Values are quoted with `tclquote.q` (no substitution possible). `FakeSession`: canned answers for graph tests only. |
-| `scheduler.py` | `Flow.step(name, fn, parent, variants, score, parallel)`, `Flow.eco(...)`, attempt graph (`graph.json`), resume, cancel. Each attempt: own session, loads parent ODB, runs, writes its own ODB. Best by named score is `selected`, others `rejected` (kept). Failures write no ODB. |
-| `config.py` | run configuration (threads, timeouts, parallel cap, container limits, image digest, debug checkpoints, logging) |
-| `steps/` | one module per stage: `floorplan` (floorplan, macros, physical), `place` (place, cts), `analog_route`, `route` (route_digital, route_repair), `finish` (fill, extract, signoff and the check steps, views, integrate, ppa), helpers in `common` and `structure`; every name importable from `sipath.steps` |
-| `padplan.py`, `powerconnect.py` | pad plan rules; straps from supply tabs to the grid |
-| `chip.py` | pad ring (ICeWall) |
-| `macroplace.py` | hard macros: frozen, seeded random search with orientation search, `rtl_macro_placer`, or the CD-LNS placer (`third_party/`, run in the placer Python); channel / pin-side / analog-guard rules; quick placement + global route score |
-| `congestion.py` | global-route congestion reports (regions, overflow, worst box, nets) |
-| `datapath.py` | column / array / bit-slice / block packing, re-abut after sizing, structure check |
-| `analog.py` | NDR route first, then freeze as special wiring; SPEF coupling report |
-| `shield.py` | grounded shields beside analog nets (clip, via or tie strap to ground), adjacent-layer keep-away |
-| `eco.py`, `equiv.py`, `liberty.py`, `wires.py` | resize/buffer ECO, structural equivalence on Liberty functions, wire re-encoding and restore after RCX |
-| `signoff.py`, `klayout/stream.py`, `minarea.py` | signoff (GDS, DRC, LVS, antennas, independent STA); post-route minimum-area safety net |
-| `synth.py`, `recipes.py`, `synth_recipes/` | the synth step (readers, lint, recipe sweep, boundary model, timing estimate, equivalence); ABC recipes and their objective sets |
-| `lvs_full.py` | full-device LVS with the PDK's own KLayout deck (`sipath lvs`, signoff `lvs_full`) |
-| `limits.py`, `toolchain.py`, `report.py` | regression limits; the locked toolchain (`toolchain.json`); the run report |
-| `pdk.py`, `pdks/*.yaml` | PDK description files and their loader (`load_pdk`) |
-| `design.py`, `designfile.py` | design spec (unset fields from the PDK), design files and `run` |
-| `tcl.py`, `netlist.py`, `scores.py` | generators, Verilog model, named scores |
-| `examples/` | `dp8.yaml`, `mcu8.yaml`, `ihp_add8.yaml` (+ thin `.py` wrappers), `ihp_ring.py`; generators write the inputs under `examples/inputs/` |
-| `tests/` | `test_unit.py` (no tools), `test_live.py` (real runs), `common.py`, `run_live.py` (live classes in parallel), `limits.yaml` |
-| `bench/` | `orfs_compare.py`, `arch_compare.py`, `synth_bench.py` with `bench/synth/` (designs, manifest, pinned external IPs) |
+**Runs are resumable.** `graph.json` records every attempt: params, parent,
+status, checkpoint, metrics, process, timing (phases and slowest Tcl
+commands), the OpenROAD transcript tail of a failed attempt, the run
+configuration and provenance. `--resume` rebuilds the graph: a step asked
+again with the same parent, variants and score returns its recorded result;
+attempts of an interrupted sweep that finished are kept and only the rest
+run. A selected attempt's directory is never deleted, and no attempt
+directory is reused. The library logs to the `sipath` logger and is silent
+unless the caller configures logging.
 
-## What each requirement maps to
+## How the flow works
 
-- **Timing-driven placement**: `global_placement -timing_driven`,
-  `estimate_parasitics -placement`, `repair_design`, `repair_timing`,
-  `detailed_placement` (+ `check_placement`). Optional
-  `routability_driven`. After legalization a global route with
-  `-allow_congestion` measures congestion (`grt_overflow`,
-  `grt_congested_gcells`, report kept); `congestion_margin` reserves a share
-  of every layer for head-room. The `routability_then_wns` score ranks by
-  overflow first, so a congested variant is rejected by score, not by a
-  crash. A congested digital route fails with the report summarised
-  (regions, overflow, worst box, nets). Layer adjustments come from the PDK
-  and the design.
-- **PDN**: followpin rails on met1 plus straps (`add_pdn_stripe`); rings only
-  if `PdnSpec(rings=True)`. The live tests check the DEF has
-  `SHAPE FOLLOWPIN` and `SHAPE STRIPE`, and no `SHAPE RING`.
-- **Endcaps/taps**: `place_endcaps -left_edge/-right_edge`, `place_tapcells`.
-  The step fails unless the endcap count is 2× the row (segment) count.
-- **Analog nets**: NDR (`create_ndr`/`assign_ndr`), routed alone first
-  (`set_nets_to_route`). The router's wiring is then rebuilt as `dbSWire`
-  special wiring, the net is made `setSpecial` and `set_dont_touch`, and its
-  stored guides are cleared. The digital route gets an explicit list of
-  non-special nets. A signature of the analog shapes is compared before and
-  after, and a change fails the attempt. Before extraction the exact regular
-  wiring is restored from the DEF saved at freeze time (geometry compared),
-  because OpenRCX skips special nets; `extract` fails if an analog net has no
-  `*D_NET` in the SPEF. The router keeps only the minimum spacing from
-  special wiring, so the NDR spacing alone would protect an analog wire only
-  from what was routed before it. Guard obstructions around the frozen
-  wiring (`route_analog` `guard`, default on; cut around pins) keep digital
-  wires the NDR spacing. Before the guard, mcu8's router laid
-  `core.pad_ch_0_i` 0.25 µm from `vref_lo` for 340 µm. ECOs re-freeze first and restore again before their
-  own extraction. CTS gets explicit `-clk_nets`; analog nets are rejected as
-  clock nets, and their terminals must be unchanged after CTS (both modes).
-- **Analog coupling**: `extract` reads every corner's SPEF and writes
-  `analog_coupling.json`/`.md`: per analog net its total capacitance, its
-  coupling to digital nets (sum and largest aggressors, worst corner) and to
-  the other analog nets. Metrics `analog_coupling_ff` (worst net) and
-  `analog_aggressor_ff`; step limits `max_analog_coupling_ff` /
-  `max_analog_aggressor_ff` fail the attempt, and regression limits can bound
-  them. On mcu8 before shielding, `vref_lo` took 31 fF from `core.pad_ch_0_i` (24 % of its
-  130 fF) and `vref_hi` 9.8 fF; on dp8 the clock put 2.8 fF on `ana_in[0]`.
-- **Shields** (`shield.py`, design `analog_shield: [nets]`): OpenROAD's router
-  does not shield signal nets, so SiPath draws them. A shielded net gets an
-  NDR (`ANALOG_SH`) whose spacing leaves room for a shield on each side. Once
-  the analog nets are frozen, every straight segment gets a minimum-width
-  wire of `analog_shield_net` (default: the core ground) on both sides at the
-  minimum spacing, clipped around every other shape on that layer with the
-  spacing rule (other nets, the net's own vias and corners, macro and pad
-  pins and obstructions, IO pins, notches against other ground shapes).
-  A piece is grounded where it touches a ground shape on its layer, or by a
-  via where it crosses one on the layer below or above. The via's pad sits
-  flush with the shield's inner edge, so the spacing to the analog wire never
-  shrinks. Failing that, a tie strap runs outward on the next layer
-  (`shield_tie_um`, default 30 µm; never on the pin-access layers). It ends in a
-  ground shape on its own layer, or through a via into one on the shield's
-  layer or on the layer beyond. A piece that reaches no ground is dropped, never left floating.
-  Shields stay on layers above every placed standard cell's own shapes. Coverage per
-  net is reported (`analog_shield`, metric `analog_shield_coverage`) and a
-  short between special nets fails the step. `analog_keepaway: true` adds
-  routing obstructions on the layers just above and below each shielded
-  segment and its shields (not on pin-access layers, cut around pins).
-  dp8 shields `ana_in[0]`: 93 % covered (tie straps to the met4 stripes),
-  coupling from digital nets 2.8 → 0.0 fF, total capacitance 20 → 38 fF (the
-  usual price), signoff DRC 0, LVS match, antennas 0. mcu8 shields all four
-  analog nets (47–91 % coverage) and signs off clean (DRC 0, LVS match,
-  timing met at nine corners). Coupling from digital nets, before → after:
+(`synth`) → `floorplan` → (`macros`) → `physical` → `place` → `cts` →
+`route_analog` → `route_digital` → `route_repair` → (`fill`) → `extract` →
+`signoff` → (`views`, `integrate`). `ppa` ends an exploration run; `drc`,
+`density`, `lvs`, `lvs_full`, `antenna`, `timing`, `magic_drc`, `xor` and
+`harness` run single signoff checks.
 
-  | net | before (fF) | guard + shields (fF) |
-  |---|---|---|
-  | vref_lo | 31.2 | 0.09 |
-  | ana_in | 0.29 | 0.01 |
-  | dac_out | 1.15 | 0.58 |
-  | vref_hi | 9.8 | 9.7 |
+**Floorplan and pads**
+- A soft macro takes its die, rows and pins from a DEF, or a die box or a
+  utilization with pins placed at random, then by the cells after a first
+  placement. PDK straps too wide for a small core are scaled to it.
+- `Design(is_core=False)` (an embedded macro) routes up to the PDK's
+  `max_layer_macro` (Sky130 met4, IHP Metal4); straps above it are refused.
+- Pad plan rules (`sipath.padplan`) are checked before any pad is placed:
+  supply pads abut their return pad; a VDDIO/VSSIO pair on every edge with
+  signal pads; at most 8 outputs per IO pair; core supply on at least 2
+  edges; analog pads on an edge with VDDA/VSSA and never next to an output.
+- Every gpiov2 control pin is tied: core-domain pins from tie cells, `*_H`
+  pins from the pad's own TIE_HI_ESD/TIE_LO_ESD; any floating pad input fails
+  the floorplan. Pad timing comes from the PDK's pad Liberty per process: on
+  mcu8 an input pad's PAD->IN is 1.35 ns at tt and an output pad's OUT->PAD
+  5.24 ns at ss.
+- The pad ring is generic: corner site and row depths from the corner cell,
+  corner rotation from the edges its buses exit, pad rotations by trial
+  (core-side pins must face the core), ring buses from the IO fillers.
+  `examples/ihp_ring.py` closes the ring on IHP SG13G2 with nothing
+  configured (rotations R0/R270/R0, against sky130's R180/R90/R180).
 
-  `vref_hi`'s remainder comes from met1/met2 digital runs about 2 µm beside its
-  met3 run along the ADC's pin edge. That is coupling between layers, which a
-  same-layer shield does not stop and the keep-away (as wide as the shields)
-  does not reach.
-- **Hard macros** (`macroplace.py`): `Macro(location=...)` is frozen
-  (LOCKED). Otherwise `method="random"`: legal positions on the row/site grid
-  from `random.Random(seed)` (some pushed against a core edge), each in every
-  allowed orientation (`orients`), objective = macro-net HPWL + 4 × analog-net
-  HPWL over placed terminals (pin-accurate, so orientation and pin side
-  count); or `method="mpl"`: `rtl_macro_placer` with keepouts as temporary
-  blockages, its result checked against the same rules; or `method="cdlns"`:
-  Team Macro Polo's CD-LNS placer from the Partcl/HRT Macro Placement
-  Challenge 2026 (coordinate descent + large-neighbourhood search +
+**Hard macros** (`macroplace.py`)
+- A macro with a `location` is frozen (LOCKED). Otherwise the `macros` step
+  places it with one of three methods, and every attempt is scored the same
+  way: a quick global and detailed placement and global route of the
+  standard cells (then unplaced again); `macro_quick` = least overflow, then
+  quick HPWL + 4 × analog HPWL.
+- `random` (default): `samples` legal positions per macro on the row/site grid
+  from `random.Random(seed)` (some against a core edge), each in every allowed
+  orientation; the objective is macro-net HPWL + 4 × analog-net HPWL over
+  placed terminals (pin-accurate, so orientation and pin side count).
+- `mpl`: `rtl_macro_placer` with keepouts as temporary blockages.
+- `cdlns`: Team Macro Polo's CD-LNS placer from the Partcl/HRT Macro
+  Placement Challenge 2026 (coordinate descent + large-neighbourhood search +
   annealing; the best-ranked CPU-only entry), run for `placer_seconds` in a
   separate Python with PyTorch (`sipath setup-placer`, config
   `placer_python`). SiPath exports the floorplan after a quick mixed-size
-  global placement: macros with pin offsets, standard cells clustered into
-  movable soft macros, IO pins, keepouts as fixed blocks. It hands the placer a
-  legal start (the placer improves a legal placement but cannot repair one),
-  with spacing that includes the halos, channel, pin clearance and snapping
-  room. The result is snapped to the site/row grid and checked against the same
-  rules. Rules:
-  halo, `macro_channel` (no sliver channel between macros or to the core
-  edge), `macro_pin_clearance` (space in front of pin edges),
-  `analog_guard` (extra space around analog macros and a standard-cell
-  blockage band; rows are cut under it). Every attempt is then scored the same
-  way: quick gpl + detailed placement + global route of the standard cells
-  (then unplaced again), `macro_quick` = least overflow, then quick HPWL +
-  4 × analog HPWL. mcu8 sweeps 3 seeds, an orientation search and mpl;
-  `examples/sram8.yaml` (eight sky130 1 KB SRAMs, `sram:` names the PDK's
-  macro) compares random seeds with cdlns. Measured so far, the random search
-  wins on SiPath's score. cdlns has the lowest macro-net HPWL on sram8 (146k
-  against 151k µm), but it packs the SRAMs ~36 µm apart, and the quick
-  global route of the glue logic overflows more (39 against 7; total HPWL
-  628k against 574k µm). On mcu8 (two movable macros) its `macro_cost_um` is
-  58,329 against 53,061 for the best seed. mpl cannot tile sram8 (MPL-0003).
-- **Datapath**: `column` (one cell per row), `array` (abutted rows) and
-  `slices` (generic bit-slice: `cells[bit][stage]`, stage columns aligned
-  across bits, optional gaps and rows per slice), FIRM. Placed before taps,
-  so taps step around them. After every sizing step (placement repair, CTS,
-  post-global-route repair, ECOs, post-route repair) `reabut` re-packs with
-  the current masters and a structure check fails the attempt unless every
-  cell sits exactly where the packing puts it (`datapaths_intact`).
-- **Groups**: `fence` is a `dbRegion` (EXCLUSIVE) plus a `dbGroup`. Cells
-  that later steps insert into a fence join it if they drive a member, and
-  are evicted otherwise. `cluster` is a `PHYSICAL_CLUSTER` group,
-  shelf-packed at its centroid after gpl.
-- **Sweeps**: `variants=[...]`, `parallel=N`, `score="<name>"` (default
-  `auto`: setup slack when constrained, else wirelength); rejected attempts
-  stay in `graph.json`. Each attempt records its process name and start/end
-  times. Route attempts run OpenRCX before scoring, so `drc_then_slack`
-  (DRC count, then the worse of setup and hold) ranks them on extracted
-  parasitics; `timing_met` is recorded and `fail_on_violation` makes a
-  violation fail the attempt.
-- **ECOs**: `resize` (`replace_cell`) and `buffer` (`insert_buffer`).
-  - Parent rules: an ECO is refused unless its parent is the selected head
-    of the chain, so a sibling or stale parent is refused. A name already
-    used by a step or attempt is refused (its checkpoints would be lost).
-  - An ECO whose setup or hold slack (after extraction) drops by more than
-    `max_slack_loss` (default 0.05 ns) against the parent is rejected; its
-    checkpoint is kept for inspection.
-  - Structural equivalence runs before routing. A failure raises, so no ODB
-    is written.
-  - Touched nets are the op nets plus the nets of every moved instance. If
-    there are more than `max_patch_nets`, all digital wiring is ripped up for
-    a full route. Otherwise only the patch is re-routed. Nets the router
-    re-routes as collateral are reported.
-- **Embedded macro**: `Design(is_core=False)` → routing up to the PDK's
-  `max_layer_macro` (Sky130 met4, IHP Metal4), and validation refuses straps
-  above it.
-- **PDK and design as data**: a PDK file names views, routing stack, special
-  cells (tap/endcap optional, tie hi/lo, diode, CTS buffers), supply pins,
-  PDN/analog defaults, RC, tracks, corners and the IO library; the library
-  code names no PDK layer or cell (a unit test greps for it). A design file
-  holds the `Design` fields and steps; unset fields take the PDK's defaults.
-  The same code runs IHP SG13G2 to a routed DEF + 3-corner SPEF.
-- **Equivalence from Liberty**: cell functions, pin directions and buffers
-  come from the Liberty loaded in the session (OpenSTA); cells are
-  interchangeable when their truth tables match, so drive-strength classes,
-  delay cells as buffers and physical-only cells are derived, not named.
+  global placement (macros with pin offsets, standard cells clustered into
+  movable soft macros, IO pins, keepouts as fixed blocks), hands the placer a
+  legal start with rule-aware spacing, and snaps the result to the grid.
+- Rules for every method: halo, `macro_channel` (no sliver channel between
+  macros or to the core edge), `macro_pin_clearance` (space in front of pin
+  edges), `analog_guard` (extra space around analog macros and a standard-cell
+  blockage band; rows are cut under it). Results compared under
+  [Benchmarks](#macro-placement).
 
-## Step pipeline
-
-(`synth`) → `floorplan` → (`macros`) → `physical` → `place` → `cts` → `route_analog` →
-`route_digital` → `route_repair` → (`fill`) → `extract` → `signoff` → (`views`, `integrate`).
-
-**Fill, frames and hardened macros.**
-- `fill`: metal fill with OpenROAD `density_fill` and the PDK's fill rules
-  (`signoff.fill_rules`), by default up to the design's top routing layer (an
-  embedded macro leaves the layers above to its parent). Fill goes to the
-  PDK's fill datatypes in the GDS. Signoff's `density` check runs the PDK's
-  density deck and reports each layer's density.
-- Harnesses (`harness: openframe`, `caravel`, or a plugin's): the design is the
-  frame's wrapper. The harness sets the die and every template pin, creates the
-  frame's supply pins (all of them; the user supplies are strapped to the core
-  ring), the power grid and routing limits. Template pins overhanging the
-  boundary are clipped to the die for routing and restored exactly at signoff;
-  the `harness` signoff check compares the routed wrapper with the template
-  (die, every pin by name, layer and rectangle). Pin-to-pin nets (loopback ties)
-  stay plain wires (never buffered). `examples/openframe_gcd8.yaml` puts a 4-bit
-  gcd on the OpenFrame's east-edge pads.
-- `views`: the hardened-macro views of a signed-off design: abstract LEF, a
-  timing Liberty per corner from the extracted parasitics
-  (`write_timing_model`), GDS, the LVS subcircuit, SPEF per corner, netlists with
-  and without supply pins, and `macro.yaml`. `python3 -m sipath harden <design>
-  <dir>` runs a design through signoff and `views` and copies them to `<dir>`; a
-  parent lists the macro with `{inst: u0, views: <dir>, location: [x, y]}`
-  (`examples/gcd8_pair.yaml`: two hardened gcd8 plus glue, signed off with the
-  macros' insides checked). Library cells the macro's GDS carries are
-  recognised (identical geometry) and kept as the library's, so LVS pairs them.
-- `integrate` (after signoff, harness designs): Magic puts the signed-off
-  wrapper GDS, unchanged, into the frame's layout (as the frame's own build
-  does) and writes the chip GDS; KLayout checks one top cell, the frame's die,
-  the wrapper placed once at its origin and identical to the signed-off GDS.
-  The seal ring is left to tape-out, as in the frame's build.
-- Design templates: `python3 -m sipath templates` lists them, `python3 -m
-  sipath new <dir> --template openframe --set inputs=8 --set outputs=6` writes a
-  project (design file, wrapper with every frame port and the loopback ties,
-  a starter core, SDC) that runs as generated. Plugins register more
-  (`registry.register_template`).
-- RTL equivalence (synth step, P0.3): the netlist against the RTL (Yosys
-  miter, cell functions from the Liberty file), equal outputs for every input
-  sequence for `equiv_depth` (10) cycles from reset; a mismatch fails the step
-  with the counterexample. Bounded, not a full proof (induction needs register
-  correspondence the synthesized names do not give). gcd8: equivalent; one gate
-  changed is refused in 2 s.
-- Run reports (P2.4): every run writes `report.md` / `report.html` (steps,
-  attempts, failures, signoff checks, files, pictures) after each step;
-  `python3 -m sipath report <workdir> --render` adds the layout picture.
-- DRC rule groups: the PDK lists its deck's rule groups (`signoff.drc_groups`;
-  sky130: front-end, back-end, off-grid); signoff runs one KLayout process per
-  group at once and merges the reports (`drc_split`, default on). aes: 209 s to
-  156 s, same markers.
-- Opt-in signoff checks `magic_drc` (Magic DRC, `drc(full)`) and `xor` (the
-  routed DEF written to GDS by Magic against KLayout's stream-out; metal fill not
-  compared, Magic does not read DEF fills). Magic runs from `config.magic_image`
-  (`docker build -t sipath/orfs-magic:8.3.685 docker/magic`).
-
-**Timing closure (Phase 1).**
-- Three corners when an open_pdks `sky130A` tree is available (`$SIPATH_SKY130A`
-  or `~/.ciel/sky130A`):
-  - ss: ss_100C_1v60 Liberty, max OpenRCX rules;
-  - tt: tt_025C_1v80, nominal rules;
-  - ff: ff_n40C_1v95, min rules.
-- Macros may give a Liberty file per corner (the CF SRAM does). Metrics carry
-  `wns_<corner>`/`whs_<corner>`; scores use the worst corner. `extract` writes
-  one SPEF per corner.
-- `place` first runs `repair_tie_fanout`: one tie cell per load.
-- `route_digital`:
-  1. global route;
-  2. repair on global-route parasitics, in incremental global-route mode;
-  3. `repair_antennas`;
-  4. detailed route;
-  5. `check_antennas`, then a post-detailed-route antenna repair loop (up to
-     3 rounds);
-  6. RCX, to rank the variants.
-- `route_repair`:
-  1. RCX;
-  2. `repair_timing` (resize/buffer only, so structural equivalence is
-     checked);
-  3. re-route the changed nets (`eco.patch_route`);
-  4. RCX again, at most 2 rounds;
-  5. fillers.
-- Each attempt writes timing (setup/hold, per corner), clock skew, power
-  (per corner) and congestion reports, listed in `outputs["reports"]`.
-
-**Power and IO (Phase 2).**
-- Pad plan rules (`sipath.padplan`) are checked before any pad is placed:
-  - supply pads abut their return pad;
-  - a VDDIO/VSSIO pair on every edge with signal pads;
-  - at most 8 outputs per IO pair;
-  - core supply (VCCD/VSSD) on at least 2 edges;
-  - analog pads on an edge with VDDA/VSSA and never next to an output.
-- Every gpiov2 control pin is tied: core-domain pins from tie cells, `*_H`
-  pins from the pad's own TIE_HI_ESD/TIE_LO_ESD. The floorplan fails on any
-  floating pad input.
-- Pad timing comes from the PDK's pad Liberty (`io.liberty`, per process:
-  sky130_fd_io's gpiov2 tt/ss/ff), read with each corner's cell Liberty for the
-  pad masters the design uses. On mcu8 an input pad's PAD->IN is 1.35 ns at
-  tt and an output pad's OUT->PAD 5.24 ns at ss (the black-box model it
-  replaces said 0.5 ns); the tied control pins select the arcs.
-- The pad ring's supply buses are the core/IO nets (`Design.pad_supplies`).
-  Top-level VDD/VSS/VDDA/... terminals sit on the supply pads' bond pins.
-- **Power connector** (`sipath.powerconnect`). pdngen cannot reach these tabs
-  (they sit under the cells' own upper-metal obstructions):
-  - the power pads' core-side met3 tabs, strapped to the core ring;
-  - the analog macros' 1.8 V tabs, strapped to the grid.
-
-  Each strap avoids other nets and obstructions and gets a via stack.
-- **3.3 V analog supplies** (VDDA/VSSA):
-  - routed from a launch point at the pad tab to the ADC/DAC tabs, on
-    met3–met5 with a 2 µm rule;
-  - the IO-ring pins and the supply terminal are parked on a scratch net
-    meanwhile;
-  - then frozen as special nets and strapped to the pad.
-
-  Every macro supply pin is then connected (SRAM 6/6, ADC 4/4, DAC 4/4).
+**Power** (`physical`)
+- Followpin rails plus straps; rings when asked (`PdnSpec(rings=True)`).
+  Endcaps and taps (`place_endcaps`, `place_tapcells`); the step fails unless
+  the endcap count is twice the row-segment count, and on any row without a
+  tap (row pieces too short for a tap are cut).
+- The power connector (`sipath.powerconnect`) straps tabs pdngen cannot reach
+  (under the cells' own upper-metal obstructions): the power pads' core-side
+  tabs to the core ring, the analog macros' 1.8 V tabs to the grid. Each strap
+  avoids other nets and obstructions and gets a via stack; a short between
+  special nets fails the step.
+- 3.3 V analog supplies (VDDA/VSSA) are routed from a launch point at the pad
+  tab to the macro tabs on met3–met5 with a 2 µm rule, frozen as special nets
+  and strapped to the pad.
 - `extract` runs `check_power_grid` (against the pad terminals when they
-  exist) and `analyze_power_grid` for VDD, VSS, VDDA and VSSA.
-- The pad ring is generic:
-  - corner site and row depths from the corner cell;
-  - corner rotation from the edges its buses exit;
-  - pad rotations by trial (core-side pins must face the core);
-  - ring buses from the IO fillers.
+  exist) and `analyze_power_grid` for every supply.
 
-  `examples/ihp_ring.py` closes the ring on IHP SG13G2 with nothing
-  configured: rotations R0/R270/R0, against sky130's R180/R90/R180.
+**Placement and CTS**
+- `global_placement -timing_driven -routability_driven`,
+  `estimate_parasitics -placement`, `repair_design`, `repair_timing`,
+  `detailed_placement`, `improve_placement`, `optimize_mirroring`, then
+  `check_placement`. `repair_tie_fanout` first: one tie cell per load.
+- After legalization, a global route with `-allow_congestion` measures
+  congestion (`grt_overflow`, report kept); `congestion_margin` reserves
+  head-room on every layer, and the `routability_then_wns` score rejects a
+  congested variant by score, not by a crash.
+- Datapaths: `column` (one cell per row), `array` (abutted rows) and `slices`
+  (`cells[bit][stage]`, stage columns aligned across bits), FIRM, placed
+  before taps with tap slots reserved. After every sizing step `reabut`
+  re-packs with the current masters and a structure check fails the attempt
+  unless every cell sits where the packing puts it.
+- Groups: `fence` is a `dbRegion` (EXCLUSIVE) plus a `dbGroup` (inserted cells
+  join it if they drive a member, else are evicted); `cluster` is a
+  `PHYSICAL_CLUSTER` group shelf-packed at its centroid after placement.
+- CTS gets explicit `-clk_nets`; analog nets are refused as clock nets and
+  their terminals must be unchanged after CTS.
+
+**Analog nets** (`route_analog`)
+- Routed alone first with their NDR (`create_ndr`/`assign_ndr`,
+  `set_nets_to_route`), with temporary blockages keeping them off the
+  pin-access layers over standard-cell rows. The wiring is rebuilt as
+  special wiring, made `setSpecial` and `set_dont_touch`, and a signature of
+  the shapes is compared after the digital route: a change fails the attempt.
+  Before extraction the exact regular wiring is restored (OpenRCX skips
+  special nets); `extract` fails if an analog net has no `*D_NET`.
+- **Guard.** The router keeps only the minimum spacing from special wiring,
+  so the NDR spacing alone would protect an analog wire only from what was
+  routed before it. Obstructions around the frozen wiring (`guard`, default
+  on; cut around pins) keep digital wires at the NDR spacing.
+- **Shields** (`analog_shield: [nets]`, `shield.py`). OpenROAD's router does
+  not shield signal nets, so SiPath draws the shields. A shielded net's NDR
+  leaves room for one on each side; every straight segment then gets a
+  minimum-width wire of `analog_shield_net` (default the core ground) on both
+  sides at the minimum spacing, clipped by the spacing rule around every other
+  shape on that layer. A piece is grounded by touching a ground shape, by a
+  via where it crosses one on the next layer (pad flush with the inner edge,
+  never on or beside another via), or by a tie strap outward on the next
+  layer (`shield_tie_um`, default 30 µm, never on the pin-access layers). A
+  piece that reaches no ground is dropped, never left floating; no sliver
+  overlaps; coverage is reported per net.
+- **Keep-away** (`analog_keepaway: true`): obstructions on the layers just
+  above and below each shielded segment and its shields (not on pin-access
+  layers, cut around pins).
+- **Coupling report.** `extract` writes `analog_coupling.json`/`.md` from
+  every corner's SPEF: per analog net its total capacitance, its coupling to
+  digital nets (sum and largest aggressors, worst corner) and to the other
+  analog nets. Metrics `analog_coupling_ff` / `analog_aggressor_ff`; step and
+  regression limits bound them. Results under [Benchmarks](#analog-coupling).
+
+**Routing and repair**
+- `route_digital`: global route; repair on global-route parasitics in
+  incremental mode; `repair_antennas`; detailed route; `check_antennas` and up
+  to three antenna repair rounds; RCX to rank the variants (`drc_then_slack`).
+- `route_repair`: RCX; `repair_timing` (resize only, so structural equivalence
+  is checked; hold buffers separately); re-route of the changed nets
+  (`eco.patch_route`, a full re-route past a quarter of the nets); RCX again,
+  at most two rounds; fillers.
+- `fill`: OpenROAD `density_fill` with the PDK's fill rules, up to the
+  design's top routing layer (an embedded macro leaves the layers above to its
+  parent), streamed to the PDK's fill datatypes.
+- Each attempt writes timing (per corner), clock skew, power and congestion
+  reports.
+
+**Sweeps and ECOs**
+- `variants=[...]`, `parallel=N`, `score="<name>"` (default `auto`: setup slack
+  when constrained, else wirelength); rejected attempts stay in `graph.json`.
+  `fail_on_violation` makes a timing violation fail the attempt.
+- ECOs `resize` (`replace_cell`) and `buffer` (`insert_buffer`): refused unless
+  the parent is the selected head of its chain; structural equivalence before
+  routing; rejected if setup or hold slack drops by more than
+  `max_slack_loss` (0.05 ns); only the touched nets are re-routed (a full route
+  past `max_patch_nets`). Equivalence reads cell functions from the session's
+  Liberty, so drive-strength classes and buffers are derived, not named.
+
+**Frames and hardened macros**
+- Harnesses (`harness: openframe`, `caravel`, or a plugin's): the harness sets
+  the die and every template pin, creates the frame's supply pins (user
+  supplies strapped to the core ring), the power grid and routing limits.
+  Template pins overhanging the boundary are clipped for routing and restored
+  at signoff; the `harness` check compares the routed wrapper with the
+  template (die, every pin by name, layer and rectangle); loopback nets stay
+  plain wires. `examples/openframe_gcd8.yaml` puts a 4-bit gcd on the
+  OpenFrame's east-edge pads.
+- `integrate` (after signoff): Magic puts the signed-off wrapper GDS,
+  unchanged, into the frame's layout (as the frame's own build does) and
+  writes the chip GDS; KLayout checks one top cell, the frame's die, the
+  wrapper placed once at its origin and identical to the signed-off GDS. The
+  seal ring is left to tape-out, as in the frame's build.
+- `views`: abstract LEF, a timing Liberty per corner (`write_timing_model`),
+  GDS, LVS subcircuit, SPEF per corner, netlists with and without supply pins,
+  and `macro.yaml`. `sipath harden <design> <dir>` runs a design through
+  signoff and `views`; a parent lists `{inst: u0, views: <dir>, location: [x,
+  y]}` (`examples/gcd8_pair.yaml`). Library cells the macro's GDS carries are
+  kept as the library's, so LVS pairs them.
+- Design templates: `sipath new <dir> --template openframe --set inputs=8
+  --set outputs=6` writes a project (design file, wrapper with every frame
+  port and the loopback ties, a starter core, SDC) that runs as generated.
+
+## Signoff
+
+The `signoff` step (`sipath/signoff.py`) checks the final database; every
+check can also run as a step of its own.
+
+- **GDS.** The routed DEF streamed with every cell's layout, supply nets
+  labelled. A cell no GDS defines (a LEF-only macro) makes DRC/LVS impossible
+  and fails them. Each macro's GDS keeps its own cells: names that clash with
+  a library or another macro are renamed, not merged; library GDS load
+  first-definition-wins.
+- **DRC.** open_pdks `sky130A_mr.drc`, its rule groups in parallel processes
+  (`drc_split`; aes 209 s to 156 s); every marker counts, also by owner (`top`
+  or the macro or library whose cell it is in). Metal density with the PDK's
+  deck: gating for top-level layouts, reported for embedded macros.
+- **LVS.** `sipath/pdks/sky130/sky130_stdcell.lvs` (derived from ORFS's deck)
+  against a reference netlist from `write_cdl` after the supply connections
+  are re-applied: only the subcircuits the design uses, tie cells as the poly
+  shorts their layout is, supplies as ports. Black boxes (macros with
+  `lvs: blackbox` or `abstract: true`, and the PDK's `signoff.lvs_blackbox`
+  masters: Sky130's IO cells) are compared as their pins only and listed in
+  `lvs.blackboxed`. A macro with neither a `cdl` nor `lvs: blackbox` fails LVS.
+- **Antennas** (`check_antennas`).
+- **Timing**, in a fresh OpenROAD process from only the final netlist,
+  Liberty, SDC and per-corner SPEF: setup and hold on all nine corners,
+  slew/cap/fanout on standard cells, parasitic annotation (a loaded net
+  without parasitics fails), unconstrained endpoints.
+- **Opt-in:** `magic_drc` (Magic `drc(full)`), `xor` (Magic's stream-out of the
+  routed DEF against KLayout's; fill not compared), `lvs_full`: full-device
+  LVS with the PDK's own deck (open_pdks `sky130.lvs`: high-voltage MOS, MIM
+  caps, resistors, diodes), also as `sipath lvs <gds> <top> <schematic...>`
+  for a macro. Schematics are prepared for the deck (device aliases, the
+  device prefix on CDL models, cell SPICE for black boxes, parallel MOS merged
+  as the deck merges the layout's). Not yet matching: the ChipFoundry ADC's
+  vendor schematic lacks its `decoder3to8`; on dp8 the deck and the PDK's cell
+  netlists disagree (parallel devices merged across cells, tap diodes and tie
+  resistors, well pins).
+
+`signoff.json` holds every result; a failed required check fails the attempt.
+Measured:
+- gcd8, dp8 and dp8_hs: DRC 0, density clean, LVS match, antennas 0, timing
+  met on nine corners.
+- mcu8 (ChipFoundry macros signed off as abstracts, their GDS merged into the
+  written GDS): DRC 0, LVS match (macros and IO cells as black boxes),
+  antennas 0, setup +8.83 ns and hold +0.099 ns over nine corners, design
+  rules clean, with all four analog nets shielded. On the full layouts the
+  deck finds 95 markers inside the vendor cells (ADC: 86 `capm.2b_a`, 6
+  `hvtp.2`, 2 `nsdm.1`; DAC: 1 `nwell.6`), for ChipFoundry to address.
+
+Found by signoff and fixed (DRC alone sees none of the LVS ones):
+- A VDD–VSS short: a strap's landing patch crossed a VSS stripe. Landings now
+  avoid other nets on every layer they cross, and every step that adds straps
+  fails if special shapes of two nets touch (`special_shorts`).
+- Floating ESD clamps: the plain `*_hvc` power pads leave their clamp
+  terminals to be routed; mcu8 uses the `*_clamped` pads, as Caravel does.
+- 158 untapped row pieces beside the SRAM with floating n-wells: such pieces
+  are cut and a row without a tap fails `physical`.
+- Strap vias next to the router's own (merged, illegal cuts), off-grid pin
+  edges copied from vendor LEFs and a notch to a fill shape: mcu8's top-level
+  DRC went from 12 markers to 0.
+- OpenRCX re-orders each net's wire and drops the router's minimum-area
+  patches; every extraction restores the routing from a DEF written just
+  before (geometry checked). A post-route minimum-area repair stays as a
+  safety net and normally finds nothing.
+- Cells added after the power grid (CTS buffers, fillers, ties, diodes) had
+  unconnected supply pins; global connections are re-applied after every step
+  that adds cells.
+
+## Agents (MCP)
+
+`python3 -m sipath mcp` serves `open_run` (an example name or any design file;
+`resume` picks up a workdir), `run_step`, `run_eco`, `job_status`,
+`cancel_job`, `list_jobs`, `list_attempts`, `get_outputs`, `describe_step`,
+`query_checkpoint`, `draw_checkpoint` and `render_checkpoint` (plus
+`list_designs`, `list_scores`).
+- `run_step` / `run_eco` are jobs: in the foreground they send
+  `notifications/progress` as attempts start and end (with a
+  `progressToken`); with `background: true` they return a job id at once.
+- `cancel_job`, or `notifications/cancelled`, kills the job's OpenROAD
+  processes; its attempts end `cancelled` with no checkpoint.
+- Arguments are checked before anything runs (step, score, parallel,
+  parameter names per step, ECO ops): a bad one is a tool error.
+- Resources: each run's `graph.json` and every attempt's DEF, SPEF (per
+  corner), reports, debug checkpoint and pictures, as
+  `flow://<run>/<attempt>/<name>`.
+- `query_checkpoint` runs Tcl in a fresh process with `write_*`, `exec`,
+  `file`, `source`, `socket` removed and `open` limited to the session's own
+  result files: a guard against accidental writes, not a security sandbox.
 
 ## Benchmarks
 
+Each table says when it was measured; a refresh on the current defaults is under way.
+
 ### Against ORFS
 
-`python3 bench/orfs_compare.py gcd aes` runs ORFS's own sky130hd reference designs
+Measured 2026-10-16. `python3 bench/orfs_compare.py gcd aes` runs ORFS's own sky130hd reference designs
 through ORFS (`make` in the ORFS image) and through SiPath (sky130A, the
 standard flow with fill) from the same RTL, SDC and core utilization, then
 measures both final layouts with the same code: setup WNS/TNS at the typical
@@ -832,7 +647,7 @@ aes by stage (seconds; SiPath's current defaults against the earlier ones and OR
 The gap was mostly corners (in-flow repair on nine) and threads (2 against
 ORFS's every core); placement now also routes like ORFS's (routability-driven,
 `improve_placement`, `optimize_mirroring`; that aes run also had `pin_access`, now
-off by default, see below). What remains is work
+off by default, see [Workarounds](#workarounds-for-this-openroad-build)). What remains is work
 ORFS's make does not do: the equivalence check (ORFS: `LEC_CHECK=0`),
 post-route repair on extracted parasitics at three corners, and signoff (DRC,
 LVS, nine-corner STA). SiPath's signoff of this run: DRC 0, LVS match, hold met
@@ -855,7 +670,7 @@ limit since removed. ORFS's equivalence check (kepler-formal) is disabled
 
 ### SiPath's own designs through ORFS
 
-`python3 bench/orfs_compare.py sipath/examples/gcd8.yaml sipath/examples/dp8.yaml ...`
+Measured 2026-10-16. `python3 bench/orfs_compare.py sipath/examples/gcd8.yaml sipath/examples/dp8.yaml ...`
 goes the other way: ORFS gets a generated `config.mk` with the design's netlist
 (`SYNTH_NETLIST_FILES`) or RTL, SDC, floorplan DEF (or utilization and margin)
 and top routing layer, on its platform for the PDK. It also gets what SiPath
@@ -890,9 +705,9 @@ signoff (KLayout DRC, LVS, nine-corner STA: 19–24 s). mcu8 and ihp_ring (pad
 rings, hard macros, analog supplies) are not compared: they would need ORFS
 footprint scripts written for them.
 
-### Synthesis
+### Synthesis bench
 
-`python3 bench/synth_bench.py` runs the synth step alone on shalan/synth_flow's
+Measured 2026-10-17. `python3 bench/synth_bench.py` runs the synth step alone on shalan/synth_flow's
 16 designs (`bench/synth`: 12 in-house designs and 4 external IPs at pinned
 commits, each with its SDC) on sky130A, and lists the selected netlist next to
 synth_flow's best pre-repair result per design (its `baseline-noD` run: the
@@ -935,9 +750,48 @@ synth_flow's runs (mul32_mac: 73k µm², meeting timing, against 40k missing by
 there closes the remaining designs with OpenSTA-guided sizing after synthesis,
 which SiPath leaves to OpenROAD after placement.
 
-### Rosetta (amd64) vs native arm64
+### Macro placement
 
- `bench/arch_compare.py gcd8 aes` runs the
+`examples/sram8.yaml` (eight sky130 1 KB SRAMs plus glue) and mcu8 (two
+placed macros), each attempt scored by `macro_quick` (lower is better):
+
+| design | method | macro-net HPWL (µm) | total quick HPWL (µm) | overflow | macro cost (µm) |
+|---|---|---|---|---|---|
+| sram8 | random, seed 1 | 150,547 | 574,065 | 7 | — |
+| sram8 | cdlns | 146,339 | 628,305 | 39 | — |
+| sram8 | mpl | fails (MPL-0003: no valid tiling) | | | — |
+| mcu8 | random, best of 3 seeds | — | — | 0 | 53,061 |
+| mcu8 | cdlns | — | — | 0 | 58,329 |
+| mcu8 | mpl | — | — | — | 68,785 |
+
+The random search wins on SiPath's score so far. cdlns gives the shortest
+macro-net wiring on sram8, but it packs the SRAMs about 36 µm apart, and the
+glue logic between them then routes with more overflow. The challenge's
+proxy cost rewards that packing; SiPath judges by a quick route.
+
+### Analog coupling
+
+Coupling from digital nets onto analog nets (worst corner), from
+`analog_coupling.md`:
+
+| design | net | unguarded, unshielded (fF) | guard + shields (fF) | shield coverage | total C (fF) |
+|---|---|---|---|---|---|
+| dp8 | ana_in[0] | 3.68 (2.78 from `clk`) | 0.00 | 93 % | 21 → 38 |
+| mcu8 | vref_lo | 31.2 (from `core.pad_ch_0_i`) | 0.09 | 63 % | 130 → 196 |
+| mcu8 | ana_in | 0.29 | 0.01 | 70 % | 65 → 115 |
+| mcu8 | dac_out | 1.15 | 0.58 | 91 % | 47 → 96 |
+| mcu8 | vref_hi | 9.8 | 9.7 | 47 % | 121 → 147 |
+
+Both designs sign off clean with the shields (DRC 0, LVS match, antennas 0,
+timing met). Before the guard, mcu8's router laid `core.pad_ch_0_i` 0.25 µm
+from `vref_lo` for 340 µm, inside the analog NDR's spacing. `vref_hi`'s
+remainder comes from met1/met2 digital runs about 2 µm beside its met3 run
+along the ADC's pin edge: coupling between layers, which a same-layer shield
+does not stop and the keep-away (as wide as the shields) does not reach.
+
+### Rosetta (amd64) against native arm64
+
+Measured 2026-10-16. `bench/arch_compare.py gcd8 aes` runs the
 same flows on the ORFS image (amd64, Rosetta) and LibreLane's (arm64), one
 after the other on an idle 18-core Apple M5 Max, 12 threads (wall seconds):
 
@@ -970,112 +824,41 @@ after the other on an idle 18-core Apple M5 Max, 12 threads (wall seconds):
 
 ### Exploration mode
 
- `--explore` on gcd8 (ORFS image, Rosetta, while another run used the machine): 47 s from RTL
+`--explore` on gcd8 (ORFS image, Rosetta, while another run used the machine): 47 s from RTL
 to a PPA first cut at global routing; achievable period 3.52 ns (285 MHz)
 against the SDC's 10 ns, suggested `create_clock -period 3.7`, 1,630 µm² of
 cells, 0.71 mW.
 
-## Workarounds for this OpenROAD build (found by running it)
+## Design files
 
-- `place_pins -random` is obsolete (a no-op with a warning): automatic pins
-  are placed provisionally at floorplan without it, and again after global
-  placement.
-- `write_timing_model` takes `-scene`, not `-corner`.
-- After `pin_access`, a `repair_antennas` following a second detailed route
-  segfaults (`grt::GlobalRouter::findNets`, mcu8, any thread count):
-  `route_digital`'s `pin_access` is off by default.
-- A second `global_route` in one process fails (GRT-0229, edge usage 65535: the
-  first route's usage is kept): post-route repair re-routes once per process.
-- `clock_tree_synthesis -clk_nets` splits its value on spaces: names are passed
-  space-joined, not list-quoted (`{gpio_in[0]}` kept its braces).
-- The detailed router can end a segment with extension 0 at a same-layer
-  corner, leaving a diagonal pinch under the minimum width; signoff squares
-  such corners in the written DEF (`corners_squared`).
-- The global router places pins outside the die off its grid (a net of such
-  pins only gets an empty Steiner tree): harness pins are clipped for routing.
-- The detailed router takes one pin per signal port: duplicate template pins
-  (same shapes, listed twice) keep one copy.
-
-- With several corner libraries loaded, CTS cannot resolve its dummy-load
-  cells (CTS-0118, even with `-library`): multi-corner runs pass
-  `-dont_use_dummy_load`.
-- Liberty cells with no LEF master (extra cells in corner libraries) are set
-  dont_use at every load.
-- A second full `global_route` in one process inherits stale state (an
-  "infinite usage" gcell): repair between global routes uses
-  `-start_incremental`/`-end_incremental`.
-- A patch route after many incremental global routes in one process hung at
-  0% CPU, so post-route repair is its own step (fresh process). Patch routes
-  also time out after 30 min.
-- `dbSBox_create` silently returns NULL for a box whose width and length are
-  both odd (DBU). Boxes are made even, and every create is checked.
-- DPL's blocked-layer check flags a macro an analog wire lands on.
-  `check_placement` tolerates exactly that (hard macros on analog nets) and
-  nothing else.
-- `make_fake_io_site` segfaults when a site name already exists: sites are
-  created once per session.
-- Post-route setup repair with buffering segfaults inside `repair_timing`
-  (extracted multi-corner parasitics). Post-route setup repair is sizing only;
-  hold repair (buffers) runs separately.
-- `add_pdn_ring -connect_to_pads` silently connects nothing to the sky130
-  power-pad tabs, so the power connector does it.
-- The detailed router refuses POWER nets (DRT-0305) and SIGNAL nets on POWER
-  pins (DRT-0307). Analog supplies are routed with their pins retyped SIGNAL
-  for that route only, and restored.
-- Analog nets may not use met1/met2 over standard-cell rows (temporary routing
-  blockages). Otherwise a wire over a cell's met1 pins blocks its pin access.
-
-- DRT re-reads its own L-shaped wires from a checkpoint as non-orthogonal
-  (DRT-1010). Before an ECO re-route, wires are re-encoded with
-  `dbWireEncoder`: same geometry, one path per segment.
-- Timing-driven gpl diverges inside a fence region after its first timing
-  iteration. With fences, `-keep_resize_below_overflow 0` is passed
-  (reweighting stays; the explicit repair runs after gpl).
-- `dbWireDecoder` segfaults from Tcl, so analog routing is read back from a
-  DEF written by the same process.
-- The sky130 pads need `-rotation_vertical R180 -rotation_horizontal R90`. A
-  check fails the attempt if any pad's core-side pin does not face the core.
-
-## Specifying a design (the flow's inputs)
-
-A design is one YAML (or JSON) file. Relative paths are relative to that
-file. Three ways to run it:
+A design is one YAML (or JSON) file; relative paths are relative to it. Three
+ways to run it:
 - CLI: `python3 -m sipath run my.yaml [workdir] [--resume] [--explore] [--config cfg.yaml]`.
 - Python: `sipath.designfile.run("my.yaml", workdir)`, or build a
-  `sipath.design.Design` yourself and pass `flow_steps=[...]`.
+  `sipath.design.Design` and pass `flow_steps=[...]`.
 - MCP: `open_run` with the file's path.
 
-`python3 -m sipath validate` checks every example file. `Design.validate()`
-reports every missing input at once: a missing file fails the run before
-OpenROAD starts.
-
-Every design-file key and every step parameter is declared with its type,
-default and doc (`sipath/schema.py`, `sipath/params.py`). From those
-declarations:
-- A design file is checked before anything runs. Unknown keys, wrong types,
-  values out of range and missing required keys are errors that name the
-  key path. PDK descriptions reject unknown keys too.
-- `docs/reference.md` is generated by `python3 -m sipath docs`. A test fails
-  when it is stale.
-- `python3 -m sipath schema` writes a JSON Schema of the design file, for
-  editors.
-- The MCP tool `describe_step` returns each step's parameter schema.
-
-Parameter defaults can be set per design or per PDK with
-`step_defaults: {place: {density: 0.5}}`. The order is: the attempt's
-variant, then the design file, then the PDK, then the declared default.
+Every design-file key and step parameter is declared with its type, default
+and doc (`sipath/schema.py`, `sipath/params.py`). A design file is checked
+before anything runs: unknown keys, wrong types, values out of range and
+missing required keys are errors naming the key path, and a missing input
+file fails before OpenROAD starts. `docs/reference.md` (generated by
+`python3 -m sipath docs`; a test fails when it is stale) lists every key and
+parameter; `python3 -m sipath schema` writes a JSON Schema for editors.
+Parameter defaults can be set per design or PDK with `step_defaults: {place:
+{density: 0.5}}`.
 
 ```yaml
 name: chip                  # run/report name
 top: chip                   # top module in the netlist
-mode: die                   # die (pad ring) | macro (soft macro from a floorplan DEF)
+mode: die                   # die (pad ring) | macro (soft macro)
 pdk: sky130A                # a description in sipath/pdks (python3 -m sipath pdks) or a path to one
 netlist: rtl/chip_flat.v    # flattened gate-level Verilog, or instead:
-# rtl: [rtl/chip.v]         #   RTL, linted and synthesized by the synth step (Yosys)
+# rtl: [rtl/chip.v]         #   RTL, linted and synthesized by the synth step
 sdc: rtl/chip.sdc
-# mode: macro  ->  floorplan_def: fp.def   (die, rows, pins), or die / core_utilization with pins placed
+# mode: macro  ->  floorplan_def: fp.def (die, rows, pins), or die / core_utilization with pins placed
 #                  by the flow; is_core: false limits routing to the embedded top layer
-die: [0, 0, 1500, 1500]     # mode: die; microns
+die: [0, 0, 1500, 1500]     # microns
 core_margin: 241
 pads:                       # ring order per edge; master from the PDK's IO set
 - {inst: pad_clk, edge: west, order: 0, master: sky130_ef_io__gpiov2_pad_wrapped}
@@ -1083,151 +866,182 @@ pad_kinds: {pad_clk: input}         # signal pads: input | output | analog
 pad_supplies: {"^VCCD$": VDD}       # IO-cell supply pin regex -> net
 macros:
 - inst: u_sram
-  lef: ip/sram.lef
+  lef: ip/sram.lef                  # or sram: <PDK SRAM name>, or views: <hardened views dir>
   lib: {ss: ip/sram_ss.lib, tt: ip/sram_tt.lib, ff: ip/sram_ff.lib}   # or one file, or null
-  location: [262.2, 843.2]          # null = autoplaced (macros step)
+  location: [262.2, 843.2]          # null = placed by the macros step
   orient: R90
   halo: 15
   supplies: {"^vpwr[amp]$": VDD, "^vgnd$": VSS}
   grid_stripes: [{layer: met3, width: 2, pitch: 30, offset: 5}]
   grid_connects: [[met3, met4]]
-  auto_blackbox: true               # no lib: a black-box Liberty model is written from the LEF (opt-in)
+  auto_blackbox: true               # no lib: a black-box Liberty model from the LEF (opt-in)
   gds: ip/sram.gds                  # signoff DRC (and LVS when cdl is given)
   cdl: ip/sram.cdl                  # transistor netlist for LVS
   lvs: blackbox                     # no cdl: LVS checks only the connections to its pins
-  abstract: true                    # signoff on the LEF abstract (DRC around it, LVS black box);
-                                    # the written GDS still carries its layout
-analog_nets: [ana_in]               # routed first with an NDR, then frozen
+  abstract: true                    # signoff on the LEF abstract; the written GDS still carries the layout
+analog_nets: [ana_in]               # routed first with an NDR, then frozen and guarded
 analog_shield: [ana_in]             # grounded shield wires on both sides (analog_keepaway: adjacent layers too)
 analog_supplies: [VDDA, VSSA]
 pdn: {straps: [{layer: met4, width: 1.6, pitch: 54.28, offset: 27.14}], rings: false}
 datapaths: [{name: add, kind: slices, cells: [[u.ra_0, u.fa_0], [u.ra_1, u.fa_1]], origin: [30, 30]}]
 groups: [{name: io, prefix: u_out., kind: fence, box: [10, 10, 60, 40]}]
-keepouts: [[0, 0, 100, 100]]        # boxes the macro autoplacer avoids
+keepouts: [[0, 0, 100, 100]]        # boxes the macro placer avoids
 macro_channel: 20                   # also macro_pin_clearance, analog_guard
 dont_use: ["*_16"]                  # extra cell patterns; allow_excluded waives PDK exclusions
 extra_lefs: [ip/blackboxes.lef]
 extra_libs: [ip/blackboxes.lib]
+plugins: [mypkg.sipath_ext]         # modules that register steps, scores, checks, harnesses
 config: {threads: 8, parallel_cap: 4}   # run configuration (also SIPATH_* env, --config)
 inputs: {generate: "mypkg.gen:write"}   # optional hook that writes generated inputs first
 flow:                               # steps in order; each continues from the previous selection
 - step: floorplan
 - step: macros
-  variants: [{method: random, seed: 1}, {method: random, seed: 2}]
+  variants: [{method: random, seed: 1}, {method: random, seed: 2}, {method: cdlns}]
   score: macro_quick
-  parallel: 2
+  parallel: 3
 - step: place
 - step: cts
 - step: route_analog
 - step: route_digital
 - step: route_repair
 - step: extract
-- step: signoff                     # checks: [drc, lvs, antenna, setup, hold, drv, annotation, unconstrained]
+- step: mypkg.checks:inst_count     # a step function by import path
+- step: signoff                     # or single checks: - step: drc, - step: lvs, - step: timing, ...
 ```
 
-An RTL design needs only `rtl`, `sdc`, and `core_utilization` or `die`
-(see `examples/gcd8.yaml`):
-- **`synth`, a tool step (Yosys, no OpenROAD process)**: lint (Yosys, and
-  Verilator when found), synthesis with the recipe sweep and selection of
-  [Synthesis](#synthesis), the netlist checked (an unmapped cell such as a
-  latch, or an excluded cell, fails the step) and proven against the RTL
-  (bounded). The selected netlist is the attempt's checkpoint.
-- **Macros without a Liberty file**: with `auto_blackbox: true` (on the design,
-  or per macro), the flow writes a black-box model from the macro's LEF into
-  `<workdir>/models/` before the run:
-  - pin directions, with indexed pins grouped into buses;
-  - a default pin capacitance, and the area from the LEF;
-  - no timing arcs; power and ground pins left out (LEF `USE`, or the macro's
-    `supplies`).
+An RTL design needs only `rtl`, `sdc`, and `core_utilization` or `die` (see
+`examples/gcd8.yaml`). Field notes:
+- **Steps.** A step may run under another name with `fn:` (`{step:
+  signoff_fast, fn: signoff}`); `fn:` and `step:` also take `module:function`.
+  Without a `flow:` list the default chain is used.
+- **Omitted fields** come from the PDK description (layers, PDN defaults,
+  corners, constraints, exclusions, signoff decks).
+- **Corners.** A macro's `lib` maps a corner name, or its process prefix (`ss`,
+  `tt`, `ff`), to a Liberty file.
+- **Abstract macros** (`abstract: true`): DRC checks the design around the
+  macro (not spacing to shapes the abstract does not show), LVS treats it as
+  a black box, the written GDS still merges its layout, and `signoff.json`
+  lists it under `drc.abstract_macros`.
 
-  Yosys uses it to resolve the instance and OpenROAD links against it. Paths
-  through the macro are not timed. The run's provenance lists each model and
-  any pin whose direction had to be assumed (`inout`). It is off by default:
-  without it, synthesis fails and the message names the macros and the ways
-  out.
-- **Floorplan without a DEF**: pins are placed at random, then by the cells
-  after a first placement. PDK-default power straps too wide for a small
-  core are scaled to it (recorded as `pdn_straps_scaled`).
+## Examples
 
-Field by field:
-- **Steps.** Step parameters are checked by name (`sipath.steps.STEP_PARAMS`).
-  A step may run under another name with `fn:`, e.g.
-  `{step: signoff_fast, fn: signoff}`.
-- **Omitted fields.** They come from the PDK description (layers, PDN
-  defaults, corners, constraints, exclusions, signoff decks). Without a
-  `flow:` list, the default step list is used.
-- **Corners.** The PDK lists the corners. A macro's `lib` maps a corner name,
-  or its process prefix (`ss`, `tt`, `ff`), to a Liberty file.
-- **Abstract macros.** With `abstract: true`, DRC and LVS see the macro as its
-  LEF abstract (pins and obstructions):
-  - DRC checks the design around the macro, not the vendor's insides. It
-    cannot check spacing to shapes the abstract does not show.
-  - LVS treats the macro as a black box.
-  - The written GDS still merges the macro's GDS.
-  - `signoff.json` lists these macros under `drc.abstract_macros`.
-- **Black boxes in LVS.** Two sources:
-  - a macro with `lvs: blackbox` or `abstract: true`;
-  - PDK masters matching `signoff.lvs_blackbox` (for Sky130, the IO cells).
+Each example is a design file in `sipath/examples/`; an `inputs.generate` hook
+writes generated inputs under `examples/inputs/` (`examples/designs.py`,
+`examples/ihp_add8.py`; also `python3 -m sipath gen-inputs`).
 
-  In both cases LVS compares a LEF abstract against a pin-only subcircuit.
-  `signoff.json` lists them under `lvs.blackboxed`.
+| example | what it shows |
+|---|---|
+| `gcd8.yaml` | RTL to signoff: lint, synthesis, floorplan from a utilization |
+| `gcd8_sv.yaml` | SystemVerilog through slang (package, enum, packed struct, function) |
+| `gcd8_pair.yaml` | two hardened gcd8 macros plus glue, signed off with their insides checked |
+| `dp8.yaml` | soft macro from a floorplan DEF: bit-slice adder, array multiplier, a cluster, two analog feed-throughs (`ana_in[0]` shielded) |
+| `dp8_hs.yaml` | dp8 on the sky130 high-speed library |
+| `mcu8.yaml` | a 1.5 × 1.5 mm die: 39 `sky130_ef_io` pads, ChipFoundry SRAM/ADC/DAC macros, analog nets shielded, 3.3 V supplies |
+| `sram8.yaml` | eight sky130 1 KB SRAMs (`sram:`), random search against the CD-LNS placer |
+| `openframe_gcd8.yaml` | a 4-bit gcd in the OpenFrame harness, integrated into the frame |
+| `ihp_add8.yaml` | soft macro on IHP SG13G2 (no tap or endcap cells; one RCX rule file) |
+| `ihp_ring.py` | a pad ring closed on IHP SG13G2 with nothing configured |
+| `plugin_example.py` | a plugin with one of each extension point (step, score, signoff check, design-file extension) |
 
-## Inputs
-
-Each example is a design file (`examples/*.yaml`) whose
-`inputs.generate` hook writes its generated inputs under `examples/inputs/`
-(`examples/designs.py`, `examples/ihp_add8.py`; also
-`python3 -m sipath gen-inputs`).
-
-**dp8** (soft macro, Sky130 HD): flat netlist with an 8-bit ripple adder
-(placed as bit slices: a and b registers + full adder per bit), a 4×4 array
-multiplier, an XOR accumulator and 2 analog feed-throughs. Also its
-floorplan DEF (die, rows, pins) and SDC.
-
-**ihp_add8** (soft macro, IHP SG13G2): an 8-bit registered ripple adder from
-xor2/and2/a21o (the library has no full adder), placed as bit slices of six
-stages, a cluster, 2 analog feed-throughs; Metal3/Metal2 pins on the ORFS
-track grid. No tap or endcap cells in that library. Routed DEF + SPEF for
-ss/tt/ff (one RCX rule file in the ORFS tree, so the three SPEFs are the
-same parasitics; the Liberty differs per corner).
-
-**mcu8** (die): 1.5 × 1.5 mm, 39 `sky130_ef_io` pads, and ChipFoundry hard
-macros (provenance and commits in `inputs/chipfoundry/SOURCES.txt`):
+**mcu8** in detail. ChipFoundry hard macros (provenance and commits in
+`inputs/chipfoundry/SOURCES.txt`):
 
 | instance | IP | views used | placement |
 |---|---|---|---|
 | `u_sram` | `CF_SRAM_1024x32` (Apache-2.0) | LEF, ss/tt/ff Liberty, GDS; LVS black box (no netlist published) | frozen, R90 |
-| `u_adc` | `EF_ADCS1008NC`, 10-bit SAR front end (repo has no license file; the model header says Apache-2.0) | LEF, behavioral model, GDS; LVS black box (analog; schematic SPICE kept for a macro-level LVS) | autoplaced (sweep) |
-| `u_dac` | `sky130_ef_ip__rdac3v_8bit` (Apache-2.0) | LEF, behavioral model, GDS; LVS black box (no netlist at the pinned commit) | autoplaced (sweep) |
+| `u_adc` | `EF_ADCS1008NC`, 10-bit SAR front end (repo has no license file; the model header says Apache-2.0) | LEF, behavioral model, GDS; LVS black box (schematic SPICE kept for a macro-level LVS) | placed by the macros step |
+| `u_dac` | `sky130_ef_ip__rdac3v_8bit` (Apache-2.0) | LEF, behavioral model, GDS; LVS black box (no netlist at the pinned commit) | placed by the macros step |
 
-The ADC front end has no controller, so the top contains a gate-level SAR
-controller: a one-hot pointer plus trial and result registers. A unit test
-simulates it against the vendor's comparator model.
-
-Other generated mcu8 inputs:
-- The scaling datapath (multiplier and ripple adder), a 10-bit SRAM
-  address counter and the output registers.
-- The SRAM test and power-switch pins, tied off as ChipFoundry's pin
-  description specifies.
-- `EF_ADCS1008NC.annotated.lef`: the vendor LEF has no pin DIRECTION/USE,
-  so a copy is written with them, taken from the vendor model. Geometry is
-  untouched.
-- `mcu8_blackboxes.lib`: pin directions, buses and loads for the ADC, DAC
-  and pad (none ship Liberty).
-
-**Power, as measured** (extract step, mcu8):
-- Every macro supply pin is connected:
-  - SRAM: met3/met4 macro grid;
-  - ADC/DAC 1.8 V tabs: power-connector straps;
-  - ADC/DAC 3.3 V tabs: the routed VDDA/VSSA nets.
-- `check_power_grid` passes for VDD, VSS, VDDA and VSSA against terminals on
-  the supply pads.
-- Worst IR drop is about 0.4 mV on VDD. VDDA/VSSA show 0 mV only because the
-  analog macros have no power model.
-
-Also out of scope:
-- The pad tie-off values follow the gpiov2 mode table. Verify them against
+- The ADC front end has no controller, so the top contains a gate-level SAR
+  controller (a one-hot pointer plus trial and result registers); a unit test
+  simulates it against the vendor's comparator model.
+- Generated inputs: a scaling datapath (multiplier and ripple adder), a 10-bit
+  SRAM address counter, output registers; the SRAM test and power-switch pins
+  tied as ChipFoundry specifies; `EF_ADCS1008NC.annotated.lef` (the vendor LEF
+  has no pin DIRECTION/USE; a copy gets them from the vendor model, geometry
+  untouched); `mcu8_blackboxes.lib` (pin directions, buses and loads for the
+  ADC, DAC and pad, none of which ship Liberty).
+- Power as measured: every macro supply pin is connected (SRAM by its met3/met4
+  grid, the ADC/DAC 1.8 V tabs by straps, their 3.3 V tabs by the routed
+  VDDA/VSSA); `check_power_grid` passes for VDD, VSS, VDDA and VSSA against
+  terminals on the supply pads; worst IR drop about 0.4 mV on VDD (VDDA/VSSA
+  show 0 mV only because the analog macros have no power model).
+- The pad tie-off values follow the gpiov2 mode table; verify them against
   the IO datasheet before a tapeout.
+
+## Modules
+
+| module | role |
+|---|---|
+| `session.py` | `OpenRoadSession`: one process per attempt; Tcl in over stdin, result/errorInfo back through files; a Tcl error raises `TclError`. Docker and native runners. `FakeSession` for graph tests. |
+| `tclquote.py`, `tcl.py` | quoting (no substitution possible) and Tcl-list parsing; Tcl generators and helpers |
+| `scheduler.py` | `Flow.step`, `Flow.eco`, the attempt graph (`graph.json`), resume, cancel; each attempt loads its parent's ODB and writes its own |
+| `config.py`, `params.py`, `schema.py`, `reference.py` | run configuration; step parameter and design-file declarations; the generated reference |
+| `design.py`, `designfile.py`, `pdk.py`, `pdks/` | design spec (unset fields from the PDK), design files and `run`; PDK descriptions and their loader |
+| `steps/` | one module per stage: `floorplan` (floorplan, macros, physical), `place` (place, cts), `analog_route`, `route` (route_digital, route_repair), `finish` (fill, extract, signoff and the check steps, views, integrate, ppa), helpers in `common` and `structure` |
+| `synth.py`, `recipes.py`, `synth_recipes/`, `blackbox.py` | the synth step; ABC recipes and objective sets; black-box Liberty models |
+| `chip.py`, `padplan.py`, `powerconnect.py` | pad ring (ICeWall); pad plan rules; straps from supply tabs to the grid |
+| `macroplace.py`, `third_party/` | hard macro placement (random, mpl, cdlns) and its rules; the vendored CD-LNS placer |
+| `analog.py`, `shield.py` | analog freeze, restore and coupling report; shields, guard and keep-away |
+| `datapath.py`, `congestion.py`, `minarea.py` | structured placement and re-abut; congestion reports; post-route minimum-area safety net |
+| `eco.py`, `equiv.py`, `liberty.py`, `netlist.py`, `wires.py` | ECOs; structural equivalence on Liberty functions; Liberty and Verilog models; wire re-encoding and restore after RCX |
+| `signoff.py`, `lvs_full.py`, `klayout/` | signoff checks; full-device LVS; GDS stream-out, chip check and XOR scripts |
+| `harness.py`, `harnesses/`, `templates.py`, `templates/` | frames (OpenFrame, Caravel) and their pinned sources; design templates |
+| `registry.py`, `scores.py`, `demo.py` | extension points; named scores; stand-in scores for scheduler tests |
+| `mcp_server.py`, `report.py`, `viz.py` | MCP server; run reports; schematic drawings |
+| `limits.py`, `toolchain.py`, `toolchain.json` | regression limits; locked images and PDK release |
+| `examples/`, `tests/`, `bench/` | example designs; unit and live tests with `limits.yaml`; benchmarks against ORFS, synthesis and architectures |
+
+## Workarounds for this OpenROAD build
+
+Found by running it:
+- `place_pins -random` is a no-op: automatic pins are placed provisionally at
+  floorplan without it, and again after global placement.
+- `write_timing_model` takes `-scene`, not `-corner`.
+- After `pin_access`, a `repair_antennas` following a second detailed route
+  segfaults (`grt::GlobalRouter::findNets`): `pin_access` is off by default.
+- A second `global_route` in one process fails or inherits stale state
+  (GRT-0229, an "infinite usage" gcell): repair between global routes uses
+  `-start_incremental`/`-end_incremental`, and post-route repair is its own
+  step (a fresh process). Patch routes time out after 30 min.
+- `clock_tree_synthesis -clk_nets` splits its value on spaces: names are
+  passed space-joined, not list-quoted.
+- With several corner libraries loaded, CTS cannot resolve its dummy-load
+  cells (CTS-0118): multi-corner runs pass `-dont_use_dummy_load`. Liberty
+  cells without a LEF master are set dont_use.
+- The detailed router can end a segment with extension 0 at a same-layer
+  corner (a diagonal pinch under the minimum width); signoff squares such
+  corners (`corners_squared`).
+- The global router places pins outside the die off its grid (harness pins
+  are clipped for routing); the detailed router takes one pin per signal port
+  (duplicate template pins keep one copy).
+- `dbSBox_create` silently returns NULL for a box whose width and length are
+  both odd (DBU): boxes are made even, and every create is checked.
+- DPL's blocked-layer check flags a macro an analog wire lands on;
+  `check_placement` tolerates exactly that.
+- `make_fake_io_site` segfaults when a site already exists: sites are created
+  once per session.
+- Post-route setup repair with buffering segfaults inside `repair_timing`:
+  it is sizing only; hold repair (buffers) runs separately.
+- `add_pdn_ring -connect_to_pads` silently connects nothing to the sky130
+  power-pad tabs, so the power connector does it.
+- The detailed router refuses POWER nets (DRT-0305) and SIGNAL nets on POWER
+  pins (DRT-0307): analog supplies are routed with their pins retyped SIGNAL
+  for that route only.
+- DRT re-reads its own L-shaped wires from a checkpoint as non-orthogonal
+  (DRT-1010): before an ECO re-route, wires are re-encoded one path per
+  segment.
+- Timing-driven placement diverges inside a fence after its first timing
+  iteration: with fences, `-keep_resize_below_overflow 0`.
+- `dbWireDecoder` segfaults from Tcl, so analog routing is read back from a
+  DEF written by the same process.
+- KLayout 0.30.7 crashes on `connect_implicit` for the gpiov2 pad: LVS joins
+  pin pieces through private per-pin layers; its SPICE reader upcases names,
+  so black boxes are blanked under both spellings.
+- The sky130 pads need `-rotation_vertical R180 -rotation_horizontal R90`; a
+  check fails the attempt if a pad's core-side pin does not face the core.
+- The router keeps only the minimum spacing from special wiring, whatever the
+  analog net's NDR: hence the analog guard.
 
 ## License
 
