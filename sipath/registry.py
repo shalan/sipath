@@ -158,6 +158,26 @@ def register_extension(namespace: str, fields: dict, replace: bool = False):
 
 
 # --------------------------------------------------------------------- loading
+def import_step(ref: str) -> str:
+    """Register the step function ``module:function`` (a design file's
+    ``step`` or ``fn``) under that name and return it. The function may carry
+    ``params`` (sipath.params.Param list) and ``tool`` attributes."""
+    from . import steps
+    if ref in steps.STEPS:
+        return ref
+    mod, _, attr = ref.partition(":")
+    if not mod or not attr:
+        raise RegistryError(f"step {ref!r}: expected module:function")
+    try:
+        fn = getattr(importlib.import_module(mod), attr)
+    except (ImportError, AttributeError) as e:
+        raise RegistryError(f"step {ref!r} could not be imported: {e}") from e
+    if not callable(fn):
+        raise RegistryError(f"step {ref!r} is not a function")
+    register_step(ref, fn, params=getattr(fn, "params", ()), tool=getattr(fn, "tool", None))
+    return ref
+
+
 def load_plugins(names) -> list[str]:
     """Import plugin modules (each once); entry points are loaded first."""
     load_entry_points()

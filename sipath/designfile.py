@@ -267,10 +267,16 @@ def run(path_or_design, workdir: str, runner=None, overrides: dict | None = None
     for item in spec:
         item = expand_sweep(dict(item, **(overrides or {}).get(item["step"], {})))
         name = item["step"]
-        fn = steps_mod.STEPS.get(item.get("fn", name))
+        ref = item.get("fn", name)
+        if ":" in ref:  # a step function by import path
+            from . import registry
+            registry.import_step(ref)
+            if "fn" not in item:
+                name = ref.rpartition(":")[2]  # the attempt directories take the function's name
+        fn = steps_mod.STEPS.get(ref)
         if fn is None:
             raise ValueError(f"unknown step {name!r}; known: {sorted(steps_mod.STEPS)}")
-        steps_mod.check_params(item.get("fn", name), item.get("variants"))
+        steps_mod.check_params(ref, item.get("variants"))
         r = flow.step(name, fn, parent=parent, variants=item.get("variants"), score=item.get("score"),
                       parallel=item.get("parallel", 1))
         parent = r.selected

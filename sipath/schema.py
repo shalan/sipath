@@ -117,8 +117,9 @@ CONFIG = {
     "log_level": F("str", "flow logger level", choices=("DEBUG", "INFO", "WARNING", "ERROR")),
 }
 FLOW_STEP = {
-    "step": F("str", "step name (a step function, or any name with fn)", required=True),
-    "fn": F("str", "step function when step is another name"),
+    "step": F("str", "step name: a registered step, any name with fn, or module:function (a step function "
+                     "imported by path)", required=True),
+    "fn": F("str", "step function when step is another name: a registered step or module:function"),
     "variants": F("list[dict]", "one parameter dict per attempt (see Step parameters)"),
     "score": F("str", "named score that picks the best attempt"),
     "parallel": F("int", "attempts at once"),

@@ -261,6 +261,20 @@ STEP_PARAMS: dict[str, list[Param]] = {
         Param("max_drc", "int", 0, "routing DRC violations allowed after the ECO", min=0),
     ],
 }
+# each signoff check (or group of checks) as a step of its own: `- step: drc` runs signoff with those
+# checks only (lvs_full brings the LVS reference netlist it compares against)
+CHECK_STEPS = {"drc": ("drc",), "density": ("density",), "lvs": ("lvs",), "lvs_full": ("lvs", "lvs_full"),
+               "antenna": ("antenna",), "timing": ("setup", "hold", "drv", "annotation", "unconstrained"),
+               "magic_drc": ("magic_drc",), "xor": ("xor",), "harness": ("harness",)}
+for _name, _checks in CHECK_STEPS.items():
+    _req = tuple(c for c in SIGNOFF_REQUIRED + SIGNOFF_OPTIONAL if c in _checks)
+    STEP_PARAMS[_name] = [
+        Param("require", "list[str]", _req, "of these checks, those whose failure fails the step", choices=_checks),
+        Param("fail_on_violation", "bool", True, "fail the attempt when a required check fails (signoff.json "
+              "is written either way)")]
+    if "drc" in _checks:
+        STEP_PARAMS[_name].append(Param("drc_split", "bool", True, "run the PDK's DRC rule groups as concurrent "
+                                        "processes and merge their reports"))
 # every OpenROAD step (not the tool steps synth and integrate) takes these
 COMMON = (Param("threads", "int", None, "OpenROAD threads for this step's attempts (set_thread_count; signoff: "
                 "also KLayout DRC); unset: the run's threads, shared among the attempts running at once", min=1),)

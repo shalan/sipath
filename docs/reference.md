@@ -202,8 +202,8 @@ YAML or JSON; relative paths are relative to the file. Keys not listed are error
 
 | key | type | required | description |
 |---|---|---|---|
-| `step` | str | yes | step name (a step function, or any name with fn) |
-| `fn` | str |  | step function when step is another name |
+| `step` | str | yes | step name: a registered step, any name with fn, or module:function (a step function imported by path) |
+| `fn` | str |  | step function when step is another name: a registered step or module:function |
 | `variants` | list[dict] |  | one parameter dict per attempt (see Step parameters) |
 | `score` | str |  | named score that picks the best attempt |
 | `parallel` | int |  | attempts at once |
@@ -387,6 +387,79 @@ Set per attempt in `variants` (design file `flow:` or MCP `run_step`), or as def
 | `max_patch_nets` | int | 25 | 0.. | touched nets above which the design is routed again instead of patched |
 | `iters` | int | 64 | 1.. | detailed-router iterations for the patch route |
 | `max_drc` | int | 0 | 0.. | routing DRC violations allowed after the ECO |
+| `threads` | int | – | 1.. | OpenROAD threads for this step's attempts (set_thread_count; signoff: also KLayout DRC); unset: the run's threads, shared among the attempts running at once |
+
+### drc
+
+| parameter | type | default | allowed | description |
+|---|---|---|---|---|
+| `require` | list[str] | drc | drc | of these checks, those whose failure fails the step |
+| `fail_on_violation` | bool | true |  | fail the attempt when a required check fails (signoff.json is written either way) |
+| `drc_split` | bool | true |  | run the PDK's DRC rule groups as concurrent processes and merge their reports |
+| `threads` | int | – | 1.. | OpenROAD threads for this step's attempts (set_thread_count; signoff: also KLayout DRC); unset: the run's threads, shared among the attempts running at once |
+
+### density
+
+| parameter | type | default | allowed | description |
+|---|---|---|---|---|
+| `require` | list[str] | density | density | of these checks, those whose failure fails the step |
+| `fail_on_violation` | bool | true |  | fail the attempt when a required check fails (signoff.json is written either way) |
+| `threads` | int | – | 1.. | OpenROAD threads for this step's attempts (set_thread_count; signoff: also KLayout DRC); unset: the run's threads, shared among the attempts running at once |
+
+### lvs
+
+| parameter | type | default | allowed | description |
+|---|---|---|---|---|
+| `require` | list[str] | lvs | lvs | of these checks, those whose failure fails the step |
+| `fail_on_violation` | bool | true |  | fail the attempt when a required check fails (signoff.json is written either way) |
+| `threads` | int | – | 1.. | OpenROAD threads for this step's attempts (set_thread_count; signoff: also KLayout DRC); unset: the run's threads, shared among the attempts running at once |
+
+### lvs_full
+
+| parameter | type | default | allowed | description |
+|---|---|---|---|---|
+| `require` | list[str] | lvs, lvs_full | lvs, lvs_full | of these checks, those whose failure fails the step |
+| `fail_on_violation` | bool | true |  | fail the attempt when a required check fails (signoff.json is written either way) |
+| `threads` | int | – | 1.. | OpenROAD threads for this step's attempts (set_thread_count; signoff: also KLayout DRC); unset: the run's threads, shared among the attempts running at once |
+
+### antenna
+
+| parameter | type | default | allowed | description |
+|---|---|---|---|---|
+| `require` | list[str] | antenna | antenna | of these checks, those whose failure fails the step |
+| `fail_on_violation` | bool | true |  | fail the attempt when a required check fails (signoff.json is written either way) |
+| `threads` | int | – | 1.. | OpenROAD threads for this step's attempts (set_thread_count; signoff: also KLayout DRC); unset: the run's threads, shared among the attempts running at once |
+
+### timing
+
+| parameter | type | default | allowed | description |
+|---|---|---|---|---|
+| `require` | list[str] | setup, hold, drv, annotation | setup, hold, drv, annotation, unconstrained | of these checks, those whose failure fails the step |
+| `fail_on_violation` | bool | true |  | fail the attempt when a required check fails (signoff.json is written either way) |
+| `threads` | int | – | 1.. | OpenROAD threads for this step's attempts (set_thread_count; signoff: also KLayout DRC); unset: the run's threads, shared among the attempts running at once |
+
+### magic_drc
+
+| parameter | type | default | allowed | description |
+|---|---|---|---|---|
+| `require` | list[str] | magic_drc | magic_drc | of these checks, those whose failure fails the step |
+| `fail_on_violation` | bool | true |  | fail the attempt when a required check fails (signoff.json is written either way) |
+| `threads` | int | – | 1.. | OpenROAD threads for this step's attempts (set_thread_count; signoff: also KLayout DRC); unset: the run's threads, shared among the attempts running at once |
+
+### xor
+
+| parameter | type | default | allowed | description |
+|---|---|---|---|---|
+| `require` | list[str] | xor | xor | of these checks, those whose failure fails the step |
+| `fail_on_violation` | bool | true |  | fail the attempt when a required check fails (signoff.json is written either way) |
+| `threads` | int | – | 1.. | OpenROAD threads for this step's attempts (set_thread_count; signoff: also KLayout DRC); unset: the run's threads, shared among the attempts running at once |
+
+### harness
+
+| parameter | type | default | allowed | description |
+|---|---|---|---|---|
+| `require` | list[str] | harness | harness | of these checks, those whose failure fails the step |
+| `fail_on_violation` | bool | true |  | fail the attempt when a required check fails (signoff.json is written either way) |
 | `threads` | int | – | 1.. | OpenROAD threads for this step's attempts (set_thread_count; signoff: also KLayout DRC); unset: the run's threads, shared among the attempts running at once |
 
 ## Run configuration

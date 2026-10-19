@@ -73,7 +73,10 @@ python3 -m sipath report runs/gcd8 --render   # the run's report page (report.md
   (`test_live`, run in parallel by `sipath.tests.run_live`).
 - Plugins (`plugins:` or the `sipath.plugins` entry points) add steps,
   scores, signoff checks, harnesses, design templates and design-file
-  extensions.
+  extensions. A flow can also name a step function by import path
+  (`- step: mypkg.checks:inst_count`, or `fn:` under another name). It is
+  imported on first use, with typed parameters from its `params` attribute,
+  and gets variants, scores and resume like the built-in steps.
 
 **Front end** (`synth`; see [Synthesis](#synthesis))
 - Verilog or SystemVerilog (slang), linted by Yosys and Verilator.
@@ -145,6 +148,11 @@ python3 -m sipath report runs/gcd8 --render   # the run's report page (report.md
   conformance.
 - Opt-in Magic DRC and a Magic-vs-KLayout stream-out XOR.
 - One summary (`signoff.json`); a required check that fails fails the run.
+- Every check is also a step of its own (`drc`, `density`, `lvs`, `lvs_full`,
+  `antenna`, `timing`, `magic_drc`, `xor`, `harness`): each runs alone on the
+  parent's database, in its own process, resumable, with its own variants.
+  `lvs_full` brings the LVS reference netlist; every check on the layout streams
+  the GDS itself.
 
 **Frames and chips**
 - Harnesses (OpenFrame, Caravel): the design is the frame's wrapper (template
@@ -179,7 +187,7 @@ python3 -m sipath report runs/gcd8 --render   # the run's report page (report.md
 - Against ORFS: its reference designs through both flows, and SiPath's own
   designs through ORFS, measured by the same code.
 - Synthesis: shalan/synth_flow's 16 designs (`bench/synth_bench.py`).
-- 158 unit tests (seconds; undefined names, step parameters of the examples,
+- 161 unit tests (seconds; undefined names, step parameters of the examples,
   PDK names kept out of the library code) and 45 live tests (real runs, in
   parallel), with regression limits per design.
 
@@ -470,7 +478,7 @@ versions.
 | `session.py` | `OpenRoadSession`: one process per attempt; Tcl in over stdin, result/errorInfo back through files (OpenROAD's stdout re-emits bytes on lines > 4 KiB); a Tcl error, or a `break`/`continue` outside a loop, raises `TclError` (`return` is a normal completion). Values are quoted with `tclquote.q` (no substitution possible). `FakeSession`: canned answers for graph tests only. |
 | `scheduler.py` | `Flow.step(name, fn, parent, variants, score, parallel)`, `Flow.eco(...)`, attempt graph (`graph.json`), resume, cancel. Each attempt: own session, loads parent ODB, runs, writes its own ODB. Best by named score is `selected`, others `rejected` (kept). Failures write no ODB. |
 | `config.py` | run configuration (threads, timeouts, parallel cap, container limits, image digest, debug checkpoints, logging) |
-| `steps.py` | `floorplan`, `macros`, `physical`, `place`, `cts`, `route_analog`, `route_digital`, `route_repair`, `extract` |
+| `steps/` | one module per stage: `floorplan` (floorplan, macros, physical), `place` (place, cts), `analog_route`, `route` (route_digital, route_repair), `finish` (fill, extract, signoff and the check steps, views, integrate, ppa), helpers in `common` and `structure`; every name importable from `sipath.steps` |
 | `padplan.py`, `powerconnect.py` | pad plan rules; straps from supply tabs to the grid |
 | `chip.py` | pad ring (ICeWall) |
 | `macroplace.py` | hard macros: frozen, seeded random search with orientation search, `rtl_macro_placer`, or the CD-LNS placer (`third_party/`, run in the placer Python); channel / pin-side / analog-guard rules; quick placement + global route score |

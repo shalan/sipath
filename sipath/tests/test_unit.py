@@ -348,6 +348,52 @@ class Equivalence(unittest.TestCase):
             tt("A + (B", ["A", "B"])
 
 
+class StepsPackage(unittest.TestCase):
+    """P2.3: steps split by stage, signoff checks as steps, steps by import path."""
+
+    def test_every_name_still_importable(self):
+        from sipath import steps
+        for n in ("floorplan", "macros", "physical", "place", "cts", "route_analog", "route_digital",
+                  "route_repair", "fill", "extract", "signoff", "views", "integrate", "ppa", "synth",
+                  "check_placement", "run_rcx", "reabut_all", "fence_violations", "enforce_fences",
+                  "datapath_check", "reconnect_supplies", "grid_nets", "fit_straps", "_drt_numbers",
+                  "_via_array", "_no_supply_shorts", "design_rule_counts", "check_antennas", "shield_nets",
+                  "analog_coupling", "STEPS", "STEP_PARAMS", "check_params"):
+            self.assertTrue(hasattr(steps, n), n)
+        self.assertTrue(steps.STEPS["integrate"].tool)
+        self.assertEqual(steps.STEPS["route_analog"].__module__, "sipath.steps.analog_route")
+
+    def test_signoff_checks_as_steps(self):
+        from sipath import params, steps
+        for name, checks in params.CHECK_STEPS.items():
+            self.assertIn(name, steps.STEPS)
+            self.assertIn(", ".join(checks), steps.STEPS[name].__doc__)
+        self.assertEqual(params.DECLARED["lvs_full"]["require"].default, ("lvs", "lvs_full"))
+        self.assertIn("drc_split", params.DECLARED["drc"])
+        steps.check_params("timing", [{"require": ["setup", "hold"]}])
+        with self.assertRaises(ValueError):
+            steps.check_params("timing", [{"require": ["drc"]}])  # not one of its checks
+
+    def test_step_by_import_path(self):
+        from sipath import registry, steps
+        d = tempfile.mkdtemp()
+        with open(os.path.join(d, "p23_user_steps.py"), "w") as f:
+            f.write("from sipath.params import Param\n"
+                    "def count_cells(ctx):\n    ctx.metrics['n'] = ctx.params['k']\n"
+                    "count_cells.params = [Param('k', 'int', 1, 'a number', min=0)]\n")
+        sys.path.insert(0, d)
+        self.addCleanup(sys.path.remove, d)
+        ref = registry.import_step("p23_user_steps:count_cells")
+        self.assertIs(steps.STEPS[ref].__name__, "count_cells")
+        steps.check_params(ref, [{"k": 3}])
+        with self.assertRaises(ValueError):
+            steps.check_params(ref, [{"k": -1}])
+        self.assertEqual(registry.import_step(ref), ref)  # once
+        for bad in ("p23_user_steps:nope", "no_such_module_p23:f", "p23_user_steps"):
+            with self.assertRaises(registry.RegistryError):
+                registry.import_step(bad)
+
+
 class PdkRelease(unittest.TestCase):
     """The open_pdks release of a PDK tree, pinned in toolchain.json."""
 

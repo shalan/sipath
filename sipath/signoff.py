@@ -922,7 +922,7 @@ def run(ctx) -> dict:
         summary["corners_squared"] = corners[:20]
     timings = {}
     phys = [c for c in ("drc", "lvs") if c in checks]
-    if phys:
+    if phys or any(c in checks for c in ("density", "magic_drc", "xor")):  # every check on the GDS streams it
         t = time.time()
         g = stream_gds(ctx, final_def, ctx.path(f"{d.top}.gds"))
         summary["gds"] = {"file": ctx.path(f"{d.top}.gds"), **{k: g[k] for k in ("cells", "empty", "orphan",
