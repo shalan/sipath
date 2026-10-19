@@ -629,40 +629,43 @@ ORFS's results are its 2026-10-16 runs (same image), measured again.
 | gcd (1.1 ns) | ORFS | −1.465 | −65.1 | 11,786 | 473 | 5,319 | 0 | 0 | 321 |
 | gcd (1.1 ns) | SiPath | −1.318 | −57.7 | 8,050 | 485 | 4,917 | 0 | 0 | 167 |
 | aes | ORFS | −0.196 | −0.67 | 588,211 | 15,396 | 124,637 | 0 | 0 | 2,724 |
-| aes | SiPath | −0.328 | −0.87 | 649,099 | 17,924 | 148,641 | 0 | 0 | 6,679 |
+| aes | SiPath | −0.010 | −0.02 | 650,995 | 17,924 | 148,639 | 0 | 0 | 4,602 |
+| aes | SiPath, same day, before excluding `o211ai_4` | −0.328 | −0.87 | 649,099 | 17,924 | 148,641 | 0 | 0 | 6,679 |
 | aes | SiPath, 2026-10-16 (synthesis defaults before 10-17) | −0.237 | −0.88 | 568,195 | 16,389 | 143,121 | 0 | 0 | 4,258 |
 
 aes by step (seconds):
 
-| step | ORFS | SiPath | SiPath 2026-10-16 |
-|---|---|---|---|
-| synthesis | — | 689 (600 of it the RTL equivalence check, timed out: inconclusive) | 666 |
-| place | 83 | 114 | 108 |
-| CTS | 26 | 44 | 47 |
-| routing (global, repair, detailed, antennas) | 2,290 (detailed route) | 3,698 | 1,226 (detailed route) |
-| post-route repair | — | 1,440 | 1,507 |
-| extraction | — | 25 | 31 |
-| signoff (LVS, DRC, nine-corner STA in parallel) | — | 655 | 655 |
-| **whole run** | **2,724** | **6,679** | **4,258** |
+| step | ORFS | SiPath | SiPath, first run of the day | SiPath 2026-10-16 |
+|---|---|---|---|---|
+| synthesis | — | 689 (600 of it the RTL equivalence check, timed out: inconclusive) | 689 | 666 |
+| place | 83 | 112 | 114 | 108 |
+| CTS | 26 | 44 | 44 | 47 |
+| routing (global, repair, detailed, antennas) | 2,290 (detailed route) | 1,472 | 3,698 | 1,226 (detailed route) |
+| post-route repair | — | 1,588 | 1,440 | 1,507 |
+| extraction | — | 25 | 25 | 31 |
+| signoff (LVS, DRC, nine-corner STA in parallel) | — | 657 | 655 | 655 |
+| **whole run** | **2,724** | **4,602** | **6,679** | **4,258** |
 
 - **gcd** (a 1.1 ns clock, beyond what sky130 HD closes): SiPath now ends
   0.15 ns ahead of ORFS in WNS and 11% in TNS, with 32% less wire, 8% less
   cell area and half the wall time, signoff included. With its 2026-10-16
   defaults it was 1.0 ns behind; the difference is the synthesis front end
   (slow-corner mapping, the recipe sweep).
-- **aes** got worse than on 2026-10-16: WNS at tt −0.328 ns (ORFS −0.196),
-  10% more wire and 19% more cell area than ORFS. Synthesis now maps at the
-  slow corner, where aes's clock cannot be met (synthesis WNS −4.9 ns), so the
-  selection falls back to the best-slack recipe (`delay_syn2`): a bigger
-  netlist that routes slower (3,698 s against 1,226 s) and is repaired harder
-  (34k instances after repair). The synthesis bench's gains do not carry over
-  to aes end to end; how to pick a netlist when nothing meets timing at
-  synthesis is open.
-- **aes signoff:** DRC 0, antennas 0, hold met on all nine corners, setup
-  −0.33 ns at tt, −4.27 ns at ss_max and +0.85 ns at ff (ORFS does not check
-  ss), 126 slew violations. LVS failed on `sky130_fd_sc_hd__o211ai_4`, a cell
-  post-route resizing chose that the KLayout deck cannot pair; it is now
-  excluded with the other six, and aes is being run again.
+- **aes**: WNS at tt −0.010 ns against ORFS's −0.196, with 10% more wire and
+  19% more cell area. Synthesis now maps at the slow corner, where aes's clock
+  cannot be met (synthesis WNS −4.9 ns), so the selection falls back to the
+  best-slack recipe (`delay_syn2`): a bigger netlist than on 2026-10-16
+  (148.6k against 143.1k µm²). How to pick a netlist when nothing meets timing
+  at synthesis is open.
+- **Run-to-run variation on aes is large.** The first run of the day, from
+  the same synthesized netlist and ending with nearly the same cells and area,
+  closed at −0.328 ns with its routing step taking 3,698 s against 1,472 s.
+  Its LVS also failed, on `sky130_fd_sc_hd__o211ai_4`, a cell sizing chose that
+  the KLayout deck cannot pair; that cell is now excluded with the other six.
+  One aes run is not enough to rank two configurations.
+- **aes signoff:** DRC 0, LVS match, antennas 0, hold met on all nine corners,
+  setup −0.01 ns at tt, −3.46 ns at ss_max and +0.86 ns at ff (ORFS does not
+  check ss), 127 slew violations.
 - Both flows route to met5 with the design's own routing adjustments (aes:
   30% on every layer). Placement is routability-driven by default; before it
   was, global routing on aes failed with these adjustments. ORFS's
