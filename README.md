@@ -7,6 +7,9 @@
 
 # SiPath — the path to silicon, steered by AI
 
+[![unit](https://github.com/shalan/sipath/actions/workflows/unit.yml/badge.svg)](https://github.com/shalan/sipath/actions/workflows/unit.yml)
+[![live](https://github.com/shalan/sipath/actions/workflows/live.yml/badge.svg)](https://github.com/shalan/sipath/actions/workflows/live.yml)
+
 SiPath is a Python physical-design flow that drives live OpenROAD sessions,
 from RTL (Yosys synthesis) or a gate-level netlist to a **routed DEF, SPEF
 and a signed-off GDS**. It is built to be steered by an AI agent:
@@ -187,9 +190,19 @@ python3 -m sipath report runs/gcd8 --render   # the run's report page (report.md
 - Against ORFS: its reference designs through both flows, and SiPath's own
   designs through ORFS, measured by the same code.
 - Synthesis: shalan/synth_flow's 16 designs (`bench/synth_bench.py`).
-- 161 unit tests (seconds; undefined names, step parameters of the examples,
+- 163 unit tests (seconds; undefined names, step parameters of the examples,
   PDK names kept out of the library code) and 45 live tests (real runs, in
   parallel), with regression limits per design.
+- CI (GitHub Actions):
+  - `unit` runs on every push and pull request (Python 3.10, 3.12, 3.14). It runs the unit tests (those
+    needing an open_pdks tree skip with the reason), checks that the generated
+    reference docs are current, and checks the wheel's package data.
+  - `live` runs nightly or on demand. It uses the locked ORFS image and the
+    locked open_pdks release (fetched by `sipath install-pdk`), in two parallel
+    jobs (the mcu8 chip, everything else), with regression limits
+    except wall time (`SIPATH_LIMITS_IGNORE=max_runtime_s`), and keeps the logs of a failed run.
+  - On Linux the containers run as the calling user (`--user`), so files they
+    write stay the user's; `SIPATH_DOCKER_AS_ROOT=1` keeps the image's user.
 
 **Known limits**
 - RTL equivalence is bounded, not a full proof.

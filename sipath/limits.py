@@ -21,7 +21,8 @@ Designs with analog nets can also bound ``max_analog_coupling_ff`` (the worst
 analog net's coupling to digital nets) and ``max_analog_aggressor_ff``.
 ``min_*`` / ``max_*`` bound a number; any other key must equal the run's value.
 A limit whose quantity the run does not have is a violation: a missing result
-is a failed run.
+is a failed run. ``SIPATH_LIMITS_IGNORE=max_runtime_s`` (comma-separated keys)
+skips limits that belong to another machine, e.g. wall time in CI.
 """
 from __future__ import annotations
 
@@ -75,8 +76,9 @@ def check(workdir: str, entry: dict) -> list[str]:
     if "error" in got:
         return [got["error"]]
     bad = []
+    ignore = {k.strip() for k in os.environ.get("SIPATH_LIMITS_IGNORE", "").split(",") if k.strip()}
     for key, want in entry.items():
-        if key == "until":
+        if key == "until" or key in ignore:  # e.g. max_runtime_s on another machine (CI)
             continue
         kind, _, name = key.partition("_") if key.startswith(("min_", "max_")) else ("eq", "", key)
         v = got.get(name)

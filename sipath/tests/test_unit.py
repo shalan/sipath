@@ -1337,6 +1337,7 @@ class HardenedViewsAndFill(unittest.TestCase):
         params.check("signoff", {"checks": ["drc", "magic_drc", "xor"]})
         self.assertIn("xor", r["require"])  # when run, they gate signoff
 
+    @unittest.skipUnless(SKY130A, "no open_pdks sky130A tree")
     def test_pdk_fill_rules_and_signoff_keys(self):
         from sipath.pdk import load
         p = load("sky130A")
@@ -1371,6 +1372,7 @@ class ExploreMode(unittest.TestCase):
         check("synth", {"equiv": "off"})
         check("ppa", {"margin": 0.1})
 
+    @unittest.skipUnless(SKY130A, "no open_pdks sky130A tree")
     def test_explore_build_optimizes_on_the_typical_corner(self):
         from sipath import designfile
         d, _ = designfile.load(os.path.join(os.path.dirname(designs.__file__), "gcd8.yaml"))
@@ -2278,6 +2280,20 @@ class Limits(unittest.TestCase):
             self.assertEqual(len(bad), 4, bad)
             self.assertTrue(any("antenna: no value" in b for b in bad))  # a missing result is a violation
             self.assertEqual(limits.check(td, {"until": "nothing", "max_drc": 0}), ["step nothing did not run"])
+            with unittest.mock.patch.dict(os.environ, {"SIPATH_LIMITS_IGNORE": "max_runtime_s, lvs_match"}):
+                self.assertEqual(limits.check(td, {"max_runtime_s": 1, "lvs_match": False, "max_drc": 0}), [])
+                self.assertEqual(len(limits.check(td, {"max_runtime_s": 1, "max_drc": -1})), 1)  # others still count
+
+    def test_docker_runs_as_the_user_on_linux(self):
+        from sipath.session import DockerRunner
+        r = DockerRunner.__new__(DockerRunner)
+        with unittest.mock.patch("sys.platform", "linux"), unittest.mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("SIPATH_DOCKER_AS_ROOT", None)
+            self.assertEqual(r.identity()[:2], ["--user", f"{os.getuid()}:{os.getgid()}"])
+            os.environ["SIPATH_DOCKER_AS_ROOT"] = "1"
+            self.assertEqual(r.identity(), [])
+        with unittest.mock.patch("sys.platform", "darwin"):
+            self.assertEqual(r.identity(), [])  # Docker Desktop maps ownership itself
 
     def test_without_signoff_and_suggest(self):
         from sipath import limits

@@ -10,6 +10,7 @@ import sys
 import tempfile
 import types
 import unittest
+import unittest.mock
 
 from sipath import analog, datapath, demo, equiv, scores, tcl, wires  # noqa: F401
 from sipath.design import Design, Macro, MissingInput, PdnSpec, Strap

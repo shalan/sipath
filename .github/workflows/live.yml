@@ -1,0 +1,87 @@
+# Live tests nightly (and on demand): real OpenROAD / Yosys / KLayout runs in the
+# locked ORFS image on the locked open_pdks release, checked against the
+# regression limits (sipath/tests/limits.yaml) except wall time, which belongs
+# to the machine the limits were taken on.
+name: live
+
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+    inputs:
+      classes:
+        description: "live test classes (space-separated); empty: every group"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: chip       # mcu8: pad ring, macros, analog, full signoff (about an hour)
+            classes: LiveMcuDie
+          - group: blocks
+            classes: >-
+              LiveRtl LiveSoftMacro LiveHs LiveResume LiveMcp LiveIhp LiveIhpRing
+              LiveScale OpenRoad LiveMacroPlacers
+    env:
+      SIPATH_LIMITS_IGNORE: max_runtime_s
+      PDK_ROOT: /home/runner/pdk
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space (the PDK build is about 15 GB)
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup \
+                      /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          docker system prune -af
+          df -h /
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install SiPath and ciel
+        run: python -m pip install -e . ciel
+
+      - name: Locked open_pdks release (ciel)
+        run: python -m sipath install-pdk
+
+      - name: Locked ORFS image
+        run: docker pull "$(python -c 'from sipath.toolchain import image; print(image("orfs"))')"
+
+      - name: Macro placer Python (cdlns)
+        if: matrix.group == 'blocks'
+        run: python -m sipath setup-placer
+
+      - name: Inputs and scheduler rules
+        if: matrix.group == 'blocks'
+        run: python -m sipath validate
+
+      - name: Live tests
+        env:
+          SIPATH_TEST_KEEP: ${{ github.workspace }}/live-runs
+        run: |
+          classes="${{ github.event.inputs.classes }}"
+          python -m sipath.tests.run_live -j 2 ${classes:-${{ matrix.classes }}}
+
+      - name: Keep the logs of a failed run
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-${{ matrix.group }}-logs
+          path: |
+            live-runs/**/graph.json
+            live-runs/**/report.md
+            live-runs/**/*.log
+            live-runs/**/error.txt
+            live-runs/**/signoff.json
+          retention-days: 14
+          if-no-files-found: ignore

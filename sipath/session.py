@@ -16,6 +16,7 @@ import os
 import queue
 import shutil
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -105,6 +106,15 @@ class DockerRunner:
         # the container's, so the same command line works
         self.native_tools = dict(native_tools or {})
 
+    def identity(self) -> list[str]:
+        """On Linux, run the container as this user (files it writes in the
+        mounted directories stay ours, not root's) with a writable HOME;
+        Docker Desktop (macOS, Windows) maps ownership itself.
+        SIPATH_DOCKER_AS_ROOT=1 keeps the image's user."""
+        if not sys.platform.startswith("linux") or os.environ.get("SIPATH_DOCKER_AS_ROOT") == "1":
+            return []
+        return ["--user", f"{os.getuid()}:{os.getgid()}", "-e", "HOME=/tmp"]
+
     def limits(self) -> list[str]:
         out = []
         if self.cpus:
@@ -129,7 +139,8 @@ class DockerRunner:
         return out
 
     def command(self, workdir: str, name: str) -> list[str]:
-        cmd = ["docker", "run", "-i", "--rm", "--init", "--name", name, "--platform", self.platform, *self.limits()]
+        cmd = ["docker", "run", "-i", "--rm", "--init", "--name", name, "--platform", self.platform, *self.limits(),
+               *self.identity()]
         # a mount whose source was deleted (an old run dir) would make docker refuse to start
         for m in sorted({os.path.abspath(workdir), *map(os.path.abspath, self.mounts)}):
             if os.path.isdir(m):
@@ -140,7 +151,8 @@ class DockerRunner:
 
     def gui_command(self, workdir: str, script: str) -> tuple[list[str], dict]:
         """Headless GUI run of a script (for save_image), Qt offscreen in the container."""
-        cmd = ["docker", "run", "--rm", "--platform", self.platform, *self.limits(), "-e", "QT_QPA_PLATFORM=offscreen"]
+        cmd = ["docker", "run", "--rm", "--platform", self.platform, *self.limits(), *self.identity(),
+               "-e", "QT_QPA_PLATFORM=offscreen"]
         for m in sorted({os.path.abspath(workdir), *map(os.path.abspath, self.mounts)}):
             if os.path.isdir(m):
                 cmd += ["-v", f"{m}:{m}"]
@@ -159,7 +171,7 @@ class DockerRunner:
         if args and args[0] in self.native_tools:
             return (["env", *[f"{k}={v}" for k, v in env.items()]] if env else []) + \
                 [self.native_tools[args[0]], *args[1:]]
-        cmd = ["docker", "run", "--rm", "--platform", self.platform, *self.limits()]
+        cmd = ["docker", "run", "--rm", "--platform", self.platform, *self.limits(), *self.identity()]
         for k, v in (env or {}).items():
             cmd += ["-e", f"{k}={v}"]
         for m in sorted({os.path.abspath(workdir), *map(os.path.abspath, self.mounts)}):
