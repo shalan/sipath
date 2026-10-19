@@ -399,7 +399,10 @@ def verilator_lint(ctx) -> dict:
     std, others = _libs(pdk, d)
     extra, out = [], ""
     for _ in range(2):  # a second run with stubs for the library modules it could not find
-        args = [*binary, "--lint-only", "-Wall", "-Wno-fatal", "--top-module", d.top, *defs, *incs, *extra, *d.rtl]
+        # an unknown /*verilator ...*/ comment (another tool version's pragma, e.g. ORFS's
+        # "-xinit: zeros") is a counted warning, not a design error
+        args = [*binary, "--lint-only", "-Wall", "-Wno-fatal", "-Wwarn-BADVLTPRAGMA", "--top-module", d.top,
+                *defs, *incs, *extra, *d.rtl]
         if host:
             p = subprocess.run(args, capture_output=True, text=True, timeout=600, cwd=ctx.dir)
             out = p.stdout + p.stderr

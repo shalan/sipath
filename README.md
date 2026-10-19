@@ -166,8 +166,8 @@ python3 bench/synth_bench.py                   # synthesis benchmark: 16 designs
 - PDKs: Sky130 has signoff decks; IHP SG13G2 routes to DEF and SPEF without
   them; no gf180mcu yet.
 - No gate-level simulation.
-- Six sky130 HD cells are kept out of synthesis: the KLayout LVS deck cannot
-  pair them (`sipath/pdks/sky130/lvs_exclude_sky130_fd_sc_hd.cells`).
+- Seven sky130 HD cells are kept out of synthesis and sizing: the KLayout LVS
+  deck cannot pair them (`sipath/pdks/sky130/lvs_exclude_sky130_fd_sc_hd.cells`).
 - The arm64 image's OpenROAD crashes in the repair after global routing on
   the OpenFrame wrapper and on aes.
 - dp8's XOR shows two sub-0.1 µm² differences on wide analog wires (Magic
@@ -609,68 +609,69 @@ Found by signoff and fixed (DRC alone sees none of the LVS ones):
 
 ## Benchmarks
 
-Each table says when it was measured; a refresh on the current defaults is under way.
+Each table says when it was measured.
 
 ### Against ORFS
 
-Measured 2026-10-16. `python3 bench/orfs_compare.py gcd aes` runs ORFS's own sky130hd reference designs
-through ORFS (`make` in the ORFS image) and through SiPath (sky130A, the
-standard flow with fill) from the same RTL, SDC and core utilization, then
-measures both final layouts with the same code: setup WNS/TNS at the typical
-corner (open_pdks tt Liberty, the design's SDC, each flow's own SPEF), routed
-wirelength from the final DEF, logic cells and their area (no fill, tap,
-decap or diode), the detailed router's DRC count and the PDK's KLayout DRC deck
-on each GDS. Wall time is the whole run, on an Apple-silicon Mac under
-Rosetta (amd64 image), with other jobs running: indicative only.
+Measured 2026-10-19. `python3 bench/orfs_compare.py gcd aes` runs ORFS's own
+sky130hd reference designs through ORFS (`make` in the ORFS image) and through
+SiPath (sky130A, the standard flow with fill) from the same RTL, SDC and core
+utilization, then measures both final layouts with the same code: setup
+WNS/TNS at the typical corner (open_pdks tt Liberty, the design's SDC, each
+flow's own SPEF), routed wirelength from the final DEF, logic cells and their
+area (no fill, tap, decap or diode), the detailed router's DRC count and the
+PDK's KLayout DRC deck on each GDS. Wall time is the whole run, on an
+Apple-silicon Mac under Rosetta (amd64 image), 12 threads: indicative only.
+ORFS's results are its 2026-10-16 runs (same image), measured again.
 
 | design | flow | WNS (ns) | TNS (ns) | wirelength (µm) | cells | cell area (µm²) | DRT DRC | KLayout DRC | wall (s) |
 |---|---|---|---|---|---|---|---|---|---|
 | gcd (1.1 ns) | ORFS | −1.465 | −65.1 | 11,786 | 473 | 5,319 | 0 | 0 | 321 |
-| gcd (1.1 ns) | SiPath (earlier defaults) | −2.484 | −105.6 | 7,552 | 338 | 3,994 | 0 | 0 | 284 |
+| gcd (1.1 ns) | SiPath | −1.318 | −57.7 | 8,050 | 485 | 4,917 | 0 | 0 | 167 |
 | aes | ORFS | −0.196 | −0.67 | 588,211 | 15,396 | 124,637 | 0 | 0 | 2,724 |
-| aes | SiPath (defaults) | −0.237 | −0.88 | 568,195 | 16,389 | 143,121 | 0 | 0 | 4,258 |
-| aes | SiPath, earlier defaults (2 threads, 9 repair corners) | −0.157 | −1.57 | 577,107 | 15,984 | 138,114 | 0 | 0 | 10,025* |
+| aes | SiPath | −0.328 | −0.87 | 649,099 | 17,924 | 148,641 | 0 | 0 | 6,679 |
+| aes | SiPath, 2026-10-16 (synthesis defaults before 10-17) | −0.237 | −0.88 | 568,195 | 16,389 | 143,121 | 0 | 0 | 4,258 |
 
-aes by stage (seconds; SiPath's current defaults against the earlier ones and ORFS):
+aes by step (seconds):
 
-| stage | ORFS | SiPath now | SiPath before |
+| step | ORFS | SiPath | SiPath 2026-10-16 |
 |---|---|---|---|
-| synthesis | — | 666 (600 of it the RTL equivalence check, timed out: inconclusive) | — |
-| place | 83 | 108 | 275 |
-| CTS | 26 | 47 | 287 |
-| detailed route | 2,290 | 1,226 | 3,926 |
-| post-route repair | — | 1,507 (3,980 cells resized: full re-route) | 2,737 |
-| extraction | — | 31 | — |
-| signoff | — | 655 (LVS 636, DRC 175, nine-corner STA 45, in parallel) | 567 |
-| **whole run** | **2,724** | **4,258** | **10,025** |
+| synthesis | — | 689 (600 of it the RTL equivalence check, timed out: inconclusive) | 666 |
+| place | 83 | 114 | 108 |
+| CTS | 26 | 44 | 47 |
+| routing (global, repair, detailed, antennas) | 2,290 (detailed route) | 3,698 | 1,226 (detailed route) |
+| post-route repair | — | 1,440 | 1,507 |
+| extraction | — | 25 | 31 |
+| signoff (LVS, DRC, nine-corner STA in parallel) | — | 655 | 655 |
+| **whole run** | **2,724** | **6,679** | **4,258** |
 
-The gap was mostly corners (in-flow repair on nine) and threads (2 against
-ORFS's every core); placement now also routes like ORFS's (routability-driven,
-`improve_placement`, `optimize_mirroring`; that aes run also had `pin_access`, now
-off by default, see [Workarounds](#workarounds-for-this-openroad-build)). What remains is work
-ORFS's make does not do: the equivalence check (ORFS: `LEC_CHECK=0`),
-post-route repair on extracted parasitics at three corners, and signoff (DRC,
-LVS, nine-corner STA). SiPath's signoff of this run: DRC 0, LVS match, hold met
-everywhere, setup met at ff but −0.46 ns at tt and −3.38 ns at ss_max (ORFS
-does not check ss), 119 slew violations.
-
-Both flows route to met5 and get the design's own routing adjustments (aes:
-30% on every layer). At gcd's 1.1 ns clock (beyond what sky130 HD closes) ORFS
-repairs harder (40% more cells and area, 56% more wire) and ends 1.0 ns better;
-both layouts are DRC-clean and SiPath's signoff passes everything but setup.
-On aes, placement that was not routability-driven (the earlier default) left
-the router congested: global routing failed with the design's adjustments.
-Routability-driven placement is now the default and routes clean: WNS at the
-typical corner 0.04 ns behind ORFS, 3% less wire, 15% more cell area. The
-earlier run's LVS failed on cells the KLayout deck cannot pair, now excluded
-from synthesis (`sipath/pdks/sky130/lvs_exclude_sky130_fd_sc_hd.cells`); this
-run's LVS matches. *That wall time includes a 1,800 s re-route lost to a fixed
-limit since removed. ORFS's equivalence check (kepler-formal) is disabled
-(`LEC_CHECK=0`): its binary dies under Rosetta.
+- **gcd** (a 1.1 ns clock, beyond what sky130 HD closes): SiPath now ends
+  0.15 ns ahead of ORFS in WNS and 11% in TNS, with 32% less wire, 8% less
+  cell area and half the wall time, signoff included. With its 2026-10-16
+  defaults it was 1.0 ns behind; the difference is the synthesis front end
+  (slow-corner mapping, the recipe sweep).
+- **aes** got worse than on 2026-10-16: WNS at tt −0.328 ns (ORFS −0.196),
+  10% more wire and 19% more cell area than ORFS. Synthesis now maps at the
+  slow corner, where aes's clock cannot be met (synthesis WNS −4.9 ns), so the
+  selection falls back to the best-slack recipe (`delay_syn2`): a bigger
+  netlist that routes slower (3,698 s against 1,226 s) and is repaired harder
+  (34k instances after repair). The synthesis bench's gains do not carry over
+  to aes end to end; how to pick a netlist when nothing meets timing at
+  synthesis is open.
+- **aes signoff:** DRC 0, antennas 0, hold met on all nine corners, setup
+  −0.33 ns at tt, −4.27 ns at ss_max and +0.85 ns at ff (ORFS does not check
+  ss), 126 slew violations. LVS failed on `sky130_fd_sc_hd__o211ai_4`, a cell
+  post-route resizing chose that the KLayout deck cannot pair; it is now
+  excluded with the other six, and aes is being run again.
+- Both flows route to met5 with the design's own routing adjustments (aes:
+  30% on every layer). Placement is routability-driven by default; before it
+  was, global routing on aes failed with these adjustments. ORFS's
+  equivalence check (kepler-formal) is disabled (`LEC_CHECK=0`): its binary
+  dies under Rosetta.
 
 ### SiPath's own designs through ORFS
 
-Measured 2026-10-16. `python3 bench/orfs_compare.py sipath/examples/gcd8.yaml sipath/examples/dp8.yaml ...`
+Measured 2026-10-19 (ORFS: its 2026-10-16 runs, measured again). `python3 bench/orfs_compare.py sipath/examples/gcd8.yaml sipath/examples/dp8.yaml ...`
 goes the other way: ORFS gets a generated `config.mk` with the design's netlist
 (`SYNTH_NETLIST_FILES`) or RTL, SDC, floorplan DEF (or utilization and margin)
 and top routing layer, on its platform for the PDK. It also gets what SiPath
@@ -680,24 +681,24 @@ input-to-output analog net, RSZ-0074) and, where the design fixes its straps or
 on IHP (the platform's core ring does not fit a macro's margin, PDN-0351),
 SiPath's power grid (`PDN_TCL`). SiPath runs the design's own flow with
 signoff added (sky130; IHP has no signoff decks here). Same measurement as
-above; 12 threads, Rosetta, while another project's jobs shared the machine.
+above; 12 threads, Rosetta.
 
 | design | flow | WNS (ns) | wirelength (µm) | cells | cell area (µm²) | DRT / KLayout DRC | wall (s) |
 |---|---|---|---|---|---|---|---|
 | gcd8 (RTL) | ORFS | 7.165 | 4,220 | 211 | 1,973 | 0 / 0 | 168 (tools 54) |
-| gcd8 (RTL) | SiPath | 6.831 | 3,413 | 190 | 1,667 | 0 / 0 | 64 |
+| gcd8 (RTL) | SiPath | 7.154 | 3,460 | 202 | 1,667 | 0 / 0 | 64 |
 | dp8 | ORFS | 5.984 | 5,576 | 151 | 2,185 | 0 / 0 | 147 (tools 33) |
-| dp8 | SiPath | 5.818 | 7,218 | 111 | 1,791 | 0 / 0 | 67 |
+| dp8 | SiPath | 5.812 | 7,230 | 111 | 1,791 | 0 / 0 | 67 |
 | dp8_hs | ORFS | 7.658 | 5,816 | 151 | 2,610 | 0 / 0 | 150 (tools 34) |
-| dp8_hs | SiPath | 7.514 | 7,339 | 111 | 2,442 | 0 / 0 | 83 |
+| dp8_hs | SiPath | 7.514 | 7,328 | 111 | 2,442 | 0 / 0 | 81 |
 | ihp_add8 | ORFS | 8.412 | 2,252 | 117 | 2,097 | 0 / – | 138 (tools 18) |
-| ihp_add8 | SiPath | 8.487 | 2,743 | 89 | 2,054 | 0 / – | 20 |
+| ihp_add8 | SiPath | 8.487 | 2,743 | 89 | 2,054 | 0 / – | 19 |
 
 Timing is met with similar slack everywhere (TNS 0). SiPath uses 2–18% less
 cell area: ORFS buffers every port (49 port buffers on dp8, which ends with 40
 more cells than SiPath's) and SiPath does not for an embedded macro.
-On gcd8 (plain placement) SiPath's wire is 19% shorter; on the datapath designs
-it is 22–29% longer, the cost of the structured placement the design file asks
+On gcd8 (plain placement) SiPath's wire is 18% shorter; on the datapath designs
+it is 22–30% longer, the cost of the structured placement the design file asks
 for (slices and arrays at a fixed origin, a cluster) and of the analog nets on
 a wider non-default rule. ORFS's wall time is mostly per-stage process start-up
 under Rosetta (its own stage times add up to 18–54 s); SiPath's includes
@@ -707,7 +708,7 @@ footprint scripts written for them.
 
 ### Synthesis bench
 
-Measured 2026-10-17. `python3 bench/synth_bench.py` runs the synth step alone on shalan/synth_flow's
+Measured 2026-10-17, and again on 2026-10-19 with identical results. `python3 bench/synth_bench.py` runs the synth step alone on shalan/synth_flow's
 16 designs (`bench/synth`: 12 in-house designs and 4 external IPs at pinned
 commits, each with its SDC) on sky130A, and lists the selected netlist next to
 synth_flow's best pre-repair result per design (its `baseline-noD` run: the
@@ -737,8 +738,8 @@ Booth + Kogge-Stone as attempts.
 
 | configuration | designs meeting timing | wall time, 16 designs |
 |---|---|---|
-| defaults (`abc_sweep: auto`, mapped at ss_max) | 12 | 160 s |
-| defaults + front-end sweep | 13 | 688 s |
+| defaults (`abc_sweep: auto`, mapped at ss_max) | 12 | 156 s |
+| defaults + front-end sweep | 13 | 702 s |
 | mapped at the typical corner (`map_corner: typical`) | 10 | 158 s |
 | typical corner + `abc_target: period` | 4 | 155 s |
 | synth_flow, best pre-repair result per design | 6 | — |
@@ -824,10 +825,10 @@ after the other on an idle 18-core Apple M5 Max, 12 threads (wall seconds):
 
 ### Exploration mode
 
-`--explore` on gcd8 (ORFS image, Rosetta, while another run used the machine): 47 s from RTL
-to a PPA first cut at global routing; achievable period 3.52 ns (285 MHz)
-against the SDC's 10 ns, suggested `create_clock -period 3.7`, 1,630 µm² of
-cells, 0.71 mW.
+Measured 2026-10-19. `--explore` on gcd8 (ORFS image, Rosetta): 20 s from RTL
+to a PPA first cut at global routing; achievable period 3.39 ns (295 MHz)
+against the SDC's 10 ns, suggested `create_clock -period 3.56`, 1,637 µm² of
+cells, 0.87 mW.
 
 ## Design files
 

@@ -5,8 +5,8 @@
 # Their layouts draw parallel series chains (e.g. the A1/A2 pull-down of a21oi_2
 # as two chains with their own inner nodes) that the CDL writes as one chain with
 # m=N; the engine merges parallel devices but not parallel series chains. Each
-# was seen failing in a design's LVS (2026-10-15): a21oi_2 in gcd, the others in
-# aes. Black-boxing them instead would need li1 and well pins in the abstract
+# was seen failing in a design's LVS: a21oi_2 in gcd, the others in aes
+# (2026-10-15); o211ai_4 in aes, chosen by post-route resizing (2026-10-19). Black-boxing them instead would need li1 and well pins in the abstract
 # stream.
 sky130_fd_sc_hd__a21oi_2
 sky130_fd_sc_hd__a2111oi_2
@@ -14,3 +14,4 @@ sky130_fd_sc_hd__a211oi_4
 sky130_fd_sc_hd__a21boi_2
 sky130_fd_sc_hd__a31o_4
 sky130_fd_sc_hd__o211a_4
+sky130_fd_sc_hd__o211ai_4
