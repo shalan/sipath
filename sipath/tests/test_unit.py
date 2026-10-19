@@ -348,6 +348,52 @@ class Equivalence(unittest.TestCase):
             tt("A + (B", ["A", "B"])
 
 
+class PdkRelease(unittest.TestCase):
+    """The open_pdks release of a PDK tree, pinned in toolchain.json."""
+
+    def setUp(self):
+        from sipath import toolchain
+        self.tc = toolchain
+        self.root = tempfile.mkdtemp()
+        self.locked = toolchain.lock()["pdks"]["sky130"]["version"]
+
+    def _tree(self, name, sources=None, version_dir=None):
+        base = os.path.join(self.root, "ciel", "sky130", "versions", version_dir) if version_dir else self.root
+        tree = os.path.join(base, name)
+        os.makedirs(tree)
+        if sources is not None:
+            with open(os.path.join(tree, "SOURCES"), "w") as f:
+                f.write(sources)
+        return tree
+
+    def _pdk(self, tree):
+        return types.SimpleNamespace(name="sky130A", release={"family": "sky130", "tree": tree})
+
+    def test_release_from_sources_or_ciel_path(self):
+        self.assertEqual(self.tc.pdk_release(self._tree("a", "open_pdks abc1234def\nmagic 8.3\n")), "abc1234def")
+        v = self._tree("sky130A", version_dir="0123456789abcdef0123456789abcdef01234567")
+        self.assertEqual(self.tc.pdk_release(v), "0123456789abcdef0123456789abcdef01234567")
+        self.assertIsNone(self.tc.pdk_release(self._tree("b")))
+
+    def test_other_release_refused_unless_allowed(self):
+        tree = self._tree("c", "open_pdks 0000000\n")
+        st = self.tc.pdk_status(self._pdk(tree))
+        self.assertEqual((st["version"], st["locked"], st["match"]), ("0000000", self.locked, False))
+        with self.assertRaisesRegex(RuntimeError, "install-pdk sky130"):
+            self.tc.require_pdk(self._pdk(tree), types.SimpleNamespace(require_pdk_release=True))
+        allowed = self.tc.require_pdk(self._pdk(tree), types.SimpleNamespace(require_pdk_release=False))
+        self.assertFalse(allowed["match"])  # recorded in provenance, not refused
+        good = self._tree("d", f"open_pdks {self.locked}\n")
+        self.assertTrue(self.tc.require_pdk(self._pdk(good), types.SimpleNamespace(require_pdk_release=True))["match"])
+
+    def test_unpinned_pdk_and_install_command(self):
+        self.assertIsNone(self.tc.pdk_status(types.SimpleNamespace(name="sky130hd", release={})))
+        cmd = self.tc.install_command("sky130", "/x/pdks")
+        self.assertEqual(cmd, ["ciel", "enable", "--pdk-root", "/x/pdks", "--pdk-family", "sky130", self.locked])
+        with self.assertRaises(ValueError):
+            self.tc.install_command("gf180mcu")
+
+
 class SpefCoupling(unittest.TestCase):
     SPEF = """*SPEF "ieee 1481-1999"
 *C_UNIT 1 PF

@@ -22,8 +22,12 @@
     python3 -m sipath render <odb> <png>          OpenROAD layout render of a checkpoint (save_image)
     python3 -m sipath report <workdir> [--render]   run report (report.md, report.html; --render: layout.png)
     python3 -m sipath mcp               MCP server on stdio (tools: open_run, run_step, run_eco, ...)
-    python3 -m sipath toolchain [--check]   locked images and tool versions (--check: the configured
-                                      images against the lock, sipath/toolchain.json)
+    python3 -m sipath toolchain [--check]   locked images, tool versions and PDK releases (--check: the
+                                      configured images and installed PDK trees against the lock,
+                                      sipath/toolchain.json)
+    python3 -m sipath install-pdk [family] [--pdk-root dir] [--dry-run]   the locked open_pdks release
+                                      through ciel (downloads it; default: the first locked family,
+                                      into $PDK_ROOT or ~/.ciel)
     python3 -m sipath setup-placer [dir] [--python p]   the macro placer's Python (PyTorch CPU, numpy) for
                                       the macros method cdlns (default ~/.cache/sipath/placer-venv)
     python3 -m sipath lvs <gds> <top> <schematic.spice ...> --pdk p [--lib cells.spice] [--out dir]
@@ -37,6 +41,26 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+
+
+def install_pdk(argv) -> int:
+    """``ciel enable`` of the open_pdks release locked in toolchain.json."""
+    import shlex
+    import shutil
+    import subprocess
+    from .toolchain import install_command, lock
+    rest, root = [a for a in argv if not a.startswith("--")], None
+    if "--pdk-root" in argv:
+        root = argv[argv.index("--pdk-root") + 1]
+        rest = [a for a in rest if a != root]
+    cmd = install_command(rest[0] if rest else next(iter(lock().get("pdks", {})), ""), root)
+    print(" ".join(shlex.quote(c) for c in cmd))
+    if "--dry-run" in argv:
+        return 0
+    if not shutil.which("ciel"):
+        print("ciel is not installed: `python3 -m pip install ciel`, then run this again", file=sys.stderr)
+        return 1
+    return subprocess.run(cmd).returncode
 
 
 def validate() -> int:
@@ -227,6 +251,8 @@ def main(argv) -> int:
     if cmd == "toolchain":
         from .toolchain import main as tc
         return tc(argv[1:])
+    if cmd == "install-pdk":
+        return install_pdk(argv[1:])
     if cmd == "docs":
         from .reference import write
         out = argv[1] if len(argv) > 1 else os.path.join(os.path.dirname(os.path.dirname(

@@ -10,6 +10,8 @@ vars:
   variant: {default: sky130A, must_exist: false}
   scl: {default: sky130_fd_sc_hd, must_exist: false}
 
+# the open_pdks release this tree is (its SOURCES file), checked against sipath/toolchain.json
+release: {family: sky130, tree: "${pdk_root}/${variant}"}
 tech_lef: ${pdk_root}/${variant}/libs.ref/${scl}/techlef/${scl}__nom.tlef
 cell_lef: ["${pdk_root}/${variant}/libs.ref/${scl}/lef/sky130_fd_sc_hd.lef",
            "${pdk_root}/${variant}/libs.ref/${scl}/lef/sky130_ef_sc_hd.lef"]

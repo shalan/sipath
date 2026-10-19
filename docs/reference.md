@@ -188,6 +188,7 @@ YAML or JSON; relative paths are relative to the file. Keys not listed are error
 | `native_tools` | list[str] |  | tools run on the host instead of the image (klayout, yosys, magic): faster than emulation |
 | `tool_timeout` | number |  | seconds one signoff tool run (KLayout DRC/LVS, Magic) may take |
 | `require_digest` | bool |  | refuse an image not pinned by digest (default on) |
+| `require_pdk_release` | bool |  | refuse an open_pdks tree whose release is not the locked one (default on) |
 | `debug_failed` | bool |  | write a debug checkpoint for a failed attempt |
 | `log_level` | str |  | flow logger level (one of: DEBUG, INFO, WARNING, ERROR) |
 
@@ -407,6 +408,7 @@ Design file `config:`, a `--config` file, or `SIPATH_<KEY>` environment variable
 | `native_tools` | list[str] | tools run on the host instead of the image (klayout, yosys, magic): faster than emulation |
 | `tool_timeout` | number | seconds one signoff tool run (KLayout DRC/LVS, Magic) may take |
 | `require_digest` | bool | refuse an image not pinned by digest (default on) |
+| `require_pdk_release` | bool | refuse an open_pdks tree whose release is not the locked one (default on) |
 | `debug_failed` | bool | write a debug checkpoint for a failed attempt |
 | `log_level` | str | flow logger level |
 
@@ -414,4 +416,4 @@ Design file `config:`, a `--config` file, or `SIPATH_<KEY>` environment variable
 
 Top-level keys of a PDK description (`sipath/pdks/*.yaml`); others are errors. `step_defaults` takes the same tables as a design file's.
 
-`analog`, `cell_lef`, `cells`, `constraints`, `corners`, `description`, `extends`, `io`, `layers`, `liberty`, `local_layers`, `name`, `optimize_corners`, `pdn`, `power`, `rc`, `rc_tech_lefs`, `rc_via_cut_layers`, `rcx_rules`, `repair_margins`, `route`, `signoff`, `site`, `sram`, `step_defaults`, `tech_lef`, `tracks`, `tracks_file`, `typical_corner`, `vars`
+`analog`, `cell_lef`, `cells`, `constraints`, `corners`, `description`, `extends`, `io`, `layers`, `liberty`, `local_layers`, `name`, `optimize_corners`, `pdn`, `power`, `rc`, `rc_tech_lefs`, `rc_via_cut_layers`, `rcx_rules`, `release`, `repair_margins`, `route`, `signoff`, `site`, `sram`, `step_defaults`, `tech_lef`, `tracks`, `tracks_file`, `typical_corner`, `vars`

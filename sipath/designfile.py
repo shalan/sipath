@@ -225,6 +225,10 @@ def build(d: Design, workdir: str, runner, config=None, resume: bool = False, ex
     models = blackbox.generate(d, pdk, os.path.join(os.path.abspath(workdir), "models"))  # opt-in only
     runner.mount(workdir, *d.input_files(), *d.rtl_includes, *pdk.files())
     prov = runner.provenance() if hasattr(runner, "provenance") else {}
+    from . import toolchain
+    release = toolchain.require_pdk(pdk, cfg)
+    if release:
+        prov = dict(prov, pdk_release=release)
     if models:
         prov = dict(prov, blackbox_models=models)
     if harness_info:

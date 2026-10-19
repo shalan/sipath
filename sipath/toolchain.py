@@ -52,6 +52,57 @@ def probe(ref: str, platform: str, tools, openroad: str = "openroad") -> dict:
     return out
 
 
+def pdk_release(tree: str) -> str | None:
+    """The open_pdks release (commit) of an installed PDK tree: its SOURCES
+    file (``open_pdks <commit>``), else ciel's ``versions/<commit>/`` in the
+    tree's real path; None when neither says."""
+    src = os.path.join(tree, "SOURCES")
+    if os.path.isfile(src):
+        with open(src, errors="replace") as f:
+            m = re.search(r"^open_pdks\s+([0-9a-f]{7,40})\b", f.read(), re.M)
+        if m:
+            return m.group(1)
+    m = re.search(r"/versions/([0-9a-f]{7,40})/", os.path.realpath(tree) + "/")
+    return m.group(1) if m else None
+
+
+def pdk_status(pdk) -> dict | None:
+    """The PDK's release against the lock: {family, tree, version, locked,
+    match}; None for a PDK without a pinned release (e.g. ORFS platform files,
+    pinned with their image)."""
+    rel = getattr(pdk, "release", None) or {}
+    family = rel.get("family")
+    entry = lock().get("pdks", {}).get(family) if family else None
+    if not entry:
+        return None
+    tree = rel.get("tree", "")
+    got = pdk_release(tree) if tree and os.path.isdir(tree) else None
+    want = entry["version"]
+    return {"family": family, "tree": tree, "version": got, "locked": want,
+            "match": bool(got) and (want.startswith(got) or got.startswith(want))}
+
+
+def require_pdk(pdk, config) -> dict | None:
+    """``pdk_status``, raising when the tree is of another release (or of an
+    unknown one) and ``config.require_pdk_release`` is on."""
+    st = pdk_status(pdk)
+    if st and not st["match"] and getattr(config, "require_pdk_release", True):
+        found = f"release {st['version']}" if st["version"] else "no release (no SOURCES file, not a ciel version)"
+        raise RuntimeError(f"PDK {pdk.name}: {st['tree']} has {found}; SiPath is locked to open_pdks "
+                           f"{st['locked']} ({LOCK}). Run `python3 -m sipath install-pdk {st['family']}`, or set "
+                           "SIPATH_REQUIRE_PDK=0 to run anyway (the run records the release it used)")
+    return st
+
+
+def install_command(family: str, pdk_root: str | None = None) -> list[str]:
+    """The ciel command that installs and enables the locked release of ``family``."""
+    entry = lock().get("pdks", {}).get(family)
+    if not entry:
+        raise ValueError(f"no locked PDK family {family!r}; locked: {sorted(lock().get('pdks', {}))}")
+    root = os.path.expanduser(pdk_root or os.environ.get("PDK_ROOT") or "~/.ciel")
+    return ["ciel", "enable", "--pdk-root", root, "--pdk-family", family, entry["version"]]
+
+
 def check(config) -> list[str]:
     """Differences between the configured images and the lock: an image that is
     not a locked one, or a tool whose version differs. Empty: matches."""
@@ -76,9 +127,22 @@ def main(argv) -> int:
     for name, e in data["images"].items():
         print(f"{name}: {e['ref']}\n  {e['tag']}, {e['platform']}; "
               + ", ".join(f"{t} {v}" for t, v in e["tools"].items()))
+    for fam, e in data.get("pdks", {}).items():
+        print(f"pdk {fam}: open_pdks {e['version']} ({', '.join(e['variants'])}); {e['source']}")
     if "--check" in argv:
         from .config import Config
+        from .pdk import load as load_pdk
         problems = check(Config.load())
-        print("\n".join(problems) if problems else "configured images match the lock")
+        for fam, e in data.get("pdks", {}).items():
+            for v in e["variants"]:
+                try:
+                    st = pdk_status(load_pdk(v))
+                except Exception as ex:  # a PDK that does not load is a problem, not a crash
+                    problems.append(f"pdk {v}: {ex}")
+                    continue
+                if st and not st["match"]:
+                    problems.append(f"pdk {v}: {st['tree']} is {st['version'] or 'of an unknown release'} "
+                                    f"(locked {st['locked']})")
+        print("\n".join(problems) if problems else "configured images and PDK trees match the lock")
         return 1 if problems else 0
     return 0

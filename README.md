@@ -39,6 +39,7 @@ python3 -m sipath mcp           # MCP server on stdio
 python3 -m sipath harden gcd8 sipath/examples/hardened/gcd8   # a design's hardened-macro views
 python3 -m sipath templates     # design templates; `new <dir> --template openframe` writes a project
 python3 -m sipath setup-placer  # the Python with CPU PyTorch for the cdlns macro placer (~/.cache/sipath)
+python3 -m sipath install-pdk   # the locked open_pdks release through ciel (downloads; --dry-run prints the command)
 python3 -m sipath report runs/gcd8 --render   # the run's report page (report.md / report.html)
 ```
 
@@ -60,9 +61,10 @@ python3 -m sipath report runs/gcd8 --render   # the run's report page (report.md
   parallel cap, container limits, image and digest pinning, Magic image,
   native tools, OpenROAD binary, platform.
 - Reproducible toolchain: the images are locked by digest with their tool
-  versions (`sipath/toolchain.json`; `python3 -m sipath toolchain --check`
-  compares the configured images), and an unpinned image is refused by
-  default. `pyproject.toml` packages it (`sipath` console script); the
+  versions and the open_pdks release by commit (`sipath/toolchain.json`;
+  `python3 -m sipath toolchain --check` compares the configured images and the
+  installed PDK trees). An unpinned image or a PDK tree of another release is
+  refused by default, and each run records the release it used. `pyproject.toml` packages it (`sipath` console script); the
   example inputs are committed and their generators leave current files alone.
 - Regression limits per design (`sipath/tests/limits.yaml`: setup/hold slack,
   DRC, LVS, signoff, wirelength, instances, wall time), one checker
@@ -177,7 +179,7 @@ python3 -m sipath report runs/gcd8 --render   # the run's report page (report.md
 - Against ORFS: its reference designs through both flows, and SiPath's own
   designs through ORFS, measured by the same code.
 - Synthesis: shalan/synth_flow's 16 designs (`bench/synth_bench.py`).
-- 155 unit tests (seconds; undefined names, step parameters of the examples,
+- 158 unit tests (seconds; undefined names, step parameters of the examples,
   PDK names kept out of the library code) and 45 live tests (real runs, in
   parallel), with regression limits per design.
 
@@ -305,7 +307,14 @@ same path, so file names in Tcl are the same inside and outside.
 
 **Sky130 is first class** (`pdk: sky130A` or `sky130B`, `sipath/pdks/sky130A.yaml`):
 every view comes from an open_pdks tree (`$PDK_ROOT`, default `~/.ciel`, as
-installed by ciel/volare), mounted into the container:
+installed by ciel/volare), mounted into the container. The release is pinned:
+`sipath/toolchain.json` locks open_pdks `8afc8346…`, and every run reads the
+tree's `SOURCES` file (else ciel's `versions/<commit>` path) and records it in
+its provenance (`pdk_release`). A tree of another release, or one that says no
+release, is refused unless `SIPATH_REQUIRE_PDK=0`, and that run records the
+mismatch. `python3 -m sipath install-pdk` installs the locked release through
+ciel. The PDKs read from ORFS platform files (sky130hd, sky130A_hs, IHP) are
+pinned with the ORFS image's digest.
 - hd standard cells (fd + ef LEFs), the nom tech LEF, `tracks.info`,
   `sky130_ef_io` pads, the OpenRAM `sky130_sram_macros`;
 - 9 signoff corners, tt/ss/ff (tt_025C_1v80, ss_100C_1v60, ff_n40C_1v95) ×

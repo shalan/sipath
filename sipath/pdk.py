@@ -60,6 +60,7 @@ class Pdk:
     exclude: list[str] = field(default_factory=list)  # cells with known layout problems: never used anywhere
     exclude_sources: list[str] = field(default_factory=list)  # where ``exclude`` came from
     signoff: dict = field(default_factory=dict)  # KLayout tech/map, DRC/LVS decks, cell/IO GDS and CDL, ...
+    release: dict = field(default_factory=dict)  # {family, tree}: an open_pdks tree pinned in toolchain.json
     cts_apply_ndr: str = ""  # clock_tree_synthesis -apply_ndr strategy ("" = the tool's default)
     diode_cell: str = ""
     corners: list[Corner] = field(default_factory=list)  # empty: one corner from liberty/rcx_rules
@@ -354,7 +355,7 @@ def load(spec: str, runner=None, **variables) -> Pdk:
 PDK_KEYS = {"name", "description", "extends", "vars", "tech_lef", "cell_lef", "liberty", "rcx_rules", "rc",
             "rc_tech_lefs", "rc_via_cut_layers", "site", "tracks", "tracks_file", "layers", "local_layers",
             "corners", "typical_corner", "optimize_corners", "cells", "route", "power", "pdn", "analog", "io", "sram", "constraints",
-            "repair_margins", "step_defaults", "signoff"}
+            "repair_margins", "step_defaults", "signoff", "release"}
 
 
 def from_dict(data: dict, env: dict, source: str = "") -> Pdk:  # noqa: C901
@@ -448,6 +449,8 @@ def from_dict(data: dict, env: dict, source: str = "") -> Pdk:  # noqa: C901
         repair_margins={k: float(v) for k, v in (data.get("repair_margins") or {}).items()},
         exclude=sorted(exclude), exclude_sources=sources,
         signoff=_hostify(need("signoff", data.get("signoff") or {})),
+        release={k: (os.path.expanduser(_expand(v, env)) if isinstance(v, str) else v)
+                 for k, v in (data.get("release") or {}).items()},
         cts_apply_ndr=str(cells.get("cts_apply_ndr") or ""),
         step_defaults=dict(data.get("step_defaults") or {}),
         pin_layers=tuple(route.get("pin_layers") or ()),
