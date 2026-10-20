@@ -20,3 +20,9 @@ openframe/frame/  from github.com/chipfoundry/caravel @ 01fb61d4397c5e7308c3e277
   mag/*.mag (Magic views), gds/*.gds.gz (layout where published), verilog/gl/*.v (gate-level netlists).
   SHA-256 in openframe/frame/SHA256SUMS. The PDK supplies the rest (sky130_fd_io, sky130_fd_sc_hd/hvl,
   sky130_ml_xx_hd fonts). Used by the integrate step (H2).
+
+openframe/golden/  from github.com/chipfoundry/caravel @ 01fb61d4397c5e7308c3e277031b326eca6ce475 (fetched 2026-10-20)
+  the golden Caravel root cf-precheck (ChipFoundry's tapeout precheck) needs for an OpenFrame project:
+  Makefile (its uncompress target, run by cf-precheck in the project directory), verilog/gl/caravel_openframe.v
+  (the frame's top netlist), gds/openframe_project_wrapper_empty.gds.gz (the XOR check's golden wrapper).
+  SHA-256 in openframe/golden/SHA256SUMS.

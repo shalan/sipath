@@ -16,7 +16,7 @@ import os
 
 from . import analog, equiv, liberty, steps, tcl, wires
 from .netlist import read_verilog
-from .tcl import q, qlist
+from .tcl import q, qlist, tcl_parse
 
 LOCATIONS_TCL = """
 set out {}
@@ -176,7 +176,7 @@ def run_eco(ctx):
 
 
 def patch_route(ctx, touched: set[str], sig0: dict, analog_before: str, max_patch: int, iters: int = 64,
-                max_drc: int = 0, tag: str = "") -> dict:
+                max_drc: int = 0, tag: str = "", retry_full: bool = False) -> dict:
     """Re-route after a netlist/placement change. ``touched`` nets are ripped
     up and routed alone when there are at most ``max_patch`` of them, else all
     digital wiring is ripped up for a full route. Fails on DRC violations,
@@ -217,12 +217,24 @@ def patch_route(ctx, touched: set[str], sig0: dict, analog_before: str, max_patc
     out["collateral_nets"] = collateral  # neighbours the router ripped up and re-routed
     if out["route_mode"] == "incremental" and len(collateral) > max_patch:
         raise RuntimeError(f"incremental route re-routed {len(collateral)} nets outside the patch")
-    unrouted = s.value(tcl.DIGITAL_NETS + """
-set n 0
-foreach name $::flow_digital { if {[[::flow_net $name] getWire] eq "NULL"} { incr n } }
-set n""")
-    if int(unrouted):
-        raise RuntimeError(f"{unrouted} nets unrouted after patch route{tag}")
+    # nets without wiring, with their terminal counts: one terminal needs no wire
+    unrouted = tcl_parse(s.value(tcl.DIGITAL_NETS + """
+set out {}
+foreach name $::flow_digital {
+  set n [::flow_net $name]
+  if {[$n getWire] eq "NULL"} { lappend out [list $name [llength [$n getITerms]] [llength [$n getBTerms]]] }
+}
+set out"""))
+    out["unwired_single_terminal"] = [n for n, i, b in unrouted if int(i) + int(b) < 2]
+    unrouted = [(n, int(i), int(b)) for n, i, b in unrouted if int(i) + int(b) >= 2]
+    if unrouted:
+        msg = (f"{len(unrouted)} nets unrouted after patch route{tag} (net, instance pins, ports): {unrouted[:8]}")
+        if out["route_mode"] == "incremental" and retry_full:
+            # the detailed router ripped up neighbours that had no global-route guides and could not route
+            # them back; a second global route in this process fails (GRT-0229): a fresh attempt routes fully
+            from .scheduler import RetryWith
+            raise RetryWith({"max_patch_nets": 0}, msg)
+        raise RuntimeError(msg)
     from .minarea import repair as _min_area
     out["min_area"] = _min_area(ctx, ctx.path(f"minarea{tag}.def"))
     return out
@@ -312,7 +324,7 @@ def post_route_repair(ctx, max_iter: int = 2, max_patch: int | None = None) -> d
         s.run(f"write_verilog {q(post_v)}")
         _equivalent(s, pre_v, post_v)
         touched = (_inst_nets(s, changed | moved)) - set(d.analog_nets)
-        r = patch_route(ctx, touched, sig0, analog_before, max_patch, tag=f"_repair{it}")
+        r = patch_route(ctx, touched, sig0, analog_before, max_patch, tag=f"_repair{it}", retry_full=True)
         rerouted = True
         history[-1].update({"resized_or_added": len(changed), "moved": len(moved), "touched_nets": len(touched),
                             "route_mode": r["route_mode"]})

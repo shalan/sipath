@@ -348,6 +348,61 @@ class Equivalence(unittest.TestCase):
             tt("A + (B", ["A", "B"])
 
 
+class Precheck(unittest.TestCase):
+    """ChipFoundry's cf-precheck: project export, golden root, command, results."""
+
+    def test_export_golden_and_command(self):
+        from sipath import harness, precheck as pc
+        d = tempfile.mkdtemp()
+        gds, net = os.path.join(d, "w.gds"), os.path.join(d, "w.v")
+        for f in (gds, net):
+            open(f, "w").write("x")
+        out = pc.export_project(os.path.join(d, "proj"), "openframe_project_wrapper", gds, net)
+        self.assertTrue(out["gds"].endswith("proj/gds/openframe_project_wrapper.gds"))
+        self.assertTrue(out["netlist"].endswith("proj/verilog/gl/openframe_project_wrapper.v"))
+        cfg = json.load(open(out["lvs_config"]))  # cf-precheck's own config for the flat wrapper
+        self.assertEqual(cfg, {"INCLUDE_CONFIGS": ["$LVS_ROOT/tech/$PDK/lvs_config.openframe_project_wrapper.json"]})
+        from sipath import scores
+        self.assertGreater(scores.auto({"precheck_pass": True, "precheck_failed": 0}),
+                           scores.auto({"precheck_pass": False, "precheck_failed": 1}))
+        h = harness.get("openframe", {})
+        root = pc.golden_root(os.path.join(h.root, h.spec["precheck"]["golden"]), os.path.join(d, "golden"))
+        for f in ("Makefile", "verilog/gl/caravel_openframe.v", "gds/openframe_project_wrapper_empty.gds"):
+            self.assertTrue(os.path.getsize(os.path.join(root, f)) > 0, f)  # the .gds.gz is decompressed
+        cmd = pc.command("/p", "/pdk/sky130A", "/g", "/o", ["lvs"], True)
+        self.assertEqual(cmd, ["cf-precheck", "-i", "/p", "-p", "/pdk/sky130A", "-c", "/g", "-o", "/o",
+                               "--magic-drc", "--skip-checks", "lvs"])
+
+    def test_results_never_an_empty_pass(self):
+        from sipath import precheck as pc
+        d = tempfile.mkdtemp()
+        self.assertFalse(pc.results(d)["pass"])  # no file
+        os.makedirs(os.path.join(d, ".cf"))
+        path = os.path.join(d, ".cf", "project.json")
+
+        def write(blob):
+            with open(path, "w") as f:
+                json.dump({"other": 1, "precheck": blob}, f)
+        write({"version": "1.3.7", "passed": True, "checks": {}})
+        self.assertFalse(pc.results(d)["pass"])  # no checks
+        write({"version": "1.3.7", "passed": True, "checks": {"xor": {"status": "pass"}, "lvs": {"status": "pass"},
+                                                              "magic_drc": {"status": "skip"}}})
+        r = pc.results(d)
+        self.assertTrue(r["pass"])
+        self.assertEqual((r["passed"], r["skipped"], r["version"]), (["lvs", "xor"], ["magic_drc"], "1.3.7"))
+        write({"version": "1.3.7", "passed": False, "checks": {"xor": {"status": "pass"},
+                                                               "lvs": {"status": "fail", "details": "mismatch"}}})
+        r = pc.results(d)
+        self.assertEqual((r["pass"], r["failed"]), (False, ["lvs"]))
+        write({"version": "1.3.7", "passed": True, "checks": {"lvs": {"status": "fail"}}})  # tool and checks disagree
+        self.assertFalse(pc.results(d)["pass"])
+
+    def test_step_registered_as_a_tool(self):
+        from sipath import params, steps
+        self.assertTrue(steps.STEPS["precheck"].tool)
+        self.assertNotIn("threads", params.DECLARED["precheck"])
+
+
 class StepsPackage(unittest.TestCase):
     """P2.3: steps split by stage, signoff checks as steps, steps by import path."""
 
@@ -1262,12 +1317,14 @@ class Harnesses(unittest.TestCase):
     def test_zero_extension_corners_get_squared(self):
         from sipath.signoff import fix_zero_ext_corners
         path = os.path.join(self.tmp, "w.def")
-        nets = ("NETS 2 ;\n"
+        nets = ("NETS 3 ;\n"
                 "    - a ( PIN a ) ( u1 X ) + USE SIGNAL\n"
                 "      + ROUTED li1 ( 100 200 ) L1M1_PR ( 300 * ) M1M2_PR ( * 900 0 ) ( 500 * ) ( * 1200 )\n"
                 "      NEW met2 ( 700 100 0 ) ( * 400 ) ( 900 * 0 ) ;\n"  # path ends: kept
                 "    - b ( u1 A ) ( u2 Y ) + USE SIGNAL\n"
                 "      + ROUTED met2 ( 10 10 ) ( * 50 0 ) ( * 90 ) ( 20 * 0 ) M2M3_PR ( * 120 ) ;\n"  # straight / via: kept
+                "    - c ( u3 A ) ( u4 Y ) + USE SIGNAL\n"  # the router's zero-length start on the new layer: kept
+                "      + ROUTED met2 ( 40 10 ) ( * 30 ) M1M2_PR ( * * 0 ) ( 60 * ) ;\n"
                 "END NETS\n")
         with open(path, "w") as f:
             f.write("VERSION 5.8 ;\n" + nets + "END DESIGN\n")
@@ -1277,6 +1334,7 @@ class Harnesses(unittest.TestCase):
         self.assertIn("M1M2_PR ( * 900 ) ( 500 * )", text)
         self.assertIn("( 700 100 0 ) ( * 400 ) ( 900 * 0 )", text)
         self.assertIn("( * 50 0 ) ( * 90 ) ( 20 * 0 ) M2M3_PR", text)
+        self.assertIn("M1M2_PR ( * * 0 ) ( 60 * )", text)  # squaring it would draw a zero-length path
         self.assertEqual(fix_zero_ext_corners(path), [])  # idempotent
 
     def test_frame_integration_inputs(self):
@@ -1844,6 +1902,34 @@ class Scheduler(unittest.TestCase):
             self.assertEqual(len({a.session_id for a in run.attempts}), 6)  # one session each
             for a in run.attempts:
                 self.assertTrue(os.path.isfile(a.checkpoint))
+
+    def test_retry_with_runs_one_fresh_attempt(self):
+        from sipath.scheduler import RetryWith, StepFailed
+        calls = []
+
+        def fragile(ctx):  # an incremental attempt that asks for a full one
+            calls.append(dict(ctx.params))
+            if not ctx.params.get("full"):
+                raise RetryWith({"full": True}, "patch lost nets")
+            ctx.metrics["wns"] = 0.5
+        with tempfile.TemporaryDirectory() as td:
+            f = self.flow(td)
+            run = f.step("patch", fragile, variants=[{"k": 1}], score="setup_wns")
+            self.assertEqual([a.status for a in run.attempts], ["failed", "selected"])
+            first, retry = run.attempts
+            self.assertIn("patch lost nets", first.error)
+            self.assertEqual((retry.params, retry.retry_of, retry.index), ({"k": 1, "full": True}, first.id, 1))
+            self.assertEqual(len(calls), 2)
+            g = json.load(open(os.path.join(td, "graph.json")))
+            self.assertEqual([a.get("retry_of") for a in g["attempts"] if a["step"] == "patch"], [None, first.id])
+
+        def always(ctx):  # a retry that asks again is not retried
+            raise RetryWith({"full": True}, "still lost")
+        with tempfile.TemporaryDirectory() as td:
+            f = self.flow(td)
+            with self.assertRaises(StepFailed):
+                f.step("patch", always, score="setup_wns")
+            self.assertEqual(len([a for a in f.attempts if a.step == "patch"]), 2)
 
     def test_every_step_leaves_a_run_report(self):
         with tempfile.TemporaryDirectory() as td:
@@ -2573,6 +2659,17 @@ class SynthSelection(unittest.TestCase):
         self.assertIn("best slack", why)
         tie = [self.cand("yosys_default", 0.5, 100.0), self.cand("delay_map", 0.5, 100.0)]
         self.assertEqual(s(tie)[0].params["abc"], "delay_map")  # ties by recipe rank
+
+    def test_fallbacks_when_nothing_meets(self):
+        s = scores.get("synth_select")
+        cs = [self.cand("delay_map", -0.1, 200.0), self.cand("balanced_resyn", -0.3, 110.0),
+              self.cand("area_map", -2.0, 100.0), self.cand("orfs_area", -0.35, 150.0)]
+        self.assertEqual(s(cs, "best_slack")[0].params["abc"], "delay_map")
+        best, why = s(cs, "least_area")
+        self.assertEqual(best.params["abc"], "area_map")
+        self.assertIn("least area", why)
+        meeting = [self.cand("delay_map", 0.2, 200.0), self.cand("area_map", 0.1, 100.0)]
+        self.assertEqual(s(meeting, "best_slack")[0].params["abc"], "area_map")  # only when nothing meets
 
     def test_signed_declarations_stripped(self):
         from sipath import synth

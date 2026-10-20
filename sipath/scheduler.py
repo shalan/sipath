@@ -84,6 +84,17 @@ class EcoRefused(RuntimeError):
     pass
 
 
+class RetryWith(RuntimeError):
+    """Raised by a step: this attempt fails, but one fresh attempt (a new
+    process, from the same parent) with ``params`` merged into its own may
+    succeed, e.g. a full re-route where an incremental one lost nets. The
+    scheduler runs it once and records both (the new one's ``retry_of``)."""
+
+    def __init__(self, params: dict, reason: str):
+        super().__init__(f"{reason}; retrying with {params}")
+        self.params, self.reason = dict(params), reason
+
+
 class StepCancelled(StepFailed):
     pass
 
@@ -117,6 +128,8 @@ class Attempt:
     transcript_tail: list = field(default_factory=list)  # last OpenROAD output lines of a failed attempt
     debug_checkpoint: str | None = None  # failed attempt's database, for inspection only (never a parent)
     resumed: bool = False  # recorded by an earlier run of this flow, not run again
+    retry_of: str | None = None  # the attempt whose RetryWith started this one
+    retry: dict | None = field(default=None, repr=False)  # params a RetryWith asked for (not recorded)
 
     def to_json(self):
         return {
@@ -128,7 +141,7 @@ class Attempt:
             "seconds": round(self.seconds, 2),
             "started_at": self.started_at, "finished_at": self.finished_at, "process": self.process,
             "timing": self.timing, "transcript_tail": self.transcript_tail,
-            "debug_checkpoint": self.debug_checkpoint, "resumed": self.resumed,
+            "debug_checkpoint": self.debug_checkpoint, "resumed": self.resumed, "retry_of": self.retry_of,
         }
 
 
@@ -226,7 +239,7 @@ class Flow:
                         seconds=j.get("seconds") or 0.0, started_at=j.get("started_at"),
                         finished_at=j.get("finished_at"), process=j.get("process"), timing=j.get("timing") or {},
                         transcript_tail=j.get("transcript_tail") or [], debug_checkpoint=j.get("debug_checkpoint"),
-                        resumed=True)
+                        resumed=True, retry_of=j.get("retry_of"))
             if j["parent"] and a.parent is None:
                 raise ValueError(f"{path}: attempt {a.id} names unknown parent {j['parent']}")
             if a.status in ("running", "pending"):
@@ -329,6 +342,14 @@ class Flow:
         together = max(1, min(len(todo), self.config.cap(parallel)))  # attempts alive at once share the threads
         with ThreadPoolExecutor(max_workers=self.config.cap(parallel)) as ex:
             list(ex.map(lambda a: self._run_attempt(a, fn, together), todo))
+        # a failed attempt that asked for it (RetryWith) gets one fresh attempt with the merged params
+        nxt = max(a.index for a in attempts) + 1
+        for a in [a for a in todo if a.status == "failed" and a.retry]:
+            r = self._new_attempt(name, nxt, {**a.params, **a.retry}, parent, kind=a.kind)
+            r.retry_of, nxt = a.id, nxt + 1
+            log.info("attempt %s: retry of %s with %s", r.id, a.id, a.retry)
+            self._run_attempt(r, fn, 1)
+            attempts.append(r)
         if any(a.status == "cancelled" for a in attempts):
             self.save_graph()
             raise StepCancelled(f"step {name} cancelled: " + ", ".join(f"{a.id} {a.status}" for a in attempts))
@@ -474,6 +495,8 @@ class Flow:
         except Exception as e:  # the attempt fails; nothing is invented
             a.status = "cancelled" if self.cancelled else "failed"
             a.error = f"{type(e).__name__}: {e}"
+            if isinstance(e, RetryWith) and a.retry_of is None:  # one retry, never a retry of a retry
+                a.retry = e.params
             log.warning("attempt %s: %s: %s", a.id, a.status, str(e).splitlines()[0] if str(e) else type(e).__name__)
             try:
                 os.makedirs(a.dir, exist_ok=True)

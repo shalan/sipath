@@ -219,6 +219,55 @@ def integrate(ctx):
 integrate.tool = True  # Magic and KLayout only: no OpenROAD process
 
 
+def precheck(ctx):
+    """ChipFoundry's tapeout precheck (cf-precheck, sipath.precheck) on the
+    signed-off wrapper of a harness design, in the precheck image: the project
+    directory exported from the run, the harness's pinned golden root, the
+    run's PDK tree. Results per check in ``outputs["precheck"]``; a failed
+    check fails the step (``fail_on_violation``)."""
+    from .. import harness, precheck as pc, signoff, toolchain
+    d, p = ctx.design, ctx.params
+    if not d.harness:
+        raise ValueError("precheck needs a harness design (harness: ...)")
+    h = harness.get(d.harness, d.harness_options)
+    golden = (h.spec.get("precheck") or {}).get("golden")
+    if not golden:
+        raise ValueError(f"harness {d.harness} gives no precheck golden files (precheck.golden)")
+    image = getattr(ctx.config, "precheck_image", "") or toolchain.lock()["images"].get("precheck", {}).get("ref")
+    if not image:
+        raise RuntimeError("no precheck image: build docker/precheck and set precheck_image")
+    gds, netlist = ctx.ancestor_output("gds"), ctx.ancestor_output("verilog_pwr")
+    for what, f in (("wrapper GDS", gds), ("netlist with supply pins", netlist)):
+        if not (f and os.path.isfile(f)):
+            raise RuntimeError(f"precheck needs the signed-off {what} (run signoff first)")
+    wrapper = h.spec["wrapper"]
+    project = ctx.path("project")
+    ctx.outputs["precheck_project"] = pc.export_project(project, wrapper, gds, netlist)
+    root = pc.golden_root(golden if os.path.isabs(golden) else os.path.join(h.root, golden), ctx.path("golden"))
+    tree = (ctx.pdk.release or {}).get("tree")
+    if not tree:
+        raise RuntimeError(f"PDK {ctx.pdk.name} names no PDK tree (release.tree) for cf-precheck's -p")
+    out = ctx.path("precheck_results")
+    signoff._runner(ctx).mount(tree, project, root, out if os.path.isdir(out) else ctx.dir)
+    try:
+        signoff.run_tool(ctx, pc.command(project, os.path.realpath(tree), root, out, p.get("skip") or [],
+                                         bool(p.get("magic_drc"))),
+                         ctx.path("precheck.log"), image=image, env={"PDK_ROOT": os.path.dirname(os.path.realpath(tree))})
+    except signoff.SignoffError as e:  # a failing check exits non-zero: its results are still read below
+        ctx.outputs["precheck_exit"] = str(e).splitlines()[0]
+    res = pc.results(project)
+    ctx.outputs["precheck"] = res
+    if res.get("file"):
+        ctx.outputs["checkpoint"] = res["file"]  # cf-precheck's own results: the step's result file
+    ctx.metrics["precheck_pass"] = res["pass"]
+    ctx.metrics["precheck_failed"] = len(res.get("failed", []))
+    if not res["pass"] and p.get("fail_on_violation", True):
+        raise RuntimeError(f"precheck failed: {res.get('error') or res.get('failed')} ({res.get('file') or project})")
+
+
+precheck.tool = True  # cf-precheck and its tools in their image: no OpenROAD process
+
+
 def check_step(name: str):
     """A step running the signoff checks ``params.CHECK_STEPS[name]`` alone
     (signoff.json and the reports as the signoff step writes them)."""

@@ -101,6 +101,9 @@ STEP_PARAMS: dict[str, list[Param]] = {
         Param("abc_sweep", "str", "auto", "recipes mapped in this attempt, the netlist picked by synth_select "
               "(least area meeting timing, else the knee): auto (the delay set plus area_map), delay, area, "
               "balanced (synth_flow's top 5 each), off (delay_map_resyn alone), or names separated by commas"),
+        Param("synth_fallback", "str", "knee", "when no recipe meets timing at synthesis: knee (of the "
+              "slack/area front, else best slack), best_slack or least_area",
+              choices=("knee", "best_slack", "least_area")),
         Param("map_corner", "str", None, "corner whose Liberty dfflibmap and ABC map with: a corner name, typical, "
               "or (default) the timing corner, the slow one (bench: 12/16 designs meet timing against 10 at typical)"),
         Param("synth_abc", "bool", False, "keep Yosys's generic ABC pass in synth (default: synth -noabc, as "
@@ -225,6 +228,11 @@ STEP_PARAMS: dict[str, list[Param]] = {
         Param("seal_ring", "bool", False, "add the harness's seal ring (frame.seal_ring) as the frame's "
               "compositor does; checked to enclose the die with no shape inside it"),
     ],
+    "precheck": [
+        Param("skip", "list[str]", [], "cf-precheck checks to skip (its names, e.g. lvs, xor)"),
+        Param("magic_drc", "bool", False, "include cf-precheck's optional Magic DRC check"),
+        Param("fail_on_violation", "bool", True, "fail the step when a check fails (results are written either way)"),
+    ],
     "ppa": [
         Param("margin", "float", 0.05, "margin added to the achievable clock period in the suggested one",
               min=0, max=1),
@@ -280,7 +288,7 @@ for _name, _checks in CHECK_STEPS.items():
 # every OpenROAD step (not the tool steps synth and integrate) takes these
 COMMON = (Param("threads", "int", None, "OpenROAD threads for this step's attempts (set_thread_count; signoff: "
                 "also KLayout DRC); unset: the run's threads, shared among the attempts running at once", min=1),)
-TOOL_STEPS = ("synth", "integrate")
+TOOL_STEPS = ("synth", "integrate", "precheck")
 for _step, _ps in STEP_PARAMS.items():
     if _step not in TOOL_STEPS:
         _ps.extend(p for p in COMMON if p.name not in {q.name for q in _ps})

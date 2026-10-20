@@ -256,6 +256,8 @@ def fix_zero_ext_corners(def_path: str) -> list[dict]:
             if j < 0:
                 continue
             (_, px, py, _), (_, cx, cy, m), (_, nx, ny, _) = path[j], item, path[k + 1]
+            if (px, py) == (cx, cy):
+                continue  # a repeated point, not a corner: squaring it would draw a zero-length path
             if (px == cx) == (nx == cx):
                 continue  # straight on: the extension does not matter
             edits.append(m)
@@ -914,7 +916,8 @@ def run(ctx) -> dict:
         ctx.metrics["harness_pins_restored"] = int(
             s.value(harness_mod.get(d.harness, d.harness_options).restore_pins_tcl()))
     final_def, final_v = ctx.path(f"{d.top}.def"), ctx.path(f"{d.top}.v")
-    s.run(f"write_def {q(final_def)}\nwrite_verilog {q(final_v)}")
+    final_pwr_v = ctx.path(f"{d.top}.pwr.v")  # with supply pins: a precheck's LVS (sipath.precheck) reads it
+    s.run(f"write_def {q(final_def)}\nwrite_verilog {q(final_v)}\nwrite_verilog -include_pwr_gnd {q(final_pwr_v)}")
     corners = fix_zero_ext_corners(final_def)  # the outputs (DEF, GDS) get square corners
     ctx.metrics["corners_squared"] = len(corners)
     summary, failures, t0 = {"checks": checks, "required": required}, [], time.time()
@@ -1121,7 +1124,7 @@ def run(ctx) -> dict:
         m["unannotated_io_ring"] = len(st["unannotated_io_ring"])
         m["partially_annotated"] = len(st["partially_annotated"])
         m["unconstrained_endpoints"] = len(st["unconstrained"])
-    ctx.outputs.update(signoff=path, def_=final_def, verilog=final_v,
+    ctx.outputs.update(signoff=path, def_=final_def, verilog=final_v, verilog_pwr=final_pwr_v,
                        gds=summary.get("gds", {}).get("file"))
     rep = ctx.outputs.setdefault("reports", {})
     for k in ("drc", "density", "lvs", "lvs_full", "magic_drc", "xor"):

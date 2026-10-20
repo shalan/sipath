@@ -188,6 +188,7 @@ YAML or JSON; relative paths are relative to the file. Keys not listed are error
 | `native_tools` | list[str] |  | tools run on the host instead of the image (klayout, yosys, magic): faster than emulation |
 | `tool_timeout` | number |  | seconds one signoff tool run (KLayout DRC/LVS, Magic) may take |
 | `require_digest` | bool |  | refuse an image not pinned by digest (default on) |
+| `precheck_image` | str |  | image with ChipFoundry's cf-precheck and its tools (precheck step) |
 | `require_pdk_release` | bool |  | refuse an open_pdks tree whose release is not the locked one (default on) |
 | `debug_failed` | bool |  | write a debug checkpoint for a failed attempt |
 | `log_level` | str |  | flow logger level (one of: DEBUG, INFO, WARNING, ERROR) |
@@ -220,6 +221,7 @@ Set per attempt in `variants` (design file `flow:` or MCP `run_step`), or as def
 |---|---|---|---|---|
 | `abc` | str | – | area_classic, area_lut6, area_map, area_max, balanced_resyn, balanced_resyn2x, delay_aggressive, delay_choice_deep, delay_choice_deep_bb, delay_choice_deep_v3, delay_choice_deep_v4, delay_iter_heavy, delay_map, delay_map_resyn, delay_syn2, delay_triple, orfs_area, orfs_speed, speed_sizing, yosys_default, area, delay, speed | one ABC recipe instead of abc_sweep (sipath/synth_recipes: 18 measured in shalan/synth_flow, plus area_map and speed_sizing; aliases delay, area, speed) |
 | `abc_sweep` | str | auto |  | recipes mapped in this attempt, the netlist picked by synth_select (least area meeting timing, else the knee): auto (the delay set plus area_map), delay, area, balanced (synth_flow's top 5 each), off (delay_map_resyn alone), or names separated by commas |
+| `synth_fallback` | str | knee | knee, best_slack, least_area | when no recipe meets timing at synthesis: knee (of the slack/area front, else best slack), best_slack or least_area |
 | `map_corner` | str | – |  | corner whose Liberty dfflibmap and ABC map with: a corner name, typical, or (default) the timing corner, the slow one (bench: 12/16 designs meet timing against 10 at typical) |
 | `synth_abc` | bool | false |  | keep Yosys's generic ABC pass in synth (default: synth -noabc, as synth_flow; measured mixed: better on aes, worse on gcd8) |
 | `abc_target` | str | none |  | ABC delay target ({D} in the recipe): none (measured best on most designs), period (the SDC clock), or a number of ps |
@@ -344,6 +346,14 @@ Set per attempt in `variants` (design file `flow:` or MCP `run_step`), or as def
 |---|---|---|---|---|
 | `drc` | bool | false |  | full-chip KLayout DRC of the assembled chip (slow; the frame's IO cells carry their own waivers) |
 | `seal_ring` | bool | false |  | add the harness's seal ring (frame.seal_ring) as the frame's compositor does; checked to enclose the die with no shape inside it |
+
+### precheck
+
+| parameter | type | default | allowed | description |
+|---|---|---|---|---|
+| `skip` | list[str] | [] |  | cf-precheck checks to skip (its names, e.g. lvs, xor) |
+| `magic_drc` | bool | false |  | include cf-precheck's optional Magic DRC check |
+| `fail_on_violation` | bool | true |  | fail the step when a check fails (results are written either way) |
 
 ### ppa
 
@@ -482,6 +492,7 @@ Design file `config:`, a `--config` file, or `SIPATH_<KEY>` environment variable
 | `native_tools` | list[str] | tools run on the host instead of the image (klayout, yosys, magic): faster than emulation |
 | `tool_timeout` | number | seconds one signoff tool run (KLayout DRC/LVS, Magic) may take |
 | `require_digest` | bool | refuse an image not pinned by digest (default on) |
+| `precheck_image` | str | image with ChipFoundry's cf-precheck and its tools (precheck step) |
 | `require_pdk_release` | bool | refuse an open_pdks tree whose release is not the locked one (default on) |
 | `debug_failed` | bool | write a debug checkpoint for a failed attempt |
 | `log_level` | str | flow logger level |

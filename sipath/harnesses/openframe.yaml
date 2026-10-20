@@ -32,3 +32,5 @@ frame:
   cells: sources/openframe/frame                      # Caravel cells: mag/ (+ hexdigits, primitives), gds/
   netlist: sources/openframe/chip_io_openframe.v
   seal_ring: sources/openframe/advSeal_6um_gen.gds.gz
+precheck:                     # ChipFoundry's cf-precheck (sipath.precheck): golden files at the frame's commit
+  golden: sources/openframe/golden

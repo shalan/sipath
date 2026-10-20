@@ -19,6 +19,8 @@ openroad_binary        SIPATH_OPENROAD_BINARY    OpenROAD inside the image (defa
                                                  an image with it on PATH, e.g. LibreLane's)
 platform               SIPATH_PLATFORM           image platform (linux/amd64; linux/arm64 for a native arm64 image)
 magic_image            SIPATH_MAGIC_IMAGE        image with Magic (signoff magic_drc / xor; docker/magic)
+precheck_image         SIPATH_PRECHECK_IMAGE     image with ChipFoundry's cf-precheck and its tools (precheck
+                                                 step; docker/precheck)
 native_tools           SIPATH_NATIVE_TOOLS       tools run on the host instead of the image (e.g. klayout,yosys)
 placer_python          SIPATH_PLACER_PYTHON      Python with PyTorch for the macros step's cdlns method
                                                  (default ~/.cache/sipath/placer-venv, `sipath setup-placer`)
@@ -42,7 +44,8 @@ MAGIC_IMAGE = _locked("magic")
 ENV = {"threads": "SIPATH_THREADS", "command_timeout": "SIPATH_TIMEOUT", "tool_timeout": "SIPATH_TOOL_TIMEOUT", "parallel_cap": "SIPATH_PARALLEL_CAP",
        "container_cpus": "SIPATH_CPUS", "container_memory": "SIPATH_MEMORY", "image": "SIPATH_OPENROAD_IMAGE",
        "openroad_binary": "SIPATH_OPENROAD_BINARY", "platform": "SIPATH_PLATFORM",
-       "magic_image": "SIPATH_MAGIC_IMAGE", "native_tools": "SIPATH_NATIVE_TOOLS",
+       "magic_image": "SIPATH_MAGIC_IMAGE", "precheck_image": "SIPATH_PRECHECK_IMAGE",
+       "native_tools": "SIPATH_NATIVE_TOOLS",
        "placer_python": "SIPATH_PLACER_PYTHON",
        "require_digest": "SIPATH_REQUIRE_DIGEST", "require_pdk_release": "SIPATH_REQUIRE_PDK", "debug_failed": "SIPATH_DEBUG_FAILED",
        "log_level": "SIPATH_LOG_LEVEL"}
@@ -74,6 +77,7 @@ class Config:
     openroad_binary: str = ""  # empty: the ORFS image's path
     platform: str = "linux/amd64"
     magic_image: str = MAGIC_IMAGE  # sipath/orfs-magic, built from docker/magic/Dockerfile
+    precheck_image: str = ""  # sipath/precheck (docker/precheck); empty: the locked one, once built
     native_tools: list = field(default_factory=list)  # e.g. ["klayout", "yosys"]: host binaries, not the image's
     placer_python: str = ""  # empty: ~/.cache/sipath/placer-venv/bin/python (macros method cdlns)
     require_digest: bool = True  # an image not pinned by digest is refused (SIPATH_REQUIRE_DIGEST=0 allows it)
@@ -94,7 +98,10 @@ class Config:
         if self.container_cpus is not None and float(self.container_cpus) <= 0:
             raise ConfigError("container_cpus must be > 0")
         if self.require_digest:
-            for name, ref in (("image", self.image), ("magic_image", self.magic_image)):
+            for name, ref in (("image", self.image), ("magic_image", self.magic_image),
+                              ("precheck_image", self.precheck_image)):
+                if not ref:  # precheck_image unset: the locked one
+                    continue
                 if "@sha256:" not in ref:
                     raise ConfigError(f"require_digest: {name} {ref!r} is not pinned (use name@sha256:<digest>, "
                                       "see sipath/toolchain.json; SIPATH_REQUIRE_DIGEST=0 allows it)")

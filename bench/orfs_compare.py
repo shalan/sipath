@@ -305,8 +305,8 @@ def measure(r: dict, cfg: dict, lib: str, tag: str, w: str) -> dict:
     with open(script, "w") as f:
         f.write(MEASURE.format(odb=r["odb"], lib=lib, sdc=cfg["sdc"], spef=r["spef"], write_def=wd))
     log = os.path.join(w, f"measure_{tag}.log")
-    mounts = sorted({BENCH, os.path.dirname(lib), os.path.dirname(r["odb"]), os.path.dirname(r["spef"]),
-                     os.path.dirname(cfg["sdc"])})
+    mounts = sorted({BENCH, os.path.abspath(w), os.path.dirname(lib), os.path.dirname(r["odb"]), os.path.dirname(r["spef"]),
+                     os.path.dirname(cfg["sdc"])})  # w: the measurement script (another bench's directory)
     mounts = [m for m in mounts if os.path.exists(m)]  # an image path (IHP's platform files) is not mounted over
     docker([f"{ORFS}/../tools/install/OpenROAD/bin/openroad", "-no_splash", "-no_init", "-exit", script], mounts, log)
     m = re.search(r"BENCH (\S+) (\S+) (\d+) (\S+)", open(log).read())

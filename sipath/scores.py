@@ -69,6 +69,8 @@ def auto(m):
         return synth_wns_then_area(m)
     if m.get("chip_check_pass") is not None:  # chip integration: an assembled chip that passes its checks
         return (1, 0) if m["chip_check_pass"] else None
+    if m.get("precheck_pass") is not None:  # a tapeout precheck: passing, then the fewest failed checks
+        return (1 if m["precheck_pass"] else 0, -(m.get("precheck_failed") or 0))
     return None
 
 
@@ -122,11 +124,12 @@ def _prio(c):
     return priority((c.params or {}).get("abc") or "delay_map_resyn")
 
 
-def synth_select(attempts):
+def synth_select(attempts, fallback: str = "knee"):
     """Synthesis selector (shalan/synth_flow's rule): the least area among the
-    attempts meeting timing (synth_wns_ns >= 0); if none meets, the knee of the
-    slack/area front, else the best slack; ties by recipe rank. Returns
-    (chosen attempt, rationale)."""
+    attempts meeting timing (synth_wns_ns >= 0). If none meets, ``fallback``:
+    ``knee`` (the knee of the slack/area front, else the best slack),
+    ``best_slack`` or ``least_area``; ties by recipe rank. Returns (chosen
+    attempt, rationale)."""
     cands = [a for a in attempts if a.metrics.get("synth_area_um2") is not None]
     if not cands:
         return None, "no synthesized netlist"
@@ -139,6 +142,12 @@ def synth_select(attempts):
         best = min(meeting, key=lambda a: (a.metrics["synth_area_um2"], -a.metrics["synth_wns_ns"], _prio(a)))
         return best, f"least area among {len(meeting)}/{len(timed)} meeting timing"
     fastest = max(timed, key=lambda a: (a.metrics["synth_wns_ns"], -a.metrics["synth_area_um2"], -_prio(a)))
+    if fallback == "best_slack":
+        return fastest, "none meets timing: best slack (synth_fallback)"
+    if fallback == "least_area":
+        small = min(timed, key=lambda a: (a.metrics["synth_area_um2"], -a.metrics["synth_wns_ns"], _prio(a)))
+        return small, (f"none meets timing: least area (synth_fallback; fastest "
+                       f"{fastest.metrics['synth_wns_ns']:+.3f} ns at {fastest.metrics['synth_area_um2']:.0f} um2)")
     knee = _knee(timed, timed[0].metrics.get("synth_period_ns"))
     if knee is not None:
         return knee, (f"none meets timing: knee of the slack/area front (fastest "

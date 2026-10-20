@@ -112,6 +112,7 @@ CONFIG = {
     "native_tools": F("list[str]", "tools run on the host instead of the image (klayout, yosys, magic): faster than emulation"),
     "tool_timeout": F("number", "seconds one signoff tool run (KLayout DRC/LVS, Magic) may take"),
     "require_digest": F("bool", "refuse an image not pinned by digest (default on)"),
+    "precheck_image": F("str", "image with ChipFoundry's cf-precheck and its tools (precheck step)"),
     "require_pdk_release": F("bool", "refuse an open_pdks tree whose release is not the locked one (default on)"),
     "debug_failed": F("bool", "write a debug checkpoint for a failed attempt"),
     "log_level": F("str", "flow logger level", choices=("DEBUG", "INFO", "WARNING", "ERROR")),

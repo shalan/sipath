@@ -31,6 +31,18 @@
     "klayout": "0.30.7",
     "magic": "8.3.623"
    }
+  },
+  "precheck": {
+   "ref": "sipath/precheck@sha256:7455ec5bb8f57e84835c13c79448e0a25188c7d69377e60327b523c40d5bdb4b",
+   "tag": "sipath/precheck:1.3.7 (docker/precheck on sipath/orfs-magic:8.3.685, with GNU awk)",
+   "platform": "linux/amd64",
+   "tools": {
+    "cf-precheck": "1.3.7",
+    "netgen": "1.5.325",
+    "cvc": "1.1.7",
+    "klayout": "0.30.7",
+    "magic": "8.3.685"
+   }
   }
  },
  "pdks": {

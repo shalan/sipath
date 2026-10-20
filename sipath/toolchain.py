@@ -23,6 +23,9 @@ PROBES = {
     "yosys": ("yosys -V", r"Yosys (\S+)"),
     "klayout": ("klayout -v", r"KLayout (\S+)"),
     "magic": ("magic --version", r"(\S+)"),
+    "cf-precheck": ("cf-precheck --version", r"cf-precheck (\S+)"),
+    "netgen": ("echo quit | netgen -batch", r"Netgen (\S+)"),
+    "cvc": ("cvc_rv --version", r"Version (\S+)"),
 }
 
 
@@ -112,7 +115,10 @@ def check(config) -> list[str]:
     from .session import ORFS_OPENROAD
     problems = []
     locked = {v["ref"]: (k, v) for k, v in lock()["images"].items()}
-    for field, ref in (("image", config.image), ("magic_image", config.magic_image)):
+    pre = getattr(config, "precheck_image", "") or lock()["images"].get("precheck", {}).get("ref", "")
+    for field, ref in (("image", config.image), ("magic_image", config.magic_image), ("precheck_image", pre)):
+        if not ref:
+            continue
         if ref not in locked:
             problems.append(f"{field} {ref} is not a locked image ({LOCK})")
             continue

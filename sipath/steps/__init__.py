@@ -73,6 +73,7 @@ from .route import (  # noqa: F401
 )
 from .finish import (  # noqa: F401
     check_step,
+    precheck,
     fill,
     views,
     integrate,
@@ -84,6 +85,7 @@ from .finish import (  # noqa: F401
 STEPS = {
     "synth": synth, "floorplan": floorplan, "macros": macros, "physical": physical, "place": place, "cts": cts,
     "route_analog": route_analog, "route_digital": route_digital, "route_repair": route_repair, "fill": fill, "extract": extract, "views": views, "integrate": integrate, "ppa": ppa,
+    "precheck": precheck,
     "signoff": signoff,
 }
 
