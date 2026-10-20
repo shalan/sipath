@@ -143,8 +143,6 @@ make does not run.
   843 s, and ChipFoundry's precheck (Netgen LVS) passes it.
 - The arm64 image's OpenROAD crashes in post-route repair on the OpenFrame
   wrapper and on aes.
-- In the OpenFrame example, repair leaves one buffer on the long `resetb_l`
-  port net with a 2.19 ns input transition (limit 0.75 ns).
 - On mcu8, `vref_hi` keeps 9.7 fF of coupling from digital wires on the layers
   below it.
 - dp8's Magic-vs-KLayout XOR shows two sub-0.1 µm² differences on wide analog

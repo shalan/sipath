@@ -13,10 +13,20 @@ def floorplan(ctx):
     """Soft macro: floorplan from the given DEF. Die: die box + pad ring."""
     d, s = ctx.design, ctx.session
     if d.mode == "macro" and d.floorplan_def:
-        s.run(tcl.floorplan_from_def(ctx.pdk, d.floorplan_def))
-        if d.harness:  # the frame's user-supply pins (the netlist has no power ports)
+        fp = d.floorplan_def
+        if d.harness:  # rows to the used pins far from the core region (netlist linked, no DEF read yet)
             from .. import harness
             h = harness.get(d.harness, d.harness_options)
+            used = tcl_words(s.value(
+                "set o {}; foreach t [[ord::get_db_block] getBTerms] { set n [$t getNet]; "
+                "if {$n ne \"NULL\" && [llength [$n getITerms]]} { lappend o [$t getName] } }; set o"))
+            path, channels = h.floorplan(ctx.pdk, ctx.path(f"{d.top}.fp.def"), used)
+            if channels:
+                fp = path
+                ctx.outputs["harness_pin_channels"] = [[k, a, b] for k, a, b in channels]
+            ctx.metrics["harness_pin_channels"] = len(channels)
+        s.run(tcl.floorplan_from_def(ctx.pdk, fp))
+        if d.harness:  # the frame's user-supply pins (the netlist has no power ports)
             s.run(h.create_power_pins_tcl())
             ctx.metrics["harness_pins_clipped"] = int(s.value(h.clip_pins_tcl()))  # restored at signoff
             ctx.outputs["harness"] = d.harness
@@ -39,11 +49,14 @@ def fit_straps(ctx) -> list:
     """The design's core straps; PDK-default straps that do not fit the core
     (a VDD/VSS pair needs offset + pitch/2 + width) are scaled to it: offset
     10 % and pitch 80 % of the core across the straps, recorded in outputs.
-    A design's own straps are used as given (pdngen reports a misfit)."""
+    A design's own straps are used as given (pdngen reports a misfit), but
+    with pin channels (rows outside the core region, which widen the core)
+    their offsets keep them where they are without channels, over the
+    region (recorded in outputs)."""
     from ..design import Strap
     d, s = ctx.design, ctx.session
     if not d.pdn.straps_from_pdk:
-        return list(d.pdn.straps)
+        return align_straps(ctx, list(d.pdn.straps))
     dbu = int(s.value("[ord::get_db_block] getDbUnitsPerMicron"))
     x0, y0, x1, y1 = (int(v) / dbu for v in tcl_words(s.value(
         "set b [[ord::get_db_block] getCoreArea]; list [$b xMin] [$b yMin] [$b xMax] [$b yMax]")))
@@ -61,6 +74,34 @@ def fit_straps(ctx) -> list:
                        "offset": [st.offset, new.offset]})
     if scaled:
         ctx.outputs["pdn_straps_scaled"] = scaled
+    return out
+
+def align_straps(ctx, straps: list) -> list:
+    """``straps`` with their offsets from the core origin moved by the
+    distance from it to the core region's rows (modulo the pitch), when pin
+    channel rows widen the core: the region's grid is then the one it has
+    without channels."""
+    from ..design import Strap
+    from ..harness import CHANNEL_ROW
+    s = ctx.session
+    v = tcl_words(s.value(f"""set __r {{}}; set __c 0
+foreach __row [[ord::get_db_block] getRows] {{
+  if {{[string match {CHANNEL_ROW}_* [$__row getName]]}} {{ incr __c; continue }}
+  set __b [$__row getBBox]; lappend __r [$__b xMin] [$__b yMin]
+}}
+set __a [[ord::get_db_block] getCoreArea]
+list $__c [$__a xMin] [$__a yMin] [::tcl::mathfunc::min {{*}}[lmap {{x y}} $__r {{ set x }}]] \
+  [::tcl::mathfunc::min {{*}}[lmap {{x y}} $__r {{ set y }}]] [[ord::get_db_block] getDbUnitsPerMicron]"""))
+    nchan, cx0, cy0, rx0, ry0, dbu = map(int, v)
+    if not nchan or (cx0, cy0) == (rx0, ry0):
+        return straps
+    out = []
+    for st in straps:
+        vertical = s.value(f"[[ord::get_db_tech] findLayer {st.layer}] getDirection") == "VERTICAL"
+        shift = ((rx0 - cx0) if vertical else (ry0 - cy0)) % round(st.pitch * dbu) / dbu
+        out.append(Strap(st.layer, st.width, st.pitch, round((st.offset + shift) % st.pitch, 3)))
+    ctx.outputs["pdn_straps_aligned"] = [{"layer": a.layer, "offset": [a.offset, b.offset]}
+                                         for a, b in zip(straps, out)]
     return out
 
 def rows_without_tap(ctx) -> list[str]:

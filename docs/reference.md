@@ -63,7 +63,7 @@ YAML or JSON; relative paths are relative to the file. Keys not listed are error
 | `step_defaults` | dict |  | {step: {param: value}}: parameter defaults over the PDK's |
 | `auto_blackbox` | bool |  | macros without lib get a black-box Liberty model written from their LEF (off by default; a macro's own auto_blackbox overrides) |
 | `harness` | str |  | a frame (sipath/harnesses: openframe, caravel; or a plugin's): the design becomes its wrapper (template die and pins, user supplies, PDN); mode, floorplan and die come from it |
-| `harness_options` | dict |  | harness settings, e.g. {core_region: [x0, y0, x1, y1]} (um): standard-cell rows only there (a wrapper is mostly empty) |
+| `harness_options` | dict |  | harness settings, e.g. {core_region: [x0, y0, x1, y1]} (um): standard-cell rows only there (a wrapper is mostly empty), plus a channel of rows (pin_channel_rows, default 2) to each used pin farther than pin_reach um (default 300) from it, for repair to buffer the pin's net next to the pin (pin_channels: false: none) |
 | `supply_names` | dict |  | PDK core supply net -> its name in this design, e.g. {VDD: vccd1, VSS: vssd1} (standard-cell supplies, PDN, macro and pad supply maps, signoff) |
 | `plugins` | list[str] |  | Python modules imported before this file is checked; they register steps, scores, signoff checks, harnesses and extension keys (sipath.registry) |
 | `extensions` | dict |  | plugin namespace -> its settings, checked against the keys the plugin registered |
@@ -285,6 +285,7 @@ Set per attempt in `variants` (design file `flow:` or MCP `run_step`), or as def
 | `repair_tie_fanout` | bool | true |  | one tie cell per load, placed next to it |
 | `remove_buffers` | bool | false |  | remove the netlist's buffers before placement |
 | `max_util` | float | – | 0.01..1.0 | utilization limit for repair_design / repair_timing |
+| `pin_max_wire` | float | 400.0 | 0.. | harness designs: longest wire left on a signal pin's buffer chain (the nets from each pin through its buffers repaired with this wire length limit: a wrapper's pad nets run millimetres; longer wires end at the capacitance limit or collect antenna diodes, which count as fanout); 0: no limit [um] |
 | `congestion_check` | bool | true |  | global route after placement and record the congestion |
 | `congestion_margin` | float | 0.0 | 0..1 | extra layer capacity reduction for the congestion check |
 | `threads` | int | – | 1.. | OpenROAD threads for this step's attempts (set_thread_count; signoff: also KLayout DRC); unset: the run's threads, shared among the attempts running at once |
@@ -324,6 +325,7 @@ Set per attempt in `variants` (design file `flow:` or MCP `run_step`), or as def
 |---|---|---|---|---|
 | `rounds` | int | 2 | 0.. | post-route timing repair rounds on extracted parasitics |
 | `max_patch_nets` | int | – | 0.. | nets changed by repair above which the design is routed again instead of patched (default: a quarter of the signal nets, at least 40) |
+| `drv_sizing` | bool | false |  | also size up the drivers of nets whose standard cells see slew or capacitance violations on extracted parasitics (estimates miss some: wires doubled by detours) |
 | `antenna_rounds` | int | 3 | 0.. | antenna repair rounds |
 | `max_antenna` | int | 0 | 0.. | antenna violations allowed |
 | `fillers` | list[str] | – |  | cells for the empty sites (default: the PDK's fill list, decaps first); e.g. fill cells only where most rows are empty and decaps would only add LVS devices |

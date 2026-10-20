@@ -129,7 +129,12 @@ Part of the [SiPath documentation](../README.md#documentation).
 - `route_repair`: RCX; `repair_timing` (resize only, so structural equivalence
   is checked; hold buffers separately); re-route of the changed nets
   (`eco.patch_route`, a full re-route past a quarter of the nets); RCX again,
-  at most two rounds; fillers. An incremental patch can lose neighbouring nets:
+  at most two rounds; fillers. `drv_sizing: true` (off by default; on in the
+  OpenFrame example and template) also sizes up, on extracted parasitics, the
+  drivers of nets whose standard cells see slew or capacitance violations, then
+  legalizes, patch-routes and extracts: placement estimates miss some local
+  nets (a gcd packed at a strip's edge got wires twice their estimate). An
+  incremental patch can lose neighbouring nets:
   the detailed router rips up nets near the patch that have no global-route
   guides and cannot route them back, and this OpenROAD build cannot run the
   global router twice in one process. The attempt then ends with `RetryWith`
@@ -162,6 +167,19 @@ Part of the [SiPath documentation](../README.md#documentation).
   template (die, every pin by name, layer and rectangle); loopback nets stay
   plain wires. `examples/openframe_gcd8.yaml` puts a 4-bit gcd on the
   OpenFrame's east-edge pads.
+- Pin channels: with a `core_region`, every used template pin farther than
+  `pin_reach` (300 µm) from it gets `pin_channel_rows` (2) rows at its height,
+  from the pin across the region, so its first buffer sits next to the pin (a
+  frame pin can be millimetres from the rows, and no buffer inside the region
+  fixes the slew of the wire to it). Global placement sees the region as the
+  core with the channels blocked, so the logic places as without them, and
+  the straps keep their place. After repair and legalization, each such pin's
+  buffer chain is spaced along the rows; then every signal pin's chain nets
+  are repaired with a wire limit (place `pin_max_wire`, 400 µm) and repair
+  runs again on the legalized wires. In the OpenFrame example `resetb_l`
+  (south edge, 2.35 mm from the east strip) gets one, and no standard cell
+  exceeds the slew limit (before: 2.19 ns). `pin_channels: false` disables
+  them; embedded macros have no port buffers.
 - `integrate` (after signoff): Magic puts the signed-off wrapper GDS,
   unchanged, into the frame's layout (as the frame's own build does) and
   writes the chip GDS; KLayout checks one top cell, the frame's die, the

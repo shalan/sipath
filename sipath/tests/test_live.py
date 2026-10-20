@@ -945,12 +945,12 @@ class LiveOpenFrame(unittest.TestCase):
         wd = _workdir("openframe_gcd8")
         if not KEEP:
             self.addCleanup(_rmtree, wd)
-        # known limit: repair leaves one buffer on the long resetb_l port net with a slow input transition
-        # (README Known limits); every other check is required
+        # every check required but KLayout LVS (it hangs on amd64 here; the precheck's Netgen LVS stands
+        # in), drv too: resetb_l (south edge, 2.35 mm from the rows) is buffered along its pin channel
         checks = ["drc", "density", "antenna", "setup", "hold", "drv", "annotation", "unconstrained", "harness"]
         d, spec = designfile.load(os.path.join(os.path.dirname(__file__), "..", "examples", "openframe_gcd8.yaml"))
         flow = [s for s in spec if s["step"] not in ("signoff", "integrate")]
-        flow += [{"step": "signoff", "variants": [{"checks": checks, "require": [c for c in checks if c != "drv"]}]}]
+        flow += [{"step": "signoff", "variants": [{"checks": checks, "require": checks}]}]
         image = _precheck_image()
         if image:
             flow.append({"step": "precheck"})
@@ -960,8 +960,8 @@ class LiveOpenFrame(unittest.TestCase):
         self.assertTrue(s["pass"], s.get("failures"))
         self.assertEqual(s["drc"]["count"], 0)
         self.assertTrue(s["harness"]["pass"])
-        self.assertLessEqual(s["timing"]["drv_slew"], 1)  # the known one, if still there
-        self.assertEqual((s["timing"]["drv_cap"], s["timing"]["drv_fanout"]), (0, 0))
+        self.assertEqual((s["timing"]["drv_slew"], s["timing"]["drv_cap"], s["timing"]["drv_fanout"]), (0, 0, 0))
+        self.assertEqual([c["pin"] for c in f.steps["place"].selected.outputs["pin_repeaters"]], ["resetb_l"])
         if image:
             pc = f.steps["precheck"].selected.outputs["precheck"]
             self.assertTrue(pc["pass"], pc.get("failed"))

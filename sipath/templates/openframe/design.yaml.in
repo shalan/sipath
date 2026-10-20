@@ -26,8 +26,10 @@ flow:
 - step: route_analog
 - step: route_digital
 - step: route_repair
-  variants: [{fillers: [sky130_fd_sc_hd__fill_2, sky130_fd_sc_hd__fill_1]}]   # the strip is mostly empty rows:
-                                      # decaps there (~70k) would only add LVS devices
+  variants: [{fillers: [sky130_fd_sc_hd__fill_2, sky130_fd_sc_hd__fill_1], drv_sizing: true}]
+                                      # fill only: the strip is mostly empty rows, decaps there (~70k)
+                                      # would only add LVS devices; drivers of nets over the slew limit
+                                      # on extracted parasitics sized up
 - step: extract
 - step: signoff
 - step: integrate                     # the wrapper in the OpenFrame chip, checked against the frame

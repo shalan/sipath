@@ -84,7 +84,8 @@ def route_repair(ctx):
     """Post-route timing repair on extracted parasitics (1.2), in a fresh
     process: patch routes after many incremental global routes in one process
     can hang this OpenROAD build. Then fillers. params: rounds (2),
-    max_patch_nets (a quarter of the signal nets, at least 40), fail_on_violation."""
+    max_patch_nets (a quarter of the signal nets, at least 40), drv_sizing,
+    fail_on_violation."""
     s, p = ctx.session, ctx.params
     for k in ("drc", "wirelength_um", "vias"):  # unchanged unless a patch route runs
         if k in (ctx.parent.metrics if ctx.parent else {}):
@@ -92,7 +93,8 @@ def route_repair(ctx):
     s.run(tcl.routing_layers(ctx.design, ctx.pdk))
     run_rcx(ctx, ctx.path("route_rcx.spef"), tag="repair_rcx")
     from ..eco import post_route_repair
-    ctx.outputs["post_route_repair"] = post_route_repair(ctx, p.get("rounds", 2), p.get("max_patch_nets"))
+    ctx.outputs["post_route_repair"] = post_route_repair(ctx, p.get("rounds", 2), p.get("max_patch_nets"),
+                                                         p.get("drv_sizing", False))
     _check_unrouted(ctx)
     ctx.metrics["antenna_violations"] = check_antennas(ctx)
     d = ctx.design

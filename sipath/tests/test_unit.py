@@ -1488,6 +1488,46 @@ class Harnesses(unittest.TestCase):
             floorplan_def(self.tpl, os.path.join(self.tmp, "x.def"), "unithd", 0.46, 2.72, 40,
                           region=(0, 0, 30, 30))
 
+    def test_pin_channels(self):
+        from sipath import harness
+        pdk = types.SimpleNamespace(name="sky130A", site="unithd")
+        h = harness.get("openframe", {"core_region": [2900.0, 300.0, 3120.0, 4650.0]})
+        out = os.path.join(self.tmp, "fp.def")
+        # gpio_in[0] (east edge) is next to the region; resetb_l (south edge, x 551 um) is 2.35 mm from it
+        self.assertEqual(h.floorplan(pdk, out, ["gpio_in[0]"])[1], [])
+        _, ch = h.floorplan(pdk, out, ["gpio_in[0]", "resetb_l"])
+        # two rows on the region's row grid at the core's bottom, from the pin under the whole region
+        self.assertEqual(ch, [(-95, 540960, 3119720), (-94, 540960, 3119720)])
+        with open(out) as f:
+            rows = re.findall(r"ROW (ROW|PINCH)_(\d+) unithd (\d+) (\d+) (N|FS) DO (\d+)", f.read())
+        self.assertEqual(rows[0][2:5], ("2900300", "300000", "N"))
+        self.assertEqual(rows[-2:], [("PINCH", str(len(rows) - 2), "540960", "41600", "FS", "5606"),
+                                     ("PINCH", str(len(rows) - 1), "540960", "44320", "N", "5606")])
+        self.assertEqual(harness.get("openframe", {"core_region": [2900.0, 300.0, 3120.0, 4650.0],
+                                                   "pin_channels": False}).floorplan(pdk, out, ["resetb_l"])[1], [])
+        # beside the region (west, at its heights): up to it, never over its rows, a strap pitch long
+        die, dbu, _ = harness.parse_def_pins(self.tpl)
+        ch = harness.pin_channels([(0, 1000000)], die, dbu, 0.46, 2.72, 40, (2900, 300, 3120, 4650), 300,
+                                  min_len=213.1)
+        self.assertEqual([k for k, _, _ in ch], [257, 258])
+        self.assertTrue(all(a == 40020 and b <= 2895300 for _, a, b in ch))
+
+    def test_pin_repeater_path(self):
+        from sipath.steps.place import _along
+        path = [(551, 0), (551, 44), (3000, 44), (3000, 2300), (3100, 2300)]  # pin, channel, region, loads
+        self.assertEqual(_along(path, 0), (551, 0))
+        self.assertEqual(_along(path, 44 + 1000), (1551, 44))
+        self.assertEqual(_along(path, 44 + 2449 + 256), (3000, 300))
+        self.assertEqual(_along(path, 10 ** 6), (3100, 2300))
+
+    def test_drv_upsize_next_drive_strength(self):
+        from sipath.eco import upsize
+        cells = ["lib__clkbuf_1", "lib__clkbuf_2", "lib__clkbuf_4", "lib__clkbuf_16", "lib__clkinv_2", "lib__o211ai_4"]
+        self.assertEqual(upsize("lib__clkbuf_1", cells), "lib__clkbuf_2")
+        self.assertEqual(upsize("lib__clkbuf_2", cells, lambda c: c.endswith("_4")), "lib__clkbuf_16")
+        self.assertIsNone(upsize("lib__clkbuf_16", cells))
+        self.assertIsNone(upsize("lib__o211ai_2", cells, lambda c: c == "lib__o211ai_4"))  # excluded: none
+
     def test_apply_makes_the_design_the_wrapper(self):
         pdk = types.SimpleNamespace(name="sky130A", site="unithd")
         d = Design("t", "openframe_project_wrapper", None, "s.sdc", "macro")

@@ -180,6 +180,10 @@ STEP_PARAMS: dict[str, list[Param]] = {
         Param("repair_tie_fanout", "bool", True, "one tie cell per load, placed next to it"),
         Param("remove_buffers", "bool", False, "remove the netlist's buffers before placement"),
         Param("max_util", "float", None, "utilization limit for repair_design / repair_timing", min=0.01, max=1.0),
+        Param("pin_max_wire", "float", 400.0, "harness designs: longest wire left on a signal pin's buffer chain "
+              "(the nets from each pin through its buffers repaired with this wire length limit: a wrapper's pad "
+              "nets run millimetres; longer wires end at the capacitance limit or collect antenna diodes, which "
+              "count as fanout); 0: no limit", unit="um", min=0),
         Param("congestion_check", "bool", True, "global route after placement and record the congestion"),
         Param("congestion_margin", "float", 0.0, "extra layer capacity reduction for the congestion check",
               min=0, max=1),
@@ -209,6 +213,8 @@ STEP_PARAMS: dict[str, list[Param]] = {
         Param("rounds", "int", 2, "post-route timing repair rounds on extracted parasitics", min=0),
         Param("max_patch_nets", "int", None, "nets changed by repair above which the design is routed again "
               "instead of patched (default: a quarter of the signal nets, at least 40)", min=0),
+        Param("drv_sizing", "bool", False, "also size up the drivers of nets whose standard cells see slew or "
+              "capacitance violations on extracted parasitics (estimates miss some: wires doubled by detours)"),
         Param("antenna_rounds", "int", 3, "antenna repair rounds", min=0),
         Param("max_antenna", "int", 0, "antenna violations allowed", min=0),
         Param("fillers", "list[str]", None, "cells for the empty sites (default: the PDK's fill list, decaps "

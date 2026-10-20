@@ -5,8 +5,9 @@
 # and the power grid. A 4-bit gcd uses pads 0-14, all on the east edge, and the
 # standard-cell rows are a strip along that edge (the wrapper is otherwise
 # empty): every pad is next to the rows, so long pad nets can be buffered on
-# the way. The harness signoff check compares the routed wrapper with the
-# template.
+# the way. resetb_l (south edge, 2.35 mm from the strip) gets a pin channel:
+# two rows from it to under the strip, where its buffer chain runs. The
+# harness signoff check compares the routed wrapper with the template.
 name: openframe_gcd8
 top: openframe_project_wrapper
 mode: macro
@@ -31,8 +32,10 @@ flow:
 - step: route_analog
 - step: route_digital
 - step: route_repair
-  variants: [{fillers: [sky130_fd_sc_hd__fill_2, sky130_fd_sc_hd__fill_1]}]   # the strip is mostly empty rows:
-                                      # decaps there (~70k) would only add LVS devices
+  variants: [{fillers: [sky130_fd_sc_hd__fill_2, sky130_fd_sc_hd__fill_1], drv_sizing: true}]
+                                      # fill only: the strip is mostly empty rows, decaps there (~70k)
+                                      # would only add LVS devices; drivers of nets over the slew limit
+                                      # on extracted parasitics sized up
 - step: extract
 - step: signoff
 - step: integrate             # the wrapper in the OpenFrame chip (Magic), checked against the frame

@@ -271,15 +271,84 @@ def patch_limit(session, max_patch: int | None) -> int:
     return max(40, n // 4)
 
 
-def post_route_repair(ctx, max_iter: int = 2, max_patch: int | None = None) -> dict:
+def drv_drivers(session, report: str) -> list[tuple[str, str, list[str]]]:
+    """(instance, master, liberty cell names) of the drivers of the
+    standard-cell pins in ``report_check_types -violators`` output (slew and
+    capacitance sections); each driver once."""
+    pins, kind = [], None
+    with open(report) as f:
+        for line in f:
+            s_ = line.strip()
+            if s_ in ("max slew", "max capacitance", "max fanout"):
+                kind = s_
+            elif kind in ("max slew", "max capacitance") and s_.endswith("(VIOLATED)") and "/" in s_.split()[0]:
+                pins.append(s_.split()[0])
+    if not pins:
+        return []
+    v = session.value(f"""set __o {{}}; set __seen {{}}
+foreach __p {qlist(sorted(set(pins)))} {{
+  set __pin [get_pins -quiet $__p]
+  if {{![llength $__pin]}} continue
+  foreach __d [get_pins -quiet -of_objects [get_nets -of_objects $__pin] -filter "direction==output"] {{
+    set __i [[ord::get_db_block] findInst [get_full_name [get_cells -of_objects $__d]]]
+    if {{$__i eq "NULL" || ![string match CORE* [[$__i getMaster] getType]]}} continue
+    if {{[lsearch -exact $__seen [$__i getName]] >= 0}} continue
+    lappend __seen [$__i getName]
+    lappend __o [list [$__i getName] [[$__i getMaster] getName]]
+  }}
+}}
+list $__o [lmap __c [get_lib_cells */*] {{ get_name $__c }}]""")
+    drivers, cells = tcl.tcl_words(v)
+    names = sorted(set(tcl.tcl_words(cells)))
+    return [(*tcl.tcl_words(w), names) for w in tcl.tcl_words(drivers)]
+
+
+def upsize(master: str, cells: list[str], excluded=lambda c: False) -> str | None:
+    """The next drive strength of ``master`` (same name, larger ``_<n>``
+    suffix: ``buf_1`` -> ``buf_2``) among ``cells``, not
+    ``excluded``; None at the largest."""
+    import re
+    m = re.fullmatch(r"(.*_)(\d+)", master)
+    if not m:
+        return None
+    base, n = m.group(1), int(m.group(2))
+    up = sorted((int(c[len(base):]), c) for c in cells
+                if c.startswith(base) and c[len(base):].isdigit() and int(c[len(base):]) > n and not excluded(c))
+    return up[0][1] if up else None
+
+
+def drv_upsize(ctx, report: str) -> list[list[str]]:
+    """Drivers of nets with standard-cell slew or capacitance violations on
+    extracted parasitics one drive strength up (``replace_cell``; PDK and
+    design exclusions honoured). Returns [instance, from, to] per change."""
+    import fnmatch
+    s, pdk, d = ctx.session, ctx.pdk, ctx.design
+    s.run(f"report_check_types -max_slew -max_capacitance -violators > {q(report)}")
+    pats = list(pdk.dont_use) + list(getattr(d, "dont_use", []) or [])
+
+    def excluded(c):
+        return pdk.excluded(c, pats) or any(fnmatch.fnmatchcase(c, p) for p in pats)
+    out = []
+    for inst, master, cells in drv_drivers(s, report):
+        new = upsize(master, cells, excluded)
+        if new:
+            s.run(f"replace_cell {q(inst)} [lindex [get_lib_cells */{new}] 0]")
+            out.append([inst, master, new])
+    return out
+
+
+def post_route_repair(ctx, max_iter: int = 2, max_patch: int | None = None, drv_sizing: bool = False) -> dict:
     """Timing repair on extracted parasitics after detailed routing.
 
     While setup or hold fails (all corners): repair_timing (resize/buffer only:
     no pin swap, gate cloning or buffer removal, so the structural equivalence
     check applies), legalize, check equivalence, re-route the changed and moved
-    instances' nets (``patch_route``), extract again. Stops when timing is met,
-    nothing changes, after ``max_iter`` rounds, or after one re-route (this
-    OpenROAD build's global router cannot route twice in one process)."""
+    instances' nets (``patch_route``), extract again. With ``drv_sizing``,
+    also while standard cells see slew or capacitance violations: their nets'
+    drivers one drive strength up (``drv_upsize``) in the same round. Stops
+    when timing is met (and no driver was sized), nothing changes, after
+    ``max_iter`` rounds, or after one re-route (this OpenROAD build's global
+    router cannot route twice in one process)."""
     s, d, pdk = ctx.session, ctx.design, ctx.pdk
     history = []
     rerouted = False
@@ -287,7 +356,8 @@ def post_route_repair(ctx, max_iter: int = 2, max_patch: int | None = None) -> d
     for it in range(1, max_iter + 1):
         wns, whs = _slacks(s)
         history.append({"wns": wns, "whs": whs})
-        if (wns is None or wns >= 0) and (whs is None or whs >= 0):
+        timing_met = (wns is None or wns >= 0) and (whs is None or whs >= 0)
+        if timing_met and not drv_sizing:
             break
         if rerouted:
             # this global router keeps the previous global_route's edge usage:
@@ -299,14 +369,21 @@ def post_route_repair(ctx, max_iter: int = 2, max_patch: int | None = None) -> d
         loc0, m0 = _locations(s), _masters(s)
         frozen = list(d.analog_nets) + list(d.analog_supplies)
         analog_before = analog.signature(s, frozen) if frozen else ""
+        upsized = drv_upsize(ctx, ctx.path(f"repair{it}_drv.rpt")) if drv_sizing else []
+        if upsized:
+            history[-1]["drv_upsized"] = upsized
+        elif timing_met:
+            history[-1]["note"] = "timing met, no driver to size"
+            break
         wires.normalize(s, ctx.path(f"repair{it}_checkpoint.def"))
         sig0 = _wire_signature(s, ctx.path(f"repair{it}_pre.def"))
-        # setup: sizing only (post-route setup buffering crashes this OpenROAD build,
-        # and perturbs routes most); hold: buffering allowed (hold needs delay cells)
-        s.run("repair_timing -setup -repair_tns 100 -skip_pin_swap -skip_gate_cloning -skip_buffer_removal "
-              "-skip_buffering" + tcl.margins(pdk))
-        s.run("repair_timing -hold -skip_pin_swap -skip_gate_cloning -skip_buffer_removal"
-              + tcl.margins(pdk, "hold_route"))
+        if not timing_met:
+            # setup: sizing only (post-route setup buffering crashes this OpenROAD build,
+            # and perturbs routes most); hold: buffering allowed (hold needs delay cells)
+            s.run("repair_timing -setup -repair_tns 100 -skip_pin_swap -skip_gate_cloning -skip_buffer_removal "
+                  "-skip_buffering" + tcl.margins(pdk))
+            s.run("repair_timing -hold -skip_pin_swap -skip_gate_cloning -skip_buffer_removal"
+                  + tcl.margins(pdk, "hold_route"))
         steps.reabut_all(ctx)
         s.run("detailed_placement")
         fences = [g.name for g in d.groups if g.kind == "fence"]

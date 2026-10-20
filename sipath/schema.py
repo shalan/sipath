@@ -185,7 +185,9 @@ DESIGN = {
     "harness": F("str", "a frame (sipath/harnesses: openframe, caravel; or a plugin's): the design becomes its "
                         "wrapper (template die and pins, user supplies, PDN); mode, floorplan and die come from it"),
     "harness_options": F("dict", "harness settings, e.g. {core_region: [x0, y0, x1, y1]} (um): standard-cell rows "
-                                 "only there (a wrapper is mostly empty)"),
+                                 "only there (a wrapper is mostly empty), plus a channel of rows (pin_channel_rows, "
+                                 "default 2) to each used pin farther than pin_reach um (default 300) from it, "
+                                 "for repair to buffer the pin's net next to the pin (pin_channels: false: none)"),
     "supply_names": F("dict", "PDK core supply net -> its name in this design, e.g. {VDD: vccd1, VSS: vssd1} "
                                "(standard-cell supplies, PDN, macro and pad supply maps, signoff)"),
     "plugins": F("list[str]", "Python modules imported before this file is checked; they register steps, scores, "

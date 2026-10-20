@@ -63,14 +63,36 @@ def parse_def_pins(path: str) -> tuple[tuple[int, int, int, int], int, list[dict
     return die, dbu, pins
 
 
+CHANNEL_ROW = "PINCH"  # name prefix of the pin channels' rows (global placement keeps the logic out of them)
+
+
 def floorplan_def(template: str, out: str, site: str, site_w: float, row_h: float, margin: float,
-                  region: tuple | None = None) -> str:
+                  region: tuple | None = None, channels: list | None = None) -> str:
     """The template with standard-cell rows (orientations N/FS alternating,
     snapped to the site grid): in the core (die inset by ``margin`` um), or
-    only in ``region`` (x0, y0, x1, y1 um) for a wrapper that is mostly empty."""
+    only in ``region`` (x0, y0, x1, y1 um) for a wrapper that is mostly empty;
+    plus the ``channels`` (from ``pin_channels``: rows on the region's row
+    grid, as (row index, x0, x1) DBU), named ``PINCH_<n>``."""
     die, dbu, _ = parse_def_pins(template)
     with open(template) as f:
         text = f.read()
+    sw, rh = round(site_w * dbu), round(row_h * dbu)
+    x0, y0, x1, y1 = row_area(die, dbu, site_w, row_h, margin, region, template)
+    nsites, nrows = (x1 - x0) // sw, (y1 - y0) // rh
+    segs = [("ROW", r, x0, x0 + nsites * sw) for r in range(nrows)]
+    segs += [(CHANNEL_ROW, *c) for c in sorted(channels or [])]
+    rows = "".join(f"ROW {n}_{i} {site} {a} {y0 + r * rh} {'N' if r % 2 == 0 else 'FS'} DO {(b - a) // sw} BY 1 "
+                   f"STEP {sw} 0 ;\n" for i, (n, r, a, b) in enumerate(segs))
+    text = re.sub(r"(DIEAREA[^;]*;)", lambda m: m.group(1) + "\n\n" + rows, text, count=1)
+    with open(out, "w") as f:
+        f.write(text)
+    return out
+
+
+def row_area(die: tuple, dbu: int, site_w: float, row_h: float, margin: float, region: tuple | None = None,
+             template: str = "") -> tuple[int, int, int, int]:
+    """The DBU box ``floorplan_def`` fills with rows: x0 on the site grid, y0
+    the first row's bottom (x1, y1: the core or region bound, not snapped)."""
     sw, rh = round(site_w * dbu), round(row_h * dbu)
     m = round(margin * dbu)
     box = (die[0] + m, die[1] + m, die[2] - m, die[3] - m)
@@ -79,15 +101,62 @@ def floorplan_def(template: str, out: str, site: str, site_w: float, row_h: floa
         box = (max(box[0], r[0]), max(box[1], r[1]), min(box[2], r[2]), min(box[3], r[3]))
         if box[2] - box[0] < 10 * sw or box[3] - box[1] < 2 * rh:
             raise ValueError(f"core region {region} is empty or outside the core of {template}")
-    x0 = -(-box[0] // sw) * sw
-    y0 = box[1]
-    nsites = (box[2] - x0) // sw
-    nrows = (box[3] - y0) // rh
-    rows = "".join(f"ROW ROW_{r} {site} {x0} {y0 + r * rh} {'N' if r % 2 == 0 else 'FS'} DO {nsites} BY 1 "
-                   f"STEP {sw} 0 ;\n" for r in range(nrows))
-    text = re.sub(r"(DIEAREA[^;]*;)", lambda m: m.group(1) + "\n\n" + rows, text, count=1)
-    with open(out, "w") as f:
-        f.write(text)
+    return (-(-box[0] // sw) * sw, box[1], box[2], box[3])
+
+
+def pin_channels(pins: list[tuple[int, int]], die: tuple, dbu: int, site_w: float, row_h: float, margin: float,
+                 region: tuple, reach: float, nrows: int = 2, min_len: float = 0.0) -> list[tuple[int, int, int]]:
+    """Rows next to the pins far from the core region, so that repair can
+    buffer their nets next to them (a frame pin may lie millimetres from the
+    region; no buffer in the region fixes the slew of the wire to it).
+    ``pins``: (x, y) DBU of the used signal pins; one farther than ``reach``
+    um (Manhattan) from the region's rows gets a channel: ``nrows`` rows at
+    its height, on the region's row grid and inside the core, from the pin
+    across the region's x range (above or below the region), or up to the
+    region (beside it), at least ``min_len`` um long (a vertical power strap
+    must cross it). Returns (row index, x0, x1) DBU, row 0 being the region's
+    first row; overlapping channels are merged."""
+    sw, rh = round(site_w * dbu), round(row_h * dbu)
+    rx0, ry0, rx1_, ry1_ = row_area(die, dbu, site_w, row_h, margin, region)
+    rn, sites = (ry1_ - ry0) // rh, (rx1_ - rx0) // sw
+    rx1, ry1 = rx0 + sites * sw, ry0 + rn * rh
+    m = round(margin * dbu)
+    cx0, cy0, cx1, cy1 = die[0] + m, die[1] + m, die[2] - m, die[3] - m
+    kmin, kmax = -((ry0 - cy0) // rh), (cy1 - ry0) // rh - 1  # row indices inside the core
+    pad, gap, mlen = round(10 * dbu), round(5 * dbu), round(min_len * dbu)
+    spans: dict[int, list[list[int]]] = {}
+    for px, py in pins:
+        px, py = min(max(px, cx0), cx1), min(max(py, cy0), cy1)
+        if max(rx0 - px, 0, px - rx1) + max(ry0 - py, 0, py - ry1) <= reach * dbu:
+            continue
+        k0 = min(max((py - ry0) // rh - (nrows - 1) // 2, kmin), kmax - nrows + 1)
+        beside = k0 + nrows > 0 and k0 < rn  # band rows at the region's heights: stop short of it
+        if beside and px < rx0:
+            a, b = px - pad, rx0 - gap
+            a = min(a, b - mlen)
+        elif beside:
+            a, b = rx1 + gap, px + pad
+            b = max(b, a + mlen)
+        else:
+            a, b = min(rx0, px - pad), max(rx1, px + pad)
+            if b - a < mlen:
+                a, b = (a + b - mlen) // 2, (a + b + mlen) // 2
+        a, b = -(-max(a, cx0) // sw) * sw, min(b, cx1) // sw * sw
+        for k in range(k0, k0 + nrows):
+            pieces = [(a, b)]
+            if 0 <= k < rn:  # never over the region's own rows
+                pieces = [(a, min(b, rx0 - gap)), (max(a, -(-(rx1 + gap) // sw) * sw), b)]
+            spans.setdefault(k, []).extend([list(p) for p in pieces if p[1] - p[0] >= 20 * sw])
+    out = []
+    for k, segs in sorted(spans.items()):
+        segs.sort()
+        merged = [segs[0]]
+        for s in segs[1:]:
+            if s[0] <= merged[-1][1]:
+                merged[-1][1] = max(merged[-1][1], s[1])
+            else:
+                merged.append(s)
+        out += [(k, a, b) for a, b in merged]
     return out
 
 
@@ -114,10 +183,7 @@ class Harness:
         if s.get("pdks") and pdk.name not in s["pdks"]:
             raise ValueError(f"harness {self.name} is for {s['pdks']}, not {pdk.name}")
         os.makedirs(os.path.join(workdir, "harness"), exist_ok=True)
-        region = self.options.get("core_region")
-        fp = floorplan_def(self.path("template_def"), os.path.join(workdir, "harness", f"{s['wrapper']}.fp.def"),
-                           pdk.site, s["site_width"], s["row_height"], s["core_margin"],
-                           tuple(region) if region else None)
+        fp, _ = self.floorplan(pdk, os.path.join(workdir, "harness", f"{s['wrapper']}.fp.def"))
         d.mode, d.floorplan_def, d.die, d.core_utilization = "macro", fp, None, None
         d.is_core = bool(s.get("is_core", True))
         if s.get("max_route_layer"):
@@ -134,6 +200,28 @@ class Harness:
                 p["ring_layers"] = tuple(p["ring_layers"])
             d.pdn = PdnSpec(**p)
         return {"harness": self.name, "floorplan_def": fp, "supplies": d.supply_names}
+
+    def floorplan(self, pdk, out: str, used_pins: list[str] = ()) -> tuple[str, list]:
+        """The wrapper's floorplan DEF: rows in the core (``core_region``
+        option: only there) and, with a core region, channels to the
+        ``used_pins`` (signal pins with cells on their nets) farther than
+        ``pin_reach`` um (default 300) from it: ``pin_channel_rows`` rows
+        (default 2) each, long enough for a vertical strap to power them
+        (``pin_channels: false``: none). Returns (path, channels)."""
+        s, o = self.spec, self.options
+        region = tuple(o["core_region"]) if o.get("core_region") else None
+        channels = []
+        if region and used_pins and o.get("pin_channels", True):
+            die, dbu, pins = parse_def_pins(self.path("template_def"))
+            used = set(used_pins)
+            pts = [((p["rect"][0] + p["rect"][2]) // 2, (p["rect"][1] + p["rect"][3]) // 2)
+                   for p in pins if p["name"] in used]
+            straps = (s.get("pdn") or {}).get("straps") or []
+            min_len = max((st["offset"] + st["pitch"] + 2 * st["width"] for st in straps), default=0.0)
+            channels = pin_channels(pts, die, dbu, s["site_width"], s["row_height"], s["core_margin"], region,
+                                    float(o.get("pin_reach", 300.0)), int(o.get("pin_channel_rows", 2)), min_len)
+        return floorplan_def(self.path("template_def"), out, pdk.site, s["site_width"], s["row_height"],
+                             s["core_margin"], region, channels), channels
 
     # ---- during the run
     def supply_pin_names(self) -> list[str]:
