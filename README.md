@@ -60,7 +60,7 @@ Other commands:
 | `sipath pdks`, `sipath templates` | PDK descriptions; design templates (`sipath new <dir> --template openframe`) |
 | `sipath harden <design> <dir>` | a design's hardened-macro views (LEF, Liberty, GDS, SPEF) |
 | `sipath setup-placer` | the Python with CPU PyTorch for the CD-LNS macro placer |
-| `sipath draw`, `sipath render` | a schematic SVG, or OpenROAD's layout picture, of a checkpoint |
+| `sipath render <run> [step]`, `sipath draw` | OpenROAD's layout picture, or a schematic SVG, of a step's checkpoint (`all`: every step) |
 | `sipath lvs <gds> <top> <spice>` | full-device LVS of a layout with the PDK's own deck |
 | `sipath limits <run> <design>` | a run against its regression limits |
 | `sipath validate`, `sipath docs`, `sipath schema` | check the examples; regenerate the reference; JSON Schema |

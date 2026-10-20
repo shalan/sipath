@@ -1,7 +1,14 @@
 """Pictures of a checkpoint.
 
-    python3 -m sipath draw <checkpoint.odb> <out.svg> [--ring]   schematic SVG (pads, corners, fillers, macros)
-    python3 -m sipath render <checkpoint.odb> <out.png>          OpenROAD's own layout render (save_image)
+    python3 -m sipath render <workdir> [step|attempt|all] [-o out.png]   OpenROAD's own layout render (save_image)
+    python3 -m sipath draw <workdir> [step|attempt|all] [-o out.svg] [--ring]   schematic SVG (pads, corners,
+                                                                               fillers, macros)
+
+A run is named by its work directory and a step (its selected attempt), an
+attempt id (``place.1``, selected or not) or ``all`` (every selected step with
+a database); without one, the last selected step. ``checkpoints`` resolves
+them from ``graph.json``. A checkpoint ``.odb`` can be given instead of a
+work directory.
 
 Boxes are the instances' bounding boxes as OpenROAD reports them (after
 orientation), so the picture is what the database holds: IO pads, corners,
@@ -104,6 +111,60 @@ foreach i [[ord::get_db_block] getInsts] {
 set split 0; dict for {p ns} $nets { if {[dict size $ns] != 1} { incr split } }
 list $cells [dict size $nets] $split
 """
+
+
+def checkpoints(workdir: str, which: str | None = None) -> list[tuple[str, str]]:
+    """``(attempt id, checkpoint .odb)`` for ``which`` in a run's ``graph.json``.
+
+    ``which``: a step (its selected attempt), an attempt id, ``all`` (every
+    selected attempt with a database, in flow order) or None (the last of those).
+    Raises ValueError naming what the run has when nothing matches."""
+    import json
+    import os
+    path = os.path.join(workdir, "graph.json")
+    if not os.path.isfile(path):
+        raise FileNotFoundError(f"{workdir}: no graph.json (not a run directory)")
+    with open(path) as f:
+        attempts = json.load(f)["attempts"]
+    odb = [a for a in attempts if str(a.get("checkpoint") or "").endswith(".odb")]
+    sel = [a for a in odb if a.get("status") == "selected"]
+    if which in (None, "all"):
+        hits = sel if which == "all" else sel[-1:]
+    elif any(a["id"] == which for a in attempts):
+        hits = [a for a in odb if a["id"] == which]
+        if not hits:
+            raise ValueError(f"attempt {which} has no layout database (only steps after synthesis do)")
+    else:
+        hits = [a for a in sel if a["step"] == which]
+        if not hits:
+            steps = sorted({a["step"] for a in sel}, key=[a["step"] for a in sel].index)
+            raise ValueError(f"no selected {which!r} checkpoint in {workdir}; steps with one: {', '.join(steps)}"
+                             " (or an attempt id such as place.1, or all)")
+    if not hits:
+        raise ValueError(f"{workdir}: no selected checkpoint with a layout database yet")
+    return [(a["id"], a["checkpoint"]) for a in hits]
+
+
+def picture_args(argv: list[str], ext: str) -> list[tuple[str, str]]:
+    """``(checkpoint, out)`` pairs for ``render``/``draw`` command-line arguments.
+
+    ``<checkpoint.odb> <out>`` as before, or ``<workdir> [which] [-o out]``;
+    pictures go to ``<workdir>/_pictures/<attempt>.<ext>`` (the MCP tools' place)
+    unless ``-o`` names one file."""
+    import os
+    args = [a for a in argv if not a.startswith("--")]
+    out = None
+    if "-o" in args:
+        i = args.index("-o")
+        out, args = args[i + 1], args[:i] + args[i + 2:]
+    if not args:
+        raise ValueError(f"usage: <workdir> [step|attempt|all] [-o out.{ext}]")
+    if args[0].endswith(".odb"):
+        return [(args[0], out or (args[1] if len(args) > 1 else os.path.splitext(args[0])[0] + "." + ext))]
+    found = checkpoints(args[0], args[1] if len(args) > 1 else None)
+    if out and len(found) > 1:
+        raise ValueError("-o names one file; 'all' writes one picture per step into <workdir>/_pictures")
+    return [(odb, out or os.path.join(args[0], "_pictures", f"{aid}.{ext}")) for aid, odb in found]
 
 
 def render(odb: str, out: str, runner=None, area: tuple | None = None, resolution: float | None = None,

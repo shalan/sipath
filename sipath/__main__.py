@@ -18,8 +18,13 @@
     python3 -m sipath docs [out.md]     reference: design-file keys, step parameters, config, PDK keys
                                       (default docs/reference.md)
     python3 -m sipath schema [out.json] JSON Schema of a design file (stdout without a file)
-    python3 -m sipath draw <odb> <svg> [--ring]   schematic SVG of a checkpoint (--ring: IO ring only)
-    python3 -m sipath render <odb> <png>          OpenROAD layout render of a checkpoint (save_image)
+    python3 -m sipath render <workdir> [step|attempt|all] [-o out.png]
+                                      OpenROAD layout render (save_image) of a run's checkpoint: a step's
+                                      selected attempt, an attempt id (place.1), or every selected step;
+                                      default the last step; to <workdir>/_pictures/<attempt>.png
+    python3 -m sipath draw <workdir> [step|attempt|all] [-o out.svg] [--ring]
+                                      schematic SVG of the same (--ring: IO ring only); either command also
+                                      takes a checkpoint: <checkpoint.odb> [out]
     python3 -m sipath report <workdir> [--render]   run report (report.md, report.html; --render: layout.png)
     python3 -m sipath mcp               MCP server on stdio (tools: open_run, run_step, run_eco, ...)
     python3 -m sipath toolchain [--check]   locked images, tool versions and PDK releases (--check: the
@@ -126,26 +131,28 @@ def main(argv) -> int:
     cmd = argv[0]
     if cmd == "validate":
         return validate()
-    if cmd == "draw":
-        from .viz import draw
-        print(draw(argv[1], argv[2], ring_only="--ring" in argv[3:]))
-        return 0
-    if cmd == "render":
-        from .viz import render
-        print(render(argv[1], argv[2]))
+    if cmd in ("draw", "render"):
+        from . import viz
+        try:
+            todo = viz.picture_args(argv[1:], "svg" if cmd == "draw" else "png")
+        except (ValueError, FileNotFoundError) as e:
+            print(f"sipath {cmd}: {e}", file=sys.stderr)
+            return 2
+        for odb, out in todo:
+            os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
+            print(viz.draw(odb, out, ring_only="--ring" in argv) if cmd == "draw" else viz.render(odb, out))
         return 0
     if cmd == "report":
-        import json as _json
         from . import report
         wd = os.path.abspath(argv[1]) if len(argv) > 1 else os.getcwd()
         if "--render" in argv:  # the last selected checkpoint that is a database
-            from .viz import render
-            with open(os.path.join(wd, "graph.json")) as f:
-                g = _json.load(f)
-            sel = {a["id"] for a in g["attempts"] if a.get("status") == "selected"}
-            odbs = [a["checkpoint"] for a in g["attempts"] if a["id"] in sel and str(a.get("checkpoint")).endswith(".odb")]
+            from .viz import checkpoints, render
+            try:
+                odbs = checkpoints(wd)
+            except ValueError:
+                odbs = []
             if odbs:
-                print(render(odbs[-1], os.path.join(wd, "layout.png")))
+                print(render(odbs[-1][1], os.path.join(wd, "layout.png")))
         print("\n".join(report.write(wd)))
         return 0
     if cmd == "mcp":

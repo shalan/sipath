@@ -75,6 +75,9 @@ def collect(workdir: str) -> dict:
             ppa = {"step": s["name"], **s["sel"]["outputs"]["ppa"]}
             break
     pictures = sorted(glob.glob(os.path.join(workdir, "*.png")) + glob.glob(os.path.join(workdir, "*", "*", "*.png")))
+    order = [a["id"] for a in g.get("attempts", [])]  # sipath render: _pictures/<attempt>.png, in flow order
+    pictures += sorted(glob.glob(os.path.join(workdir, "_pictures", "*.png")), key=lambda p: (
+        order.index(os.path.basename(p)[:-4]) if os.path.basename(p)[:-4] in order else len(order), p))
     return {"design": g.get("design", {}), "pdk": g.get("pdk"), "provenance": g.get("provenance", {}),
             "steps": steps, "signoff": signoff, "ppa": ppa, "files": files, "pictures": pictures}
 

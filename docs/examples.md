@@ -42,11 +42,14 @@ core_utilization: 0.4
 
 ```bash
 python3 -m sipath run my_gcd8.yaml runs/gcd8
-python3 -m sipath report runs/gcd8 --render
+python3 -m sipath render runs/gcd8 all          # a picture per step: runs/gcd8/_pictures/place.0.png, ...
+python3 -m sipath report runs/gcd8
 ```
 
-Look at `runs/gcd8/report.html` (every step, its attempts and metrics, the
-signoff checks, a layout picture) and `signoff/0/signoff.json` (DRC, LVS,
+`sipath render runs/gcd8 place` draws one step (its selected attempt);
+`place.1` names an attempt, a rejected one too. Look at
+`runs/gcd8/report.html` (every step, its attempts and metrics, the signoff
+checks, the pictures in flow order) and `signoff/0/signoff.json` (DRC, LVS,
 antennas, nine-corner timing). `sipath/examples/gcd8.yaml` is this design.
 
 ## 2. A first cut at PPA, then the clock

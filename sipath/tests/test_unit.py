@@ -403,6 +403,44 @@ class Precheck(unittest.TestCase):
         self.assertNotIn("threads", params.DECLARED["precheck"])
 
 
+class PictureTargets(unittest.TestCase):
+    """render/draw name a run's checkpoint by work directory and step (viz.checkpoints)."""
+
+    def setUp(self):
+        self.wd = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.wd)
+        at = lambda i, st, k, s, ck: {"id": f"{st}.{k}", "step": st, "status": s, "checkpoint": ck}  # noqa: E731
+        _write_json(os.path.join(self.wd, "graph.json"), {"attempts": [
+            at(0, "synth", 0, "selected", "s/0/top.synth.v"), at(1, "place", 0, "rejected", "p/0/place.odb"),
+            at(2, "place", 1, "selected", "p/1/place.odb"), at(3, "cts", 0, "selected", "c/0/cts.odb")]})
+
+    def test_step_attempt_all_and_default(self):
+        from sipath import viz
+        self.assertEqual(viz.checkpoints(self.wd, "place"), [("place.1", "p/1/place.odb")])
+        self.assertEqual(viz.checkpoints(self.wd, "place.0"), [("place.0", "p/0/place.odb")])  # a rejected one too
+        self.assertEqual(viz.checkpoints(self.wd, "all"), [("place.1", "p/1/place.odb"), ("cts.0", "c/0/cts.odb")])
+        self.assertEqual(viz.checkpoints(self.wd), [("cts.0", "c/0/cts.odb")])
+
+    def test_errors_name_what_the_run_has(self):
+        from sipath import viz
+        with self.assertRaisesRegex(ValueError, "steps with one: place, cts"):
+            viz.checkpoints(self.wd, "route_digital")
+        with self.assertRaisesRegex(ValueError, "no layout database"):
+            viz.checkpoints(self.wd, "synth.0")
+        with self.assertRaises(FileNotFoundError):
+            viz.checkpoints(os.path.join(self.wd, "nope"))
+
+    def test_command_line_outputs(self):
+        from sipath import viz
+        pics = os.path.join(self.wd, "_pictures")
+        self.assertEqual(viz.picture_args([self.wd, "all"], "png"),
+                         [("p/1/place.odb", os.path.join(pics, "place.1.png")), ("c/0/cts.odb", os.path.join(pics, "cts.0.png"))])
+        self.assertEqual(viz.picture_args([self.wd, "place", "-o", "x.svg", "--ring"], "svg"), [("p/1/place.odb", "x.svg")])
+        self.assertEqual(viz.picture_args(["a/b.odb", "o.png"], "png"), [("a/b.odb", "o.png")])  # the old form
+        with self.assertRaisesRegex(ValueError, "one file"):
+            viz.picture_args([self.wd, "all", "-o", "x.png"], "png")
+
+
 class ExploreFlow(unittest.TestCase):
     def test_routing_scores_need_no_drc_in_explore_mode(self):
         from sipath.designfile import explore_flow
