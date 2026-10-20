@@ -403,6 +403,19 @@ class Precheck(unittest.TestCase):
         self.assertNotIn("threads", params.DECLARED["precheck"])
 
 
+class ExploreFlow(unittest.TestCase):
+    def test_routing_scores_need_no_drc_in_explore_mode(self):
+        from sipath.designfile import explore_flow
+        out = explore_flow([{"step": "synth"}, {"step": "place", "score": "routability_then_wns"},
+                            {"step": "route_digital", "variants": [{"repair_after_grt": True}],
+                             "score": "drc_then_slack"}, {"step": "signoff"}])
+        steps = {i["step"]: i for i in out}
+        self.assertNotIn("signoff", steps)
+        self.assertEqual(steps["route_digital"]["score"], "setup_wns")  # no DRC count at global routing
+        self.assertEqual(steps["route_digital"]["variants"], [{"repair_after_grt": True, "detailed": False}])
+        self.assertEqual(steps["place"]["score"], "routability_then_wns")
+
+
 class DocExamples(unittest.TestCase):
     """docs/examples.md: every snippet uses keys, steps, parameters, scores and
     commands SiPath accepts."""
@@ -2391,7 +2404,7 @@ class McpProtocol(unittest.TestCase):
         self.assertEqual(c.rpc("resources/list")["result"], {"resources": []})
         err, out, _ = c.call("list_designs")
         self.assertFalse(err)
-        self.assertEqual(set(out["designs"]), {"dp8", "dp8_hs", "mcu8", "ihp_add8", "gcd8", "gcd8_sv", "openframe_gcd8", "gcd8_pair", "sram8"})
+        self.assertEqual(set(out["designs"]), {"dp8", "dp8_hs", "mcu8", "ihp_add8", "gcd8", "gcd8_sv", "openframe_gcd8", "gcd8_pair", "sram8", "gcd8_explore"})
         self.assertTrue(c.call("run_step", run_id="nope", step="floorplan")[0])
         self.assertTrue(c.call("no_such_tool")[0])
         self.assertEqual(c.rpc("no/such/method")["error"]["code"], -32601)

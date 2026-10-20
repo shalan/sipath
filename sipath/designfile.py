@@ -159,8 +159,9 @@ def explore_flow(spec: list[dict]) -> list[dict]:
     """A design's flow as a fast first cut at PPA (explore mode): no
     equivalence check, global routing only (PPA from its parasitics), no fill,
     post-route repair, extraction, signoff, views or integration; a ``ppa``
-    step closes a flow that stops before routing. With the typical corner only
-    (``build(..., explore=True)``)."""
+    step closes a flow that stops before routing; a routing score that needs
+    the detailed router's DRC count becomes ``setup_wns``. With the typical
+    corner only (``build(..., explore=True)``)."""
     out = []
     for item in spec:
         fn = item.get("fn", item["step"])
@@ -171,6 +172,8 @@ def explore_flow(spec: list[dict]) -> list[dict]:
             item["variants"] = [{**v, "equiv": "off"} for v in (item.get("variants") or [{}])]
         if fn == "route_digital":
             item["variants"] = [{**v, "detailed": False} for v in (item.get("variants") or [{}])]
+            if item.get("score") in ("drc_then_slack", "drc_then_wns"):
+                item["score"] = "setup_wns"  # global routing only: no detailed-router DRC to rank by
         out.append(item)
     if not any(i.get("fn", i["step"]) == "route_digital" for i in out):
         out.append({"step": "ppa"})

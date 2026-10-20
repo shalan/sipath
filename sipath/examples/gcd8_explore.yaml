@@ -1,0 +1,37 @@
+# gcd8_explore: design-space exploration on gcd8 at a 4 ns clock (docs/examples.md, recipe 15).
+#   python3 -m sipath run sipath/examples/gcd8_explore.yaml runs/x --explore   # quick sweep, global routing only
+#   python3 -m sipath run sipath/examples/gcd8_explore.yaml runs/x             # the full sweep, to signoff
+# Three steps run variants side by side; each later step continues from the
+# attempt its score selected. parallel_cap bounds the attempts alive at once
+# across the run; the OpenROAD threads are shared among them.
+name: gcd8
+top: gcd8
+mode: macro
+pdk: sky130A
+rtl: [rtl/gcd8.v]
+sdc: rtl/gcd8_4ns.sdc
+core_utilization: 0.35
+core_margin: 6.0
+is_core: false
+config: {parallel_cap: 4}
+flow:
+- step: synth                # two recipe sets, each swept inside its attempt
+  variants: [{abc_sweep: delay}, {abc_sweep: area}]
+  score: synth_select
+  parallel: 2
+- step: floorplan
+- step: physical
+- step: place                # three densities, three at a time
+  variants: [{density: 0.45}, {density: 0.6}, {density: 0.75}]
+  score: routability_then_wns
+  parallel: 3
+- step: cts
+- step: route_analog
+- step: route_digital        # with and without repair on global-route parasitics
+  variants: [{repair_after_grt: true}, {repair_after_grt: false}]
+  score: drc_then_slack
+  parallel: 2
+- step: route_repair
+- step: fill
+- step: extract
+- step: signoff

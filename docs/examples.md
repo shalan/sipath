@@ -23,6 +23,7 @@ names are the ones SiPath accepts. Full designs for most recipes are in
 - [12. An ECO from Python](#12-an-eco-from-python)
 - [13. Driving a run from an agent (MCP)](#13-driving-a-run-from-an-agent-mcp)
 - [14. Regression limits and repeated runs](#14-regression-limits-and-repeated-runs)
+- [15. Design-space exploration: sweeps at several steps, in parallel](#15-design-space-exploration-sweeps-at-several-steps-in-parallel)
 
 ## 1. RTL to a signed-off layout
 
@@ -385,3 +386,84 @@ python3 bench/repeat_compare.py aes --repeats 2 \
 
 The live tests check their runs against `limits.yaml`, nightly in CI
 ([tests, limits and CI](testing.md)).
+
+## 15. Design-space exploration: sweeps at several steps, in parallel
+
+`sipath/examples/gcd8_explore.yaml` sweeps three steps of gcd8 at a 4 ns clock.
+Each step runs its variants side by side, its `score` selects one, and the next
+step continues from that one only, so the run follows the best path found so
+far rather than every combination (2 + 3 + 2 attempts, not 2 × 3 × 2):
+
+```yaml
+config: {parallel_cap: 4}    # most attempts alive at once, across the run
+flow:
+- step: synth                # two recipe sets, each swept inside its attempt
+  variants: [{abc_sweep: delay}, {abc_sweep: area}]
+  score: synth_select
+  parallel: 2
+- step: floorplan
+- step: physical
+- step: place                # three densities, three at a time
+  variants: [{density: 0.45}, {density: 0.6}, {density: 0.75}]
+  score: routability_then_wns
+  parallel: 3
+- step: cts
+- step: route_analog
+- step: route_digital        # with and without repair on global-route parasitics
+  variants: [{repair_after_grt: true}, {repair_after_grt: false}]
+  score: drc_then_slack
+  parallel: 2
+- step: route_repair
+- step: fill
+- step: extract
+- step: signoff
+```
+
+First the quick sweep, then the full one:
+
+```bash
+python3 -m sipath run sipath/examples/gcd8_explore.yaml runs/gcd8_x --explore   # global routing only
+python3 -m sipath run sipath/examples/gcd8_explore.yaml runs/gcd8_full          # to signoff
+python3 -m sipath report runs/gcd8_full                                         # every attempt, why it lost
+```
+
+Measured (Apple-silicon Mac, amd64 image, 12 threads, while another long run
+shared the machine):
+
+| step | variant | full flow: result | selected |
+|---|---|---|---|
+| synth | `abc_sweep: delay` | `delay_map_resyn`, +0.519 ns at ss_max, 1,768 µm² | ✓ |
+| synth | `abc_sweep: area` | `yosys_default`, −0.825 ns, 1,710 µm² | |
+| place | `density: 0.45` | WNS +0.250 ns, HPWL 3,437 µm, no overflow | |
+| place | `density: 0.6` | WNS +0.225 ns, HPWL 3,341 µm | |
+| place | `density: 0.75` | WNS +0.300 ns, HPWL 3,209 µm | ✓ |
+| route_digital | `repair_after_grt: true` | WNS +0.126 ns, DRC 0, 4,289 µm | ✓ |
+| route_digital | `repair_after_grt: false` | WNS +0.056 ns, DRC 0, 4,124 µm | |
+
+| run | attempts | wall time | result |
+|---|---|---|---|
+| `--explore` | 7 | 29 s | WNS +0.907 ns at tt (global-route parasitics); achievable 3.09 ns, suggested `create_clock -period 3.25` |
+| full, in parallel | 7 + the single steps | 91 s | signoff passes: DRC 0, LVS match, WNS +1.975 ns at tt, +0.126 ns at ss_max |
+| full, one attempt at a time (`SIPATH_PARALLEL_CAP=1`) | the same | 104 s | identical: the same selections and numbers at every step |
+
+What this shows:
+- **Parallelism changes the wall time, not the result.** Both full runs select
+  the same attempts with the same metrics: the flow is deterministic, and
+  attempts running at once share the run's OpenROAD threads (each gets
+  `threads` / the attempts alive at once; a step's `threads` parameter
+  overrides it). On a design this small the gain is modest (12%); it grows with
+  the attempts' length, e.g. mcu8's macro sweep.
+- **Explore mode is a first look, judged at the typical corner.** There it
+  picks the area recipe set (it meets 4 ns at tt); the full flow, judging at
+  the slow corner, picks the delay set. In explore mode a routing score that
+  needs the detailed router's DRC count (`drc_then_slack`) becomes
+  `setup_wns`.
+- **Every attempt stays.** `graph.json` holds each attempt's parameters,
+  metrics, score and status (`selected` or `rejected`); `report.html` shows
+  them; over MCP, `list_attempts` and `get_outputs` read them. To try another
+  path, re-run the step with that variant alone (or a different `score`): a run
+  continues only from a selected attempt.
+- **An interrupted sweep resumes.** `--resume` keeps the attempts that
+  finished (a sweep of three that stopped after two runs only the third) and
+  re-runs nothing that is recorded.
+
