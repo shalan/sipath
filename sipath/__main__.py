@@ -82,6 +82,7 @@ def validate() -> int:
             print(f"skipped: {os.path.basename(path)}: {e}")
             continue
         pdk = load_pdk(d.pdk, runner) if runner else load_pdk(d.pdk, platforms=ORFS_PLATFORMS)
+        designfile.resolve_srams(d, pdk)  # as a run does: sram: names the PDK's macro views
         d.validate(pdk, runner_prefixes=prefixes)
         print(f"inputs ok: {d.name} ({d.mode}, {pdk.name}, corners {pdk.corner_source}) {len(d.input_files())} files")
 

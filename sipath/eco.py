@@ -16,6 +16,7 @@ import os
 
 from . import analog, equiv, liberty, steps, tcl, wires
 from .netlist import read_verilog
+from .session import TclError
 from .tcl import q, qlist, tcl_parse
 
 LOCATIONS_TCL = """
@@ -324,7 +325,13 @@ def post_route_repair(ctx, max_iter: int = 2, max_patch: int | None = None) -> d
         s.run(f"write_verilog {q(post_v)}")
         _equivalent(s, pre_v, post_v)
         touched = (_inst_nets(s, changed | moved)) - set(d.analog_nets)
-        r = patch_route(ctx, touched, sig0, analog_before, max_patch, tag=f"_repair{it}", retry_full=True)
+        try:
+            r = patch_route(ctx, touched, sig0, analog_before, max_patch, tag=f"_repair{it}", retry_full=True)
+        except TclError as e:  # the router itself failed in the patch (e.g. DRT-0206 checkConnectivity)
+            if len(touched) <= max_patch:
+                from .scheduler import RetryWith
+                raise RetryWith({"max_patch_nets": 0}, f"patch route failed: {str(e).splitlines()[0]}") from e
+            raise
         rerouted = True
         history[-1].update({"resized_or_added": len(changed), "moved": len(moved), "touched_nets": len(touched),
                             "route_mode": r["route_mode"]})

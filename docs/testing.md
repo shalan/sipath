@@ -33,8 +33,10 @@ wall time in CI.
   3.14: the unit tests, a check that the generated reference is current, and
   a check of the wheel's package data.
 - **`live`** runs nightly and on demand: the locked ORFS image and the locked
-  open_pdks release (fetched by `sipath install-pdk`), in two parallel jobs
-  (the chip designs, mcu8 and OpenFrame; everything else), with the regression
-  limits except wall time, keeping the logs of a failed run.
+  open_pdks release (fetched by `sipath install-pdk`), in three parallel jobs
+  (mcu8; the OpenFrame harness; everything else), with the regression limits
+  except wall time, keeping the logs of any run that does not pass (failed,
+  timed out or cancelled). The precheck image is built locally, so CI runs
+  OpenFrame without cf-precheck.
 - On Linux the containers run as the calling user (`--user`), so the files
   they write stay the user's; `SIPATH_DOCKER_AS_ROOT=1` keeps the image's user.

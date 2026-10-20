@@ -134,7 +134,8 @@ Part of the [SiPath documentation](../README.md#documentation).
   guides and cannot route them back, and this OpenROAD build cannot run the
   global router twice in one process. The attempt then ends with `RetryWith`
   and the scheduler runs one fresh attempt with a full re-route
-  (`max_patch_nets: 0`), recorded as its `retry_of`.
+  (`max_patch_nets: 0`), recorded as its `retry_of`. The same retry follows a
+  router failure inside the patch (aes: `DRT-0206 checkConnectivity`).
 - `fill`: OpenROAD `density_fill` with the PDK's fill rules, up to the
   design's top routing layer (an embedded macro leaves the layers above to its
   parent), streamed to the PDK's fill datatypes.

@@ -212,14 +212,7 @@ def build(d: Design, workdir: str, runner, config=None, resume: bool = False, ex
     if d.harness:  # before resolve: the harness sets supplies, PDN and floorplan
         from . import harness
         harness_info = harness.get(d.harness, d.harness_options).apply(d, pdk, os.path.abspath(workdir))
-    for m in d.macros:  # sram: the PDK's SRAM macro views
-        if m.sram:
-            entry = pdk.sram.get(m.sram)
-            if entry is None:
-                raise ValueError(f"macro {m.inst}: sram {m.sram!r} is not one of {d.pdk}'s: {sorted(pdk.sram)}")
-            m.lef = m.lef or entry.get("lef", "")
-            if m.lib is None:
-                m.lib = entry.get("lib")
+    resolve_srams(d, pdk)
     d.resolve(pdk)
     from . import blackbox
     models = blackbox.generate(d, pdk, os.path.join(os.path.abspath(workdir), "models"))  # opt-in only
@@ -239,6 +232,19 @@ def build(d: Design, workdir: str, runner, config=None, resume: bool = False, ex
         prov = dict(prov, plugins=ext)
     return Flow(d, pdk, workdir, lambda w: OpenRoadSession(w, runner, timeout=cfg.command_timeout),
                 runner_prefixes=runner.runner_prefixes(), config=cfg, resume=resume, provenance=prov, runner=runner)
+
+
+def resolve_srams(d, pdk) -> None:
+    """A macro that names one of the PDK's SRAMs (``sram:``) gets that SRAM's
+    LEF and Liberty unless the macro gives its own."""
+    for m in d.macros:
+        if m.sram:
+            entry = pdk.sram.get(m.sram)
+            if entry is None:
+                raise ValueError(f"macro {m.inst}: sram {m.sram!r} is not one of {d.pdk}'s: {sorted(pdk.sram)}")
+            m.lef = m.lef or entry.get("lef", "")
+            if m.lib is None:
+                m.lib = entry.get("lib")
 
 
 def run(path_or_design, workdir: str, runner=None, overrides: dict | None = None, flow_steps=None,

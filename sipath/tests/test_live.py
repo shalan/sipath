@@ -921,13 +921,24 @@ class LiveMacroPlacers(unittest.TestCase):
         self.assertIn(f.steps["macros"].selected, (rnd, cd))
 
 
+def _precheck_image():
+    """The locked precheck image when it is present here (it is built locally: docker/precheck)."""
+    import subprocess
+    from sipath import toolchain
+    ref = toolchain.lock()["images"].get("precheck", {}).get("ref")
+    if not ref:
+        return None
+    r = subprocess.run(["docker", "image", "inspect", ref], capture_output=True)
+    return ref if r.returncode == 0 else None
+
+
 @LIVE
-@unittest.skipIf(ROSETTA, "the amd64 image's KLayout does not finish this wrapper's LVS under Rosetta "
-                          "(arm64 runtime: 843 s); runs in CI (native amd64)")
 class LiveOpenFrame(unittest.TestCase):
     """A design in the OpenFrame harness end to end: the wrapper signed off
-    (DRC, LVS, harness conformance, timing) and integrated into the frame's
-    layout with the seal ring, the chip GDS checked."""
+    (DRC, density, antennas, timing, harness conformance), integrated into the
+    frame's layout with the seal ring, the chip GDS checked, and (with the
+    precheck image) ChipFoundry's cf-precheck, whose Netgen LVS stands in for
+    the KLayout LVS (the amd64 image's KLayout does not finish it)."""
 
     def test_openframe_gcd8_to_chip(self):
         from sipath import designfile
@@ -936,18 +947,25 @@ class LiveOpenFrame(unittest.TestCase):
             self.addCleanup(_rmtree, wd)
         # known limit: repair leaves one buffer on the long resetb_l port net with a slow input transition
         # (README Known limits); every other check is required
-        checks = ["drc", "density", "lvs", "antenna", "setup", "hold", "drv", "annotation", "unconstrained", "harness"]
-        f = designfile.run(os.path.join(os.path.dirname(__file__), "..", "examples", "openframe_gcd8.yaml"), wd,
-                           RUNNER, overrides={"signoff": {"variants": [{"checks": checks,
-                                                                        "require": [c for c in checks if c != "drv"]}]},
-                                              "integrate": {"variants": [{"seal_ring": True}]}})
+        checks = ["drc", "density", "antenna", "setup", "hold", "drv", "annotation", "unconstrained", "harness"]
+        d, spec = designfile.load(os.path.join(os.path.dirname(__file__), "..", "examples", "openframe_gcd8.yaml"))
+        flow = [s for s in spec if s["step"] not in ("signoff", "integrate")]
+        flow += [{"step": "signoff", "variants": [{"checks": checks, "require": [c for c in checks if c != "drv"]}]}]
+        image = _precheck_image()
+        if image:
+            flow.append({"step": "precheck"})
+        flow.append({"step": "integrate", "variants": [{"seal_ring": True}]})
+        f = designfile.run(d, wd, RUNNER, flow_steps=flow)
         s = _read_json(f.steps["signoff"].selected.outputs["signoff"])
         self.assertTrue(s["pass"], s.get("failures"))
         self.assertEqual(s["drc"]["count"], 0)
-        self.assertTrue(s["lvs"]["match"])
         self.assertTrue(s["harness"]["pass"])
         self.assertLessEqual(s["timing"]["drv_slew"], 1)  # the known one, if still there
         self.assertEqual((s["timing"]["drv_cap"], s["timing"]["drv_fanout"]), (0, 0))
+        if image:
+            pc = f.steps["precheck"].selected.outputs["precheck"]
+            self.assertTrue(pc["pass"], pc.get("failed"))
+            self.assertIn("lvs", pc["passed"])
         it = f.steps["integrate"].selected
         chk = it.outputs["chipcheck"]
         self.assertTrue(chk["pass"], chk)

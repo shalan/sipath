@@ -129,8 +129,9 @@ make does not run.
   them; no gf180mcu yet. No gate-level simulation.
 - Seven sky130 HD cells are kept out of synthesis and sizing: the KLayout LVS
   deck cannot pair them.
-- On Apple silicon, the amd64 image's KLayout does not finish the OpenFrame
-  wrapper's LVS (the arm64 runtime matches it in 843 s; CI runs it natively).
+- The amd64 image's KLayout does not finish the OpenFrame wrapper's LVS
+  (under Rosetta, and on CI's native runners); the arm64 runtime matches it in
+  843 s, and ChipFoundry's precheck (Netgen LVS) passes it.
 - The arm64 image's OpenROAD crashes in post-route repair on the OpenFrame
   wrapper and on aes.
 - In the OpenFrame example, repair leaves one buffer on the long `resetb_l`

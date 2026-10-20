@@ -20,13 +20,15 @@ permissions:
 jobs:
   live:
     runs-on: ubuntu-latest
-    timeout-minutes: 300
+    timeout-minutes: 240
     strategy:
       fail-fast: false
       matrix:
         include:
-          - group: chip       # mcu8 (pad ring, macros, analog) and OpenFrame (harness, chip assembly)
-            classes: LiveMcuDie LiveOpenFrame
+          - group: chip       # mcu8: pad ring, macros, analog, full signoff (about an hour)
+            classes: LiveMcuDie
+          - group: openframe  # the OpenFrame harness, chip assembly with the seal ring
+            classes: LiveOpenFrame
           - group: blocks
             classes: >-
               LiveRtl LiveSoftMacro LiveHs LiveResume LiveMcp LiveIhp LiveIhpRing
@@ -72,8 +74,8 @@ jobs:
           classes="${{ github.event.inputs.classes }}"
           python -m sipath.tests.run_live -j 2 ${classes:-${{ matrix.classes }}}
 
-      - name: Keep the logs of a failed run
-        if: failure()
+      - name: Keep the logs of a run that did not pass
+        if: ${{ !success() }}
         uses: actions/upload-artifact@v7
         with:
           name: live-${{ matrix.group }}-logs
