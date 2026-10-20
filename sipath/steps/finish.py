@@ -174,17 +174,33 @@ def integrate(ctx):
     if rc:  # the rc file's cell libraries and their GDS live under the PDK root
         signoff._runner(ctx).mount(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(rc)))))
     signoff._runner(ctx).mount(os.path.dirname(wrapper_gds), work)
+    seal = None
+    if ctx.params.get("seal_ring"):
+        seal = h.seal_ring(work)
+        if not seal:
+            raise ValueError(f"harness {d.harness} gives no seal ring (frame.seal_ring)")
     out = signoff._magic(ctx, h.integrate_script(work, wrapper_gds, chip), "integrate")
     if "SIPATH_DONE" not in out or not os.path.isfile(chip) or os.path.getsize(chip) == 0:
         raise RuntimeError(f"Magic wrote no chip GDS (log {ctx.path('integrate.log')})")
     missing = sorted(set(re.findall(r"Cell (\S+) is unavailable", out)))
     if missing:
         raise RuntimeError(f"frame cells without a view: {missing[:10]} (log {ctx.path('integrate.log')})")
-    script = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "klayout", "chipcheck.py")
+    kdir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "klayout")
+    if seal:  # centred on the die (its opening is smaller than the die: it sits on the die's outer band)
+        scfg = ctx.path("sealring.cfg.json")
+        with open(scfg, "w") as fh:
+            _json.dump({"chip": chip, "top": top, "die": f["die"], "seal": seal, "out": ctx.path("sealring.json")}, fh)
+        signoff._runner(ctx).mount(kdir)
+        signoff.run_tool(ctx, ["klayout", "-b", "-rd", f"cfg_file={scfg}", "-r", os.path.join(kdir, "sealring.py")],
+                         ctx.path("sealring.log"))
+        with open(ctx.path("sealring.json")) as fh:
+            ctx.outputs["seal_ring"] = _json.load(fh)
+    script = os.path.join(kdir, "chipcheck.py")
     cfg = ctx.path("chipcheck.cfg.json")
     with open(cfg, "w") as fh:
         _json.dump({"chip": chip, "top": top, "die": f["die"], "wrapper": wrapper_gds,
                     "wrapper_cell": f["magic"]["wrapper_cell"], "origin": f["wrapper_origin"],
+                    "seal_cell": h.seal_cell(seal) if seal else None,
                     "out": ctx.path("chipcheck.json")}, fh, indent=1)
     signoff._runner(ctx).mount(script)
     signoff.run_tool(ctx, ["klayout", "-b", "-rd", f"cfg_file={cfg}", "-r", script], ctx.path("chipcheck.log"))

@@ -40,6 +40,15 @@
    "variants": [
     "sky130A",
     "sky130B"
+   ],
+   "libraries": [
+    "sky130_fd_io",
+    "sky130_fd_pr",
+    "sky130_fd_sc_hd",
+    "sky130_fd_sc_hs",
+    "sky130_fd_sc_hvl",
+    "sky130_ml_xx_hd",
+    "sky130_sram_macros"
    ]
   }
  }

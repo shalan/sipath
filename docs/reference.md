@@ -343,6 +343,7 @@ Set per attempt in `variants` (design file `flow:` or MCP `run_step`), or as def
 | parameter | type | default | allowed | description |
 |---|---|---|---|---|
 | `drc` | bool | false |  | full-chip KLayout DRC of the assembled chip (slow; the frame's IO cells carry their own waivers) |
+| `seal_ring` | bool | false |  | add the harness's seal ring (frame.seal_ring) as the frame's compositor does; checked to enclose the die with no shape inside it |
 
 ### ppa
 

@@ -222,6 +222,8 @@ STEP_PARAMS: dict[str, list[Param]] = {
     "integrate": [
         Param("drc", "bool", False, "full-chip KLayout DRC of the assembled chip (slow; the frame's IO cells "
               "carry their own waivers)"),
+        Param("seal_ring", "bool", False, "add the harness's seal ring (frame.seal_ring) as the frame's "
+              "compositor does; checked to enclose the die with no shape inside it"),
     ],
     "ppa": [
         Param("margin", "float", 0.05, "margin added to the achievable clock period in the suggested one",

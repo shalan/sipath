@@ -432,10 +432,23 @@ class PdkRelease(unittest.TestCase):
         good = self._tree("d", f"open_pdks {self.locked}\n")
         self.assertTrue(self.tc.require_pdk(self._pdk(good), types.SimpleNamespace(require_pdk_release=True))["match"])
 
+    def test_missing_libraries_reported(self):
+        tree = self._tree("e", f"open_pdks {self.locked}\n")
+        os.makedirs(os.path.join(tree, "libs.ref", "sky130_fd_sc_hd"))
+        st = self.tc.pdk_status(self._pdk(tree))
+        self.assertTrue(st["match"])
+        self.assertIn("sky130_fd_sc_hs", st["missing_libraries"])
+        self.assertNotIn("sky130_fd_sc_hd", st["missing_libraries"])
+
     def test_unpinned_pdk_and_install_command(self):
         self.assertIsNone(self.tc.pdk_status(types.SimpleNamespace(name="sky130hd", release={})))
         cmd = self.tc.install_command("sky130", "/x/pdks")
-        self.assertEqual(cmd, ["ciel", "enable", "--pdk-root", "/x/pdks", "--pdk-family", "sky130", self.locked])
+        self.assertEqual(cmd[:6], ["ciel", "enable", "--pdk-root", "/x/pdks", "--pdk-family", "sky130"])
+        self.assertEqual(cmd[-1], self.locked)
+        libs = cmd[7:-1:2]  # one -l per library: ciel's default set lacks the hs cells
+        self.assertEqual(cmd[6:-1:2], ["-l"] * len(libs))
+        self.assertIn("sky130_fd_sc_hs", libs)
+        self.assertIn("sky130_fd_sc_hd", libs)
         with self.assertRaises(ValueError):
             self.tc.install_command("gf180mcu")
 
@@ -1277,6 +1290,12 @@ class Harnesses(unittest.TestCase):
         self.assertLess(script.index("gds read {/w/wrapper.gds}"), script.index("load caravel_openframe -dereference"))
         self.assertIn("cif *hier write disable", script)
         self.assertIn("gds write {/o/chip.gds}", script)
+        seal = self.h.seal_ring(self.tmp)  # decompressed next to the frame views
+        self.assertEqual(os.path.basename(seal), "advSeal_6um_gen.gds")
+        self.assertTrue(os.path.getsize(seal) > 0)
+        self.assertEqual(self.h.seal_cell(seal), "advSeal_6um_gen")
+        kdir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "klayout")
+        self.assertTrue(os.path.isfile(os.path.join(kdir, "sealring.py")))  # placed by KLayout after Magic
         from sipath import steps
         self.assertTrue(steps.STEPS["integrate"].tool)
 

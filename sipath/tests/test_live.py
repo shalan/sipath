@@ -919,3 +919,43 @@ class LiveMacroPlacers(unittest.TestCase):
         self.assertGreater(info["soft_macros"], 0)
         self.assertTrue(os.path.isfile(info["spec"]))
         self.assertIn(f.steps["macros"].selected, (rnd, cd))
+
+
+@LIVE
+@unittest.skipIf(ROSETTA, "the amd64 image's KLayout does not finish this wrapper's LVS under Rosetta "
+                          "(arm64 runtime: 843 s); runs in CI (native amd64)")
+class LiveOpenFrame(unittest.TestCase):
+    """A design in the OpenFrame harness end to end: the wrapper signed off
+    (DRC, LVS, harness conformance, timing) and integrated into the frame's
+    layout with the seal ring, the chip GDS checked."""
+
+    def test_openframe_gcd8_to_chip(self):
+        from sipath import designfile
+        wd = _workdir("openframe_gcd8")
+        if not KEEP:
+            self.addCleanup(_rmtree, wd)
+        # known limit: repair leaves one buffer on the long resetb_l port net with a slow input transition
+        # (README Known limits); every other check is required
+        checks = ["drc", "density", "lvs", "antenna", "setup", "hold", "drv", "annotation", "unconstrained", "harness"]
+        f = designfile.run(os.path.join(os.path.dirname(__file__), "..", "examples", "openframe_gcd8.yaml"), wd,
+                           RUNNER, overrides={"signoff": {"variants": [{"checks": checks,
+                                                                        "require": [c for c in checks if c != "drv"]}]},
+                                              "integrate": {"variants": [{"seal_ring": True}]}})
+        s = _read_json(f.steps["signoff"].selected.outputs["signoff"])
+        self.assertTrue(s["pass"], s.get("failures"))
+        self.assertEqual(s["drc"]["count"], 0)
+        self.assertTrue(s["lvs"]["match"])
+        self.assertTrue(s["harness"]["pass"])
+        self.assertLessEqual(s["timing"]["drv_slew"], 1)  # the known one, if still there
+        self.assertEqual((s["timing"]["drv_cap"], s["timing"]["drv_fanout"]), (0, 0))
+        it = f.steps["integrate"].selected
+        chk = it.outputs["chipcheck"]
+        self.assertTrue(chk["pass"], chk)
+        self.assertEqual(chk["tops"], ["caravel_openframe"])
+        self.assertTrue(chk["die_matches"] and chk["wrapper_at_origin"])
+        self.assertEqual(chk["wrapper_differs"], {})
+        # the seal ring: once, centred on the die (it sits on the die's outer band), touching no frame shape
+        self.assertEqual(chk["seal_placements"], [[-6.0, -6.0]])
+        self.assertTrue(chk["seal_centred"])
+        self.assertEqual(chk["seal_touches_frame"], {})
+        self.assertTrue(os.path.getsize(it.outputs["chip_gds"]) > 1_000_000)

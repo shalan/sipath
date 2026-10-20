@@ -22,6 +22,9 @@ from sipath.session import FakeSession, NativeRunner, OpenRoadSession, TclError,
 
 RUNNER = find_openroad()
 LIVE = unittest.skipIf(RUNNER is None, "openroad is not available (not on PATH, no ORFS docker image)")
+# the amd64 image under Rosetta (Apple silicon): its KLayout does not finish some LVS runs (the OpenFrame wrapper)
+ROSETTA = sys.platform == "darwin" and __import__("platform").machine() == "arm64" and \
+    getattr(RUNNER, "platform", "") == "linux/amd64"
 KEEP = os.environ.get("SIPATH_TEST_KEEP")  # set to a directory to keep live run outputs
 
 

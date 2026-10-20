@@ -266,6 +266,30 @@ set __n"""
                   f"gds write {{{out_gds}}}", "puts SIPATH_DONE", "quit -noprompt"]
         return "\n".join(lines) + "\n"
 
+    @staticmethod
+    def seal_cell(seal_gds: str) -> str:
+        """The seal ring's cell name: its GDS file's name (advSeal_6um_gen.gds)."""
+        base = os.path.basename(seal_gds)
+        for ext in (".gz", ".gds", ".GDS"):
+            base = base[:-len(ext)] if base.endswith(ext) else base
+        return base
+
+    def seal_ring(self, workdir: str) -> str | None:
+        """The frame's seal ring GDS, decompressed into ``workdir``; None if it has none."""
+        import gzip
+        import shutil
+        src = (self.spec.get("frame") or {}).get("seal_ring")
+        if not src:
+            return None
+        src = src if os.path.isabs(src) else os.path.join(self.root, src)
+        dst = os.path.join(workdir, os.path.basename(src)[:-3] if src.endswith(".gz") else os.path.basename(src))
+        if src.endswith(".gz"):
+            with gzip.open(src) as fi, open(dst, "wb") as fo:
+                shutil.copyfileobj(fi, fo)
+        else:
+            shutil.copy2(src, dst)
+        return dst
+
     def prepare_frame(self, workdir: str) -> list[str]:
         """Copy the frame's views into ``workdir`` (GDS decompressed: the
         views name their GDS files uncompressed, relative to themselves)."""

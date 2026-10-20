@@ -78,8 +78,10 @@ def pdk_status(pdk) -> dict | None:
     tree = rel.get("tree", "")
     got = pdk_release(tree) if tree and os.path.isdir(tree) else None
     want = entry["version"]
+    missing = [lib for lib in entry.get("libraries", [])
+               if tree and os.path.isdir(tree) and not os.path.isdir(os.path.join(tree, "libs.ref", lib))]
     return {"family": family, "tree": tree, "version": got, "locked": want,
-            "match": bool(got) and (want.startswith(got) or got.startswith(want))}
+            "match": bool(got) and (want.startswith(got) or got.startswith(want)), "missing_libraries": missing}
 
 
 def require_pdk(pdk, config) -> dict | None:
@@ -100,7 +102,8 @@ def install_command(family: str, pdk_root: str | None = None) -> list[str]:
     if not entry:
         raise ValueError(f"no locked PDK family {family!r}; locked: {sorted(lock().get('pdks', {}))}")
     root = os.path.expanduser(pdk_root or os.environ.get("PDK_ROOT") or "~/.ciel")
-    return ["ciel", "enable", "--pdk-root", root, "--pdk-family", family, entry["version"]]
+    libs = [a for lib in entry.get("libraries", []) for a in ("-l", lib)]  # ciel's default set lacks some
+    return ["ciel", "enable", "--pdk-root", root, "--pdk-family", family, *libs, entry["version"]]
 
 
 def check(config) -> list[str]:
@@ -143,6 +146,9 @@ def main(argv) -> int:
                 if st and not st["match"]:
                     problems.append(f"pdk {v}: {st['tree']} is {st['version'] or 'of an unknown release'} "
                                     f"(locked {st['locked']})")
+                if st and st["missing_libraries"]:
+                    problems.append(f"pdk {v}: {st['tree']} lacks {', '.join(st['missing_libraries'])} "
+                                    f"(python3 -m sipath install-pdk {fam})")
         print("\n".join(problems) if problems else "configured images and PDK trees match the lock")
         return 1 if problems else 0
     return 0

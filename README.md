@@ -143,6 +143,7 @@ python3 bench/synth_bench.py                   # synthesis benchmark: 16 designs
 - Harnesses (OpenFrame, Caravel): the design is the frame's wrapper (template
   die and pins, every frame supply pin, power grid, routing limits), checked
   against the template pin by pin; `integrate` places the signed-off wrapper
+  (and, optionally, the seal ring)
   in the frame's layout and checks the chip GDS.
 - Hardened macro views (`views`, `sipath harden`) and design templates
   (`sipath templates`, `sipath new --template openframe`).
@@ -168,6 +169,12 @@ python3 bench/synth_bench.py                   # synthesis benchmark: 16 designs
 - No gate-level simulation.
 - Seven sky130 HD cells are kept out of synthesis and sizing: the KLayout LVS
   deck cannot pair them (`sipath/pdks/sky130/lvs_exclude_sky130_fd_sc_hd.cells`).
+- On Apple silicon, the amd64 image's KLayout does not finish the OpenFrame
+  wrapper's LVS (past 6 hours at flat memory, one or eight threads); the arm64
+  runtime matches it in 843 s, and CI (native amd64) runs it.
+- In the OpenFrame example, repair leaves one buffer on the long `resetb_l`
+  port net with a 2.19 ns input transition (limit 0.75 ns); its live test
+  reports it and requires every other check.
 - The arm64 image's OpenROAD crashes in the repair after global routing on
   the OpenFrame wrapper and on aes.
 - dp8's XOR shows two sub-0.1 µm² differences on wide analog wires (Magic
@@ -271,7 +278,9 @@ mounted into the container.
   path) and records it in its provenance (`pdk_release`). A tree of another
   release, or one that says none, is refused unless `SIPATH_REQUIRE_PDK=0`,
   and that run records the mismatch. `python3 -m sipath install-pdk` installs
-  the locked release; `toolchain --check` compares the installed trees.
+  the locked release with the libraries SiPath uses (ciel's default set lacks
+  the hs cells; the lock lists them); `toolchain --check` compares the
+  installed trees and names missing libraries.
 - **Views.** hd standard cells (fd + ef LEFs), the nom tech LEF, `tracks.info`,
   `sky130_ef_io` pads with their gpiov2 Liberty, the OpenRAM
   `sky130_sram_macros` (a design names one with `sram:`).
@@ -507,8 +516,14 @@ unless the caller configures logging.
 - `integrate` (after signoff): Magic puts the signed-off wrapper GDS,
   unchanged, into the frame's layout (as the frame's own build does) and
   writes the chip GDS; KLayout checks one top cell, the frame's die, the
-  wrapper placed once at its origin and identical to the signed-off GDS. The
-  seal ring is left to tape-out, as in the frame's build.
+  wrapper placed once at its origin and identical to the signed-off GDS.
+  `seal_ring: true` adds the harness's seal ring (OpenFrame:
+  `advSeal_6um_gen`), which ChipFoundry otherwise adds at tape-out. KLayout
+  places it centred on the die (OpenFrame: at −6, −6 µm, as ChipFoundry's
+  compositor implies); its opening (3,396.8 × 4,996.8 µm) is smaller than the
+  die, so it sits on the die's outer band. The chip check requires it once,
+  centred, touching none of the frame's shapes on any layer, and reports its
+  opening.
 - `views`: abstract LEF, a timing Liberty per corner (`write_timing_model`),
   GDS, LVS subcircuit, SPEF per corner, netlists with and without supply pins,
   and `macro.yaml`. `sipath harden <design> <dir>` runs a design through
@@ -942,7 +957,7 @@ writes generated inputs under `examples/inputs/` (`examples/designs.py`,
 | `dp8_hs.yaml` | dp8 on the sky130 high-speed library |
 | `mcu8.yaml` | a 1.5 × 1.5 mm die: 39 `sky130_ef_io` pads, ChipFoundry SRAM/ADC/DAC macros, analog nets shielded, 3.3 V supplies |
 | `sram8.yaml` | eight sky130 1 KB SRAMs (`sram:`), random search against the CD-LNS placer |
-| `openframe_gcd8.yaml` | a 4-bit gcd in the OpenFrame harness, integrated into the frame |
+| `openframe_gcd8.yaml` | a 4-bit gcd in the OpenFrame harness, integrated into the frame (with the seal ring in its live test) |
 | `ihp_add8.yaml` | soft macro on IHP SG13G2 (no tap or endcap cells; one RCX rule file) |
 | `ihp_ring.py` | a pad ring closed on IHP SG13G2 with nothing configured |
 | `plugin_example.py` | a plugin with one of each extension point (step, score, signoff check, design-file extension) |
