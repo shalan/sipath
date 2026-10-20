@@ -7,7 +7,9 @@ at afterwards. A snippet with `flow:` replaces the `flow:` of a design file (the
 rest of the file stays as it is); every snippet here is checked against the
 design-file schema and the declared step parameters by the unit tests, so the
 names are the ones SiPath accepts. Full designs for most recipes are in
-`sipath/examples/` ([design files and examples](design-files.md)).
+`sipath/examples/` ([design files and examples](design-files.md)). The
+[tutorial notebook](../notebooks/sipath_tutorial.ipynb) runs every recipe, in
+Colab or Codespaces.
 
 - [1. RTL to a signed-off layout](#1-rtl-to-a-signed-off-layout)
 - [2. A first cut at PPA, then the clock](#2-a-first-cut-at-ppa-then-the-clock)

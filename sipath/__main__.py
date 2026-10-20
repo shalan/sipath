@@ -33,6 +33,10 @@
     python3 -m sipath install-pdk [family] [--pdk-root dir] [--dry-run]   the locked open_pdks release
                                       through ciel (downloads it; default: the first locked family,
                                       into $PDK_ROOT or ~/.ciel)
+    python3 -m sipath install-tools [dir] [--force]   the locked ORFS image's tools without Docker
+                                      (OpenROAD, Yosys, KLayout; Linux x86_64, glibc 2.35+, e.g. Colab):
+                                      the image's layers, digest-checked, unpacked into dir (default
+                                      ~/.cache/sipath/orfs-root) with wrappers in dir/sipath-bin for PATH
     python3 -m sipath setup-placer [dir] [--python p]   the macro placer's Python (PyTorch CPU, numpy) for
                                       the macros method cdlns (default ~/.cache/sipath/placer-venv)
     python3 -m sipath lvs <gds> <top> <schematic.spice ...> --pdk p [--lib cells.spice] [--out dir]
@@ -261,6 +265,9 @@ def main(argv) -> int:
         return tc(argv[1:])
     if cmd == "install-pdk":
         return install_pdk(argv[1:])
+    if cmd == "install-tools":
+        from .nativetools import main as nt
+        return nt(argv[1:])
     if cmd == "docs":
         from .reference import write
         out = argv[1] if len(argv) > 1 else os.path.join(os.path.dirname(os.path.dirname(

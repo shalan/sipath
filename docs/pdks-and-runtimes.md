@@ -69,6 +69,16 @@ mounted at the same path, so file names in Tcl are the same inside and
 outside. On Linux the containers run as the calling user, so the files they
 write stay the user's (`SIPATH_DOCKER_AS_ROOT=1` keeps the image's user).
 
+Without Docker, on Linux x86_64 with glibc 2.35 or newer (Ubuntu 22.04+, Colab),
+`python3 -m sipath install-tools [dir]` downloads the locked ORFS image's
+layers from the registry, checks each against its digest and unpacks them
+(1.6 GB to download; without ORFS's test designs and headers, 4 GB unpacked) into `dir` (default
+`~/.cache/sipath/orfs-root`). Its `sipath-bin/` holds `openroad`, `sta`,
+`yosys`, `yosys-abc` and `klayout` wrappers that run the image's binaries with
+the image's libraries; with it on PATH and `SIPATH_PLATFORMS` set (both
+printed), runs use the same builds as the Docker runs. Magic, Netgen and the
+precheck are other images, so their checks need Docker.
+
 The default is the ORFS image (`openroad/orfs`, amd64: under Rosetta on Apple
 silicon). Two ways to avoid the emulation:
 - an arm64 image with the tools on PATH, e.g. LibreLane's multi-arch image:

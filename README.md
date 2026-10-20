@@ -9,6 +9,8 @@
 
 [![unit](https://github.com/shalan/sipath/actions/workflows/unit.yml/badge.svg)](https://github.com/shalan/sipath/actions/workflows/unit.yml)
 [![live](https://github.com/shalan/sipath/actions/workflows/live.yml/badge.svg)](https://github.com/shalan/sipath/actions/workflows/live.yml)
+[![Open the tutorial in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/shalan/sipath/blob/main/notebooks/sipath_tutorial.ipynb)
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/shalan/sipath?quickstart=1)
 
 SiPath is a Python physical-design flow that drives live OpenROAD sessions,
 from RTL or a gate-level netlist to a **routed DEF, SPEF and a signed-off
@@ -33,8 +35,14 @@ SG13G2 is the second PDK) and a design file in YAML or JSON.
 
 ## Quick start
 
+To try it without installing anything, open the
+[tutorial notebook](notebooks/sipath_tutorial.ipynb) in Colab or Codespaces
+(the badges above): it runs every example flow.
+
 SiPath needs Python 3.10+ and Docker (or a native OpenROAD). The tool images
-and the open_pdks release are locked in `sipath/toolchain.json`.
+and the open_pdks release are locked in `sipath/toolchain.json`. Without
+Docker, on Linux x86_64, `python3 -m sipath install-tools` unpacks the locked
+image's OpenROAD, Yosys and KLayout instead.
 
 ```bash
 python3 -m pip install -e .                    # the sipath package and console script
@@ -59,6 +67,7 @@ Other commands:
 |---|---|
 | `sipath pdks`, `sipath templates` | PDK descriptions; design templates (`sipath new <dir> --template openframe`) |
 | `sipath harden <design> <dir>` | a design's hardened-macro views (LEF, Liberty, GDS, SPEF) |
+| `sipath install-tools [dir]` | the locked ORFS image's tools without Docker (Linux x86_64, glibc 2.35+: Colab, Ubuntu 22.04+) |
 | `sipath setup-placer` | the Python with CPU PyTorch for the CD-LNS macro placer |
 | `sipath render <run> [step]`, `sipath draw` | OpenROAD's layout picture, or a schematic SVG, of a step's checkpoint (`all`: every step) |
 | `sipath lvs <gds> <top> <spice>` | full-device LVS of a layout with the PDK's own deck |
@@ -145,6 +154,7 @@ make does not run.
 
 | document | contents |
 |---|---|
+| [Tutorial notebook](notebooks/sipath_tutorial.ipynb) | the example flows, runnable in Colab or Codespaces |
 | [Example flows](docs/examples.md) | fifteen recipes, one feature each: RTL to signoff, explore mode, synthesis and placement sweeps, macro placers, analog shields, a full die, an OpenFrame chip with precheck and seal ring, hardened macros, custom steps, resume, ECOs, an agent session, regression limits, a design-space exploration in parallel |
 | [How the flow works](docs/flow.md) | each step: floorplan and pads, hard macros, power, placement and CTS, analog nets, routing and repair, sweeps and ECOs, frames and hardened macros |
 | [Synthesis](docs/synthesis.md) | the synth step, its recipes and why its defaults are what they are |

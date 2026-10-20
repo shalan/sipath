@@ -51,8 +51,8 @@ def _examples() -> dict:
     ex = os.path.join(os.path.dirname(os.path.abspath(__file__)), "examples")
     out = {}
     for f in sorted(os.listdir(ex)):
-        if f.endswith(".yaml"):
-            with open(os.path.join(ex, f)) as fh:
+        if f.endswith(".yaml") and not f.startswith("."):  # not editors' or macOS's hidden copies
+            with open(os.path.join(ex, f), encoding="utf-8") as fh:
                 first = fh.readline().lstrip("# ").strip()
             out[f[:-5]] = first
     return out
@@ -87,7 +87,7 @@ TOOLS = [
      "(describe_step lists each step's parameters with types and defaults; values are checked before anything "
      "runs). Attempts run concurrently up to "
      "`parallel`, each in its own OpenROAD process starting from the `parent` checkpoint (omit only for "
-     "'floorplan'). The best by `score` is selected; the others are rejected but kept.",
+     "a run's first step: 'synth' for RTL, 'floorplan' for a netlist). The best by `score` is selected; the others are rejected but kept.",
      "inputSchema": _obj({"run_id": {"type": "string"}, "step": {"type": "string", "enum": sorted(STEPS)},
                           "parent": {"type": "string", "description": "selected attempt id, e.g. 'place.1'"},
                           "variants": {"type": "array", "items": {"type": "object"}},
@@ -269,8 +269,8 @@ class Server:
         except ValueError as e:
             raise ToolError(str(e)) from e
         p = self._attempt(flow, parent) if parent else None
-        if p is None and step != "floorplan":
-            raise ToolError("parent is required for every step but 'floorplan'")
+        if p is None and step not in ("synth", "floorplan"):  # a run starts at synthesis or at the floorplan
+            raise ToolError("parent is required for every step but a run's first ('synth' or 'floorplan')")
         if p is not None and p.status != "selected":
             raise ToolError(f"parent {p.id} is {p.status}; continue only from a selected attempt")
 

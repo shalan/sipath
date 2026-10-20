@@ -133,7 +133,9 @@ def checkpoints(workdir: str, which: str | None = None) -> list[tuple[str, str]]
     elif any(a["id"] == which for a in attempts):
         hits = [a for a in odb if a["id"] == which]
         if not hits:
-            raise ValueError(f"attempt {which} has no layout database (only steps after synthesis do)")
+            st = next(a.get("status") for a in attempts if a["id"] == which)
+            raise ValueError(f"attempt {which} {st}: no checkpoint" if st in ("failed", "cancelled") else
+                             f"attempt {which} has no layout database (only steps after synthesis do)")
     else:
         hits = [a for a in sel if a["step"] == which]
         if not hits:

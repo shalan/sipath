@@ -3,6 +3,9 @@ runs/
 __pycache__/
 *.pyc
 .DS_Store
+# the tutorial notebook's design files and plugin (notebooks/sipath_tutorial.ipynb)
+sipath/examples/tut_*.yaml
+tutorial/
 # hardened macro views (python3 -m sipath harden ...): generated
 sipath/examples/hardened/
 # Caravel frame layout (H2 integration only; fetch per sipath/harnesses/sources/SOURCES.txt)

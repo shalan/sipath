@@ -1,0 +1,13 @@
+{
+  "name": "SiPath",
+  "image": "mcr.microsoft.com/devcontainers/python:1-3.12-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+  },
+  "hostRequirements": {"cpus": 4, "memory": "16gb", "storage": "32gb"},
+  "postCreateCommand": "pip install -q -e . ciel pandas jupyter ipykernel && python3 -m sipath install-pdk",
+  "customizations": {
+    "codespaces": {"openFiles": ["notebooks/sipath_tutorial.ipynb"]},
+    "vscode": {"extensions": ["ms-python.python", "ms-toolsai.jupyter"]}
+  }
+}
