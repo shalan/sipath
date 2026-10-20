@@ -43,7 +43,7 @@ docker pull openroad/orfs@sha256:751a77afcade9882b51427e6d9d079b8e270e7a8f4aa66d
 python3 -m sipath toolchain --check            # images and PDK tree against the lock
 ```
 
-Run a design:
+Run a design (more in [example flows](docs/examples.md)):
 
 ```bash
 python3 -m sipath run sipath/examples/gcd8.yaml               # RTL to signoff (soft macro, sky130A)
@@ -86,7 +86,7 @@ Other commands:
 | **Tapeout precheck** | ChipFoundry's own precheck (cf-precheck, pinned) on a signed-off OpenFrame design: the project exported in its layout, run in a pinned image with Magic, Netgen and CVC, its results per check ([signoff](docs/signoff.md#tapeout-precheck)) |
 | **Exploration** | Variants of a step in parallel, chosen by named scores; resume and cancel; an explore mode that gives PPA and a suggested clock in about a minute; ECOs checked for equivalence |
 | **Agents** | MCP server: runs, steps, ECOs, background jobs with progress, checkpoint queries and pictures ([agents](docs/agents.md)) |
-| **Quality** | Regression limits per design; 168 unit tests and 46 live tests; CI on GitHub Actions (unit tests on every push, live tests nightly) |
+| **Quality** | Regression limits per design; 171 unit tests and 46 live tests; CI on GitHub Actions (unit tests on every push, live tests nightly) |
 
 ## Results
 
@@ -145,6 +145,7 @@ make does not run.
 
 | document | contents |
 |---|---|
+| [Example flows](docs/examples.md) | fourteen recipes, one feature each: RTL to signoff, explore mode, synthesis and placement sweeps, macro placers, analog shields, a full die, an OpenFrame chip with precheck and seal ring, hardened macros, custom steps, resume, ECOs, an agent session, regression limits |
 | [How the flow works](docs/flow.md) | each step: floorplan and pads, hard macros, power, placement and CTS, analog nets, routing and repair, sweeps and ECOs, frames and hardened macros |
 | [Synthesis](docs/synthesis.md) | the synth step, its recipes and why its defaults are what they are |
 | [PDKs and runtimes](docs/pdks-and-runtimes.md) | Sky130 (open_pdks, release pinning, corners, excluded cells), IHP, where OpenROAD comes from, arm64 and native tools, resumable runs |

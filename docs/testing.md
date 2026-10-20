@@ -4,7 +4,7 @@ Part of the [SiPath documentation](../README.md#documentation).
 
 ## Tests
 
-- **Unit tests** (`python3 -m unittest sipath.tests.test_unit`; 168 tests,
+- **Unit tests** (`python3 -m unittest sipath.tests.test_unit`; 171 tests,
   seconds, no tools): parsers and generators, the scheduler, scores, schemas
   and parameters, geometry (shields, macro rules), undefined names, the step
   parameters of every example, and that the library code names no PDK. Tests

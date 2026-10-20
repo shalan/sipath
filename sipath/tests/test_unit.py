@@ -403,6 +403,55 @@ class Precheck(unittest.TestCase):
         self.assertNotIn("threads", params.DECLARED["precheck"])
 
 
+class DocExamples(unittest.TestCase):
+    """docs/examples.md: every snippet uses keys, steps, parameters, scores and
+    commands SiPath accepts."""
+
+    DOC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                       "docs", "examples.md")
+
+    def blocks(self, lang):
+        with open(self.DOC) as f:
+            text = f.read()
+        return re.findall(r"```" + lang + r"\n(.*?)```", text, re.S)
+
+    def test_yaml_snippets_are_valid(self):
+        import yaml
+        from sipath import schema, scores, steps
+        blocks = self.blocks("yaml")
+        self.assertGreaterEqual(len(blocks), 10)
+        for b in blocks:
+            data = yaml.safe_load(b)
+            schema.validate(data, required=False)  # every key and type, nested
+            for item in data.get("flow") or []:
+                ref = item.get("fn", item["step"])
+                if ":" in ref:  # a step by import path (the doc's own example package)
+                    continue
+                steps.check_params(ref, item.get("variants"))
+                if "score" in item:
+                    self.assertIn(item["score"], scores.SCORES, item)
+
+    def test_commands_exist(self):
+        from sipath import __main__ as cli
+        usage = cli.__doc__ or ""
+        for b in self.blocks("bash"):
+            for line in b.splitlines():
+                m = re.match(r"python3 -m sipath (\S+)", line.strip())
+                if m:
+                    self.assertIn(f"python3 -m sipath {m.group(1)}", usage, line)
+                m = re.match(r"python3 (bench/\S+\.py)", line.strip())
+                if m:
+                    root = os.path.dirname(os.path.dirname(self.DOC))
+                    self.assertTrue(os.path.isfile(os.path.join(root, m.group(1))), line)
+
+    def test_examples_named_exist(self):
+        root = os.path.dirname(os.path.dirname(self.DOC))
+        with open(self.DOC) as f:
+            text = f.read()
+        for path in set(re.findall(r"`(sipath/examples/[\w./]+)`", text)):
+            self.assertTrue(os.path.exists(os.path.join(root, path)), path)
+
+
 class StepsPackage(unittest.TestCase):
     """P2.3: steps split by stage, signoff checks as steps, steps by import path."""
 
