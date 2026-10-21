@@ -611,7 +611,7 @@ def synth(ctx):
         raise RuntimeError("synth: no recipe produced a netlist:\n" + "\n".join(f"  {r.params['abc']}: {r.error}"
                                                                              for r in results))
     win, why = (ok[0], "the only recipe") if len(results) == 1 else \
-        scores.synth_select(ok, p.get("synth_fallback", "knee"))
+        scores.synth_select(ok, p.get("synth_fallback", "best_slack"))
     if win is None:
         raise RuntimeError(f"synth: no recipe selected ({why})")
     out = ctx.path(f"{d.top}.synth.v")

@@ -3224,10 +3224,11 @@ class SynthSelection(unittest.TestCase):
         s = scores.get("synth_select")
         cs = [self.cand("delay_map", -0.1, 200.0), self.cand("balanced_resyn", -0.3, 110.0),
               self.cand("area_map", -2.0, 100.0), self.cand("orfs_area", -0.35, 150.0)]  # orfs_area: dominated
-        best, why = s(cs)
+        best, why = s(cs, "knee")
         self.assertEqual(best.params["abc"], "balanced_resyn")  # the knee, not the fastest
         self.assertIn("knee", why)
-        best, why = s(cs[:2])  # under three front points: the best slack
+        self.assertEqual(s(cs)[0].params["abc"], "delay_map")  # the default: best_slack, the fastest
+        best, why = s(cs[:2], "knee")  # under three front points: the best slack
         self.assertEqual(best.params["abc"], "delay_map")
         self.assertIn("best slack", why)
         tie = [self.cand("yosys_default", 0.5, 100.0), self.cand("delay_map", 0.5, 100.0)]

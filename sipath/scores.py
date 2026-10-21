@@ -135,11 +135,11 @@ def _prio(c):
     return priority((c.params or {}).get("abc") or "delay_map_resyn")
 
 
-def synth_select(attempts, fallback: str = "knee"):
+def synth_select(attempts, fallback: str = "best_slack"):
     """Synthesis selector (shalan/synth_flow's rule): the least area among the
     attempts meeting timing (synth_wns_ns >= 0). If none meets, ``fallback``:
-    ``knee`` (the knee of the slack/area front, else the best slack),
-    ``best_slack`` or ``least_area``; ties by recipe rank. Returns (chosen
+    ``best_slack`` (the default), ``knee`` (the knee of the slack/area front,
+    else the best slack) or ``least_area``; ties by recipe rank. Returns (chosen
     attempt, rationale)."""
     cands = [a for a in attempts if a.metrics.get("synth_area_um2") is not None]
     if not cands:

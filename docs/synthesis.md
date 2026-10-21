@@ -33,8 +33,9 @@ at the slow corner with the Liberty wire-load model).
    `area_map`; `delay`, `area`, `balanced`, a list, or `off`). Each netlist is
    timed by OpenSTA at the slow corner with the wire-load model
    (`synth_wns_ns`, `synth_tns_ns`), and `synth_select` keeps the least area
-   that meets timing, else the knee of the slack/area front, else the best
-   slack (`synth_fallback: knee`; or `best_slack`, `least_area`). `abc:
+   that meets timing, else (no recipe meets timing) the fastest netlist
+   (`synth_fallback: best_slack`, the default; or `knee` of the slack/area
+   front, `least_area`). `abc:
    <recipe>` maps with one recipe. No ABC delay target by default
    (`abc_target: none|period|<ps>`).
 6. **Checks and proof.** An unmapped cell (e.g. a latch) or an excluded cell
@@ -80,3 +81,23 @@ instance with it and OpenROAD links against it; paths through the macro are
 not timed, and the run's provenance lists each model and any pin whose
 direction had to be assumed. It is off by default: without it, synthesis
 fails and the message names the macros and the ways out.
+
+## The fallback when nothing meets timing
+
+Measured 2026-10-21, each design to signoff with each fallback (`least_area`
+was worst on timing everywhere, and is not shown). The default changed from
+`knee` to `best_slack` on these results.
+
+| design | slack at ss_max: knee | best_slack | cell area | wirelength | slew violations |
+|---|---|---|---|---|---|
+| aes (ORFS) | −3.460 ns | **−2.383 ns** | −8% | −10% | 127 → 34 |
+| gcd (ORFS, 1.1 ns) | −3.079 ns | −3.079 ns | same netlist | same | same |
+| alu32 (10 ns) | −1.990 ns | **−1.209 ns** | +15% | +27% | 25 → 42 |
+| apb_timer (10 ns) | −0.970 ns | **−0.234 ns** | +3% | +7% | 0 → 14 |
+
+`best_slack` gives the better slow-corner slack on three designs and ties on
+the fourth; its cost in area, wire and slew violations depends on the design
+(`route_repair`'s `drv_sizing` sizes up the drivers of slew violators after
+routing). None of the four meets timing at the slow corner with either.
+`bench/repeat_compare.py` reruns the comparison.
+

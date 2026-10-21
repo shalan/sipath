@@ -21,8 +21,8 @@ are its 2026-10-16 runs (same image), measured again.
 |---|---|---|---|---|---|---|---|---|---|
 | gcd (1.1 ns) | ORFS | 10-16 | −1.465 | −65.1 | 11,786 | 473 | 5,319 | 0 / 0 | 321 |
 | gcd (1.1 ns) | SiPath | 10-20 | **−1.083** | **−46.6** | **8,061** | 473 | **4,975** | 0 / 0 | **252** |
-| aes | ORFS | 10-16 | −0.196 | −0.67 | **588,211** | **15,396** | **124,637** | 0 / 0 | **2,724** |
-| aes | SiPath | 10-19 | **−0.010** | **−0.02** | 650,995 | 17,924 | 148,639 | 0 / 0 | 4,602 |
+| aes | ORFS | 10-16 | −0.196 | −0.67 | 588,211 | **15,396** | **124,637** | 0 / 0 | **2,724** |
+| aes | SiPath | 10-21 | **+0.233** | **0.00** | **583,437** | 19,123 | 136,273 | 0 / 0 | 4,207 |
 
 - **gcd** (a 1.1 ns clock, beyond what sky130 HD closes): SiPath ends 0.38 ns
   ahead of ORFS in WNS and 28% in TNS, with 32% less wire, 6% less cell area and
@@ -31,14 +31,16 @@ are its 2026-10-16 runs (same image), measured again.
   in a fresh process (see [How the flow works](flow.md#routing-and-repair)).
   With the 2026-10-16 defaults SiPath was 1.0 ns behind; the difference is the
   synthesis front end (slow-corner mapping, the recipe sweep).
-- **aes**: WNS at tt −0.010 ns against ORFS's −0.196, with 11% more wire and
-  19% more cell area. Synthesis maps at the slow corner, where aes's clock
-  cannot be met (synthesis WNS −4.9 ns), so the selection falls back to the
-  knee of the slack/area front (`delay_syn2`). Which fallback works best end
-  to end is being measured (`synth_fallback`, `bench/repeat_compare.py`).
+- **aes**: timing met at tt (WNS +0.233 ns against ORFS's −0.196), with 1%
+  less wire and 9% more cell area. Synthesis maps at the slow corner, where
+  aes's clock cannot be met, so the selection takes the fastest netlist
+  (`delay_map_resyn`, `synth_fallback: best_slack`, the default since
+  2026-10-21; with the former `knee` default: −0.010 ns, 650,995 µm of wire,
+  148,639 µm², see [synthesis](synthesis.md#the-fallback-when-nothing-meets-timing)).
+  Wall time measured with other runs sharing the machine.
 - **aes signoff:** DRC 0, LVS match, antennas 0, hold met on all nine corners,
-  setup −0.01 ns at tt, −3.46 ns at ss_max and +0.86 ns at ff (ORFS does not
-  check ss), 127 slew violations.
+  setup +0.222 ns at tt, −2.383 ns at ss_max and +0.921 ns at ff (ORFS does
+  not check ss), 34 slew violations.
 - **One input, one result.** A first aes run the same day closed at −0.328 ns
   (6,679 s) and failed LVS on `sky130_fd_sc_hd__o211ai_4`, a cell sizing chose
   that the KLayout deck cannot pair; excluding that cell (now one of seven)

@@ -9,8 +9,8 @@ so slow drift on the machine does not favour one. Every final layout is
 measured by bench/orfs_compare.py's code (setup WNS/TNS at the typical corner,
 cells, cell area, routed wirelength) and read from its signoff (worst setup
 at ss_max, DRC, LVS). Without ``--config`` the configurations are the
-synthesis fallbacks when nothing meets timing at synthesis: knee (the default),
-best_slack, least_area, and mapping at the typical corner.
+synthesis fallbacks when nothing meets timing at synthesis: knee, best_slack
+(the default), least_area, and mapping at the typical corner.
 
 Writes runs/bench_repeat/<design>/results.json and results.md: per
 configuration the median, min and max of each metric, and per repeat the
@@ -31,8 +31,8 @@ import orfs_compare as oc  # noqa: E402
 
 OUT = os.path.join(oc.ROOT, "runs", "bench_repeat")
 DEFAULT_CONFIGS = {
-    "knee": {},
-    "best_slack": {"synth": {"synth_fallback": "best_slack"}},
+    "knee": {"synth": {"synth_fallback": "knee"}},
+    "best_slack": {},  # the default
     "least_area": {"synth": {"synth_fallback": "least_area"}},
     "map_typical": {"synth": {"map_corner": "typical"}},
 }

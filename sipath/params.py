@@ -101,8 +101,9 @@ STEP_PARAMS: dict[str, list[Param]] = {
         Param("abc_sweep", "str", "auto", "recipes mapped in this attempt, the netlist picked by synth_select "
               "(least area meeting timing, else the knee): auto (the delay set plus area_map), delay, area, "
               "balanced (synth_flow's top 5 each), off (delay_map_resyn alone), or names separated by commas"),
-        Param("synth_fallback", "str", "knee", "when no recipe meets timing at synthesis: knee (of the "
-              "slack/area front, else best slack), best_slack or least_area",
+        Param("synth_fallback", "str", "best_slack", "when no recipe meets timing at synthesis: best_slack (the "
+              "fastest netlist; measured best end to end, docs/synthesis.md), knee (of the slack/area front, else "
+              "best slack) or least_area",
               choices=("knee", "best_slack", "least_area")),
         Param("map_corner", "str", None, "corner whose Liberty dfflibmap and ABC map with: a corner name, typical, "
               "or (default) the timing corner, the slow one (bench: 12/16 designs meet timing against 10 at typical)"),
