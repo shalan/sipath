@@ -23,7 +23,7 @@ import math
 import re
 
 from . import wires
-from .tcl import q
+from .tools.openroad.tcl import q
 
 
 # ------------------------------------------------------------------ tech LEF
@@ -90,7 +90,7 @@ list $o $v
 def tech_rules_db(session, dbu: int) -> dict:
     """The same rules from the loaded technology (works when the tech LEF
     lives only where OpenROAD runs, e.g. inside the container)."""
-    from .tcl import tcl_parse
+    from .tools.openroad.tcl import tcl_parse
     lays, vias_ = tcl_parse(session.value(TECH_DB))
     layers = {}
     for name, w, area, sp, direction, pitch in lays:
@@ -270,7 +270,7 @@ foreach bt [[ord::get_db_block] getBTerms] {
   } }
 }
 list $o $p""")
-    from .tcl import tcl_parse
+    from .tools.openroad.tcl import tcl_parse
     blocks_, pins_ = tcl_parse(flatb)
     blocks = [tuple(map(int, b)) for b in blocks_]
     pins = [(n, ly, tuple(map(int, r))) for n, ly, *r in pins_]

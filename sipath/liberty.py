@@ -21,7 +21,7 @@ import itertools
 import re
 from dataclasses import dataclass, field
 
-from .tcl import qlist, tcl_parse
+from .tools.openroad.tcl import qlist, tcl_parse
 
 # --------------------------------------------------------------- expressions
 TOKEN = re.compile(r"\s*(?:(?P<id>[A-Za-z_][A-Za-z0-9_\[\]\.]*)|(?P<const>[01])|(?P<op>[!()'&*|+^]))")

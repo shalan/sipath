@@ -168,7 +168,7 @@ def main(argv) -> int:
     import json
     from .config import Config
     from .pdk import load
-    from .session import find_openroad
+    from .tools.openroad.session import find_openroad
     args, opts, it = [], {}, iter(argv)
     for a in it:
         if a in ("--pdk", "--out"):

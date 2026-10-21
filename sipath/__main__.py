@@ -78,7 +78,7 @@ def validate() -> int:
     from .design import Design
     from .pdk import load as load_pdk
     from .scheduler import EcoRefused, Flow, StepFailed
-    from .session import ORFS_PLATFORMS, find_openroad
+    from .tools.openroad.session import ORFS_PLATFORMS, find_openroad
 
     runner = find_openroad()
     prefixes = runner.runner_prefixes() if runner else (os.path.dirname(ORFS_PLATFORMS),)
@@ -261,12 +261,12 @@ def main(argv) -> int:
         from .limits import main as lm
         return lm(argv[1:])
     if cmd == "toolchain":
-        from .toolchain import main as tc
+        from .tools.toolchain import main as tc
         return tc(argv[1:])
     if cmd == "install-pdk":
         return install_pdk(argv[1:])
     if cmd == "install-tools":
-        from .nativetools import main as nt
+        from .tools.native import main as nt
         return nt(argv[1:])
     if cmd == "docs":
         from .reference import write

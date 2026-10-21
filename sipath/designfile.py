@@ -206,7 +206,7 @@ def build(d: Design, workdir: str, runner, config=None, resume: bool = False, ex
     ``explore`` the sessions use the typical corner only."""
     from .config import Config
     from .scheduler import Flow
-    from .session import OpenRoadSession
+    from .tools.openroad.session import OpenRoadSession
     cfg = config or Config.load()
     pdk = load_pdk(d.pdk, runner)
     if explore and pdk.corners:
@@ -258,7 +258,7 @@ def run(path_or_design, workdir: str, runner=None, overrides: dict | None = None
     ``resume`` steps already recorded in ``workdir`` are not run again. With
     ``explore`` the flow is a fast first cut at PPA (``explore_flow``)."""
     from .config import Config
-    from .session import find_openroad
+    from .tools.openroad.session import find_openroad
     if isinstance(path_or_design, Design):
         d, spec, fcfg = path_or_design, list(flow_steps or default_flow(path_or_design)), {}
     else:

@@ -36,7 +36,10 @@ import re
 import shutil
 import subprocess
 
-from .signoff import run_tool
+from .lef import lef_macro
+from .tools import yosys
+from .tools.run import run_tool
+from .tools.run import runner as _runner
 
 SV_SUFFIXES = (".sv", ".svh")
 _SLANG = {}  # runner identity -> "builtin" | "plugin" | None
@@ -71,14 +74,13 @@ def _read_rtl(d, autowire: bool, frontend: str = "yosys") -> list[str]:
 def slang_support(ctx) -> str | None:
     """How the installation's Yosys reads SystemVerilog with slang: "slang"
     (read_slang built in), "slang-plugin" (the plugin) or None."""
-    from .signoff import _runner
     r = _runner(ctx)
     key = getattr(r, "image", None) or getattr(r, "binary", None) or id(r)
     if key not in _SLANG:
         found = None
         for mode, pre in (("slang", ""), ("slang-plugin", "plugin -i slang; ")):
             try:
-                out = run_tool(ctx, ["yosys", "-p", f"{pre}help read_slang"], ctx.path(f"probe_{mode}.log"), timeout=300)
+                out = yosys.command(ctx, ["-p", f"{pre}help read_slang"], ctx.path(f"probe_{mode}.log"), timeout=300)
             except Exception:
                 continue
             if "read_slang [options]" in out:
@@ -311,7 +313,7 @@ def equivalence(ctx, netlist: str) -> dict:
         f.write(equiv_script(pdk, d, netlist, depth, reset, timeout, ctx.outputs.get("frontend", "yosys")))
     log = ctx.path("equiv.log")
     try:
-        run_tool(ctx, ["yosys", "-q", "-l", log, "-s", script], ctx.path("equiv.out"))
+        yosys.script(ctx, script, log, ctx.path("equiv.out"))
     except Exception:
         pass  # the log tells: a counterexample (FAIL) or a timeout
     text = open(log, errors="replace").read() if os.path.isfile(log) else ""
@@ -367,7 +369,6 @@ def liberty_stubs(paths, names) -> str:
 def verilator_binary(ctx) -> list[str] | None:
     """How to run Verilator here: a native tool, the host's, or the image's
     (checked with --version); None when there is none."""
-    from .signoff import _runner
     r = _runner(ctx)
     if "verilator" in (getattr(r, "native_tools", None) or {}):
         return ["verilator"]
@@ -498,8 +499,7 @@ def synth_timing(ctx, netlist: str) -> dict:
     (``timing_corner``) with the SDC and the Liberty's wire-load model (a
     pre-placement estimate, comparable across synthesis variants, judged the
     way synth_flow found reliable). Unconstrained designs give None."""
-    from .signoff import _runner
-    from .tcl import constraints_setup
+    from .tools.openroad.tcl import constraints_setup
     d, pdk = ctx.design, ctx.pdk
     corner = timing_corner(pdk, (ctx.params or {}).get("timing_corner"))
     std, others = _corner_libs(pdk, d, corner)
@@ -541,7 +541,6 @@ def synth(ctx):
     recipe of ``abc_sweep`` (or ``abc`` alone) and ``synth_select`` keeps one.
     params: see sipath.params (synth)."""
     from .netlist import read_verilog
-    from .signoff import lef_macro
     d, pdk, p = ctx.design, ctx.pdk, ctx.params
     if not d.rtl:
         raise ValueError("synth: the design has no rtl files")
@@ -557,7 +556,7 @@ def synth(ctx):
             f.write(lint_script(pdk, d, fe))
         log = ctx.path("lint.log")
         try:
-            run_tool(ctx, ["yosys", "-q", "-l", log, "-s", script], ctx.path("lint.out"))
+            yosys.script(ctx, script, log, ctx.path("lint.out"))
         except Exception as e:
             nolib = [m.inst for m in d.macros if not m.lib]
             if nolib and "is not part of the design" in str(e):
@@ -672,7 +671,6 @@ def _synth_one(ctx, recipe: str, wdir: str, fe: str, target, constr, period):
     import types
     from . import recipes
     from .netlist import read_verilog
-    from .signoff import lef_macro
     d, pdk, p = ctx.design, ctx.pdk, ctx.params
     os.makedirs(wdir, exist_ok=True)
     view = types.SimpleNamespace(dir=wdir, path=lambda n: os.path.join(wdir, n), design=d, pdk=pdk, params=p,
@@ -694,7 +692,7 @@ def _synth_one(ctx, recipe: str, wdir: str, fe: str, target, constr, period):
             f.write(synth_script(pdk, d, out, abc_file, p.get("port_buffers", True), fe, bool(p.get("retime", False)),
                                  p.get("synth_opts") or (), bool(p.get("keep_names", True)), constr_file,
                                  bool(p.get("synth_abc", False)), map_corner(pdk, p.get("map_corner"))))
-        run_tool(view, ["yosys", "-q", "-l", log, "-s", script], view.path("synth.out"))
+        yosys.script(view, script, log, view.path("synth.out"))
         if not os.path.isfile(out) or os.path.getsize(out) == 0:
             raise RuntimeError(f"Yosys wrote no netlist at {out}")
         strip_signed(out)

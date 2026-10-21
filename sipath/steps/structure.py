@@ -3,7 +3,7 @@ every sizing step runs."""
 from __future__ import annotations
 
 from .. import datapath
-from ..tcl import q, qlist
+from ..tools.openroad.tcl import q, qlist
 
 
 def _snap_box(session, box_um):

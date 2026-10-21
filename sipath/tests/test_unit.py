@@ -970,6 +970,82 @@ class Validation(unittest.TestCase):
         self.assertEqual((d2.min_route_layer, d2.max_route_layer, d2.pdn.rail_layer), ("Metal2", "Metal4", "Metal1"))
 
 
+class Layers(unittest.TestCase):
+    """The layers (docs/modules.md): core knows no tool, tools know no step, nothing below flows imports a
+    flow, and library code imports the moved modules from sipath.tools (not their compatibility aliases)."""
+    ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    CORE = {"scheduler", "params", "scores", "registry", "config", "report", "recipes", "toolchain"}
+    MODEL = {"design", "pdk", "netlist", "lef"}
+    FLOWS = {"designfile", "mcp_server", "__main__", ""}  # "": the package's __init__ (its public API)
+    ALIASES = {"session", "tcl", "tclquote", "nativetools"}  # = sipath.tools.openroad.*, sipath.tools.native
+    FORBIDDEN = {("synth", "signoff")}  # synthesis reaches its tools through sipath.tools
+
+    def graph(self):
+        import ast
+        mods = {}
+        for dp, dn, fn in os.walk(self.ROOT):
+            dn[:] = [x for x in dn if x not in ("tests", "third_party", "examples", "templates", "__pycache__")]
+            for f in fn:
+                if f.endswith(".py"):
+                    rel = os.path.relpath(os.path.join(dp, f), self.ROOT)[:-3].replace(os.sep, ".")
+                    mods[rel.removesuffix("__init__").rstrip(".")] = os.path.join(dp, f)
+        out = {}
+        for name, path in mods.items():
+            if name in self.ALIASES:
+                continue
+            pkg = name if path.endswith("__init__.py") else name.rpartition(".")[0]
+            deps = set()
+            with open(path) as fh:
+                tree = ast.parse(fh.read())
+            for n in ast.walk(tree):
+                if isinstance(n, ast.ImportFrom) and n.level:
+                    base = [x for x in pkg.split(".") if x]
+                    base = base[:len(base) - (n.level - 1)] if n.level > 1 else base
+                    m = ".".join(base + ([n.module] if n.module else []))
+                    # from . import x: the module x (not the package's __init__)
+                    cands = ([m] if n.module else []) + [f"{m}.{a.name}".lstrip(".") for a in n.names]
+                elif isinstance(n, ast.ImportFrom) and (n.module or "").startswith("sipath"):
+                    cands = [n.module[len("sipath."):] if n.module != "sipath" else ""]
+                elif isinstance(n, ast.Import):
+                    cands = [a.name[len("sipath."):] for a in n.names if a.name.startswith("sipath.")]
+                else:
+                    continue
+                deps |= {c for c in cands if c in mods and c != name}
+            out[name] = deps
+        return out
+
+    def layer(self, m):
+        if m in self.CORE:
+            return "core"
+        if m in self.MODEL:
+            return "model"
+        if m == "tools" or m.startswith("tools."):
+            return "tools"
+        if m in self.FLOWS:
+            return "flows"
+        if m in self.ALIASES:
+            return "alias"
+        return "steps"
+
+    def test_import_rules(self):
+        allowed = {"core": {"core", "model"}, "model": {"core", "model"}, "tools": {"core", "model", "tools"},
+                   "steps": {"core", "model", "tools", "steps"}, "flows": {"core", "model", "tools", "steps", "flows"}}
+        g = self.graph()
+        self.assertIn("scheduler", g)
+        self.assertIn("tools.openroad.checkpoint", g)
+        bad = sorted(f"{m} ({self.layer(m)}) imports {d} ({self.layer(d)})" for m, deps in g.items() for d in deps
+                     if self.layer(d) not in allowed[self.layer(m)] or (m, d) in self.FORBIDDEN)
+        self.assertEqual(bad, [])
+
+    def test_the_rules_catch_a_violation(self):
+        g = self.graph()
+        self.assertNotIn("eco", g["scheduler"])  # what this phase removed
+        self.assertNotIn("designfile", g["harness"])
+        self.assertEqual(self.layer("eco"), "steps")
+        self.assertEqual(self.layer("tools.openroad.tcl"), "tools")
+        self.assertEqual(self.layer("tcl"), "alias")
+
+
 class PdkFiles(unittest.TestCase):
     """PDK descriptions are data (sipath/pdks); the library code names no PDK layer or cell."""
 

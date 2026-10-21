@@ -10,7 +10,7 @@ unchanged.
 """
 from __future__ import annotations
 
-from .tcl import q
+from .tools.openroad.tcl import q
 
 
 def parse_def_paths(def_text: str) -> dict[str, dict]:

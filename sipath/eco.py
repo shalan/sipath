@@ -14,10 +14,11 @@ from __future__ import annotations
 
 import os
 
-from . import analog, equiv, liberty, steps, tcl, wires
+from . import analog, equiv, liberty, steps, wires
+from .tools.openroad import tcl
 from .netlist import read_verilog
-from .session import TclError
-from .tcl import q, qlist, tcl_parse
+from .tools.openroad.session import TclError
+from .tools.openroad.tcl import q, qlist, tcl_parse
 
 LOCATIONS_TCL = """
 set out {}

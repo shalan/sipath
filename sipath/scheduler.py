@@ -5,9 +5,11 @@ Public API
 ``Flow(design, pdk, workdir, session_factory)``
 ``Flow.step(name, fn, parent=None, variants=None, score=None, parallel=1)``
     Runs one attempt per variant (params dict), at most ``parallel`` at a
-    time. Every attempt gets its own session (one OpenROAD process), loads
-    the parent checkpoint (or the netlist for a root step), runs ``fn(ctx)``,
-    and writes its own ODB. The best successful attempt by the named score
+    time. Every attempt gets its own session (one tool process), loads the
+    parent checkpoint (or the netlist for a root step), runs ``fn(ctx)``, and
+    saves its own checkpoint. A checkpoint is an opaque path here: the
+    checkpoint store (``registry.checkpoint_store()``, by default the OpenROAD
+    adapter's databases) prepares the process, loads, measures and saves. The best successful attempt by the named score
     is ``selected``; the others are ``rejected`` and stay in the graph.
     Returns a ``StepRun``; raises ``StepFailed`` if no attempt succeeded.
 ``Flow.eco(name, parent, ops, max_patch_nets=..., fn=...)``
@@ -43,7 +45,7 @@ from typing import Callable
 
 from . import params as params_mod
 from . import scores as score_mod
-from . import tcl
+from . import registry
 from .config import Config
 
 log = logging.getLogger("sipath")
@@ -201,8 +203,10 @@ class Ctx:
 class Flow:
     def __init__(self, design, pdk, workdir: str, session_factory: Callable, validate_inputs: bool = True,
                  runner_prefixes: tuple[str, ...] = (), config: Config | None = None, resume: bool = False,
-                 provenance: dict | None = None, runner=None):
+                 provenance: dict | None = None, runner=None, checkpoints=None):
         self.runner = runner  # for tool steps (e.g. Yosys); None: such steps cannot run
+        # how attempts load, measure and save checkpoints: an opaque path here (default: OpenROAD databases)
+        self.checkpoints = checkpoints or registry.checkpoint_store()
         self.design, self.pdk = design.resolve(pdk), pdk  # unset design fields take the PDK's defaults
         self.workdir = os.path.abspath(workdir)
         os.makedirs(self.workdir, exist_ok=True)
@@ -381,8 +385,7 @@ class Flow:
             raise EcoRefused(f"ECO {name}: parent {parent.id} already continued as {child[0].id}; "
                              "start from the head of the selected chain")
         if fn is None:
-            from .eco import run_eco
-            fn = run_eco
+            fn = registry.eco_runner()
         a = self._new_attempt(name, 0, params, parent, kind="eco")
         self._run_attempt(a, fn)
         if a.status == "cancelled":
@@ -432,7 +435,7 @@ class Flow:
         a.resumed = False
         t0 = time.time()
         phases = {}
-        odb = os.path.join(a.dir, f"{a.step}.{a.index}.odb")
+        odb = self.checkpoints.path(a.dir, a.step, a.index)
         session = None
 
         def mark(phase, since):
@@ -467,15 +470,8 @@ class Flow:
             params = params_mod.resolve(decl, a.params, self.pdk, self.design)
             threads = self._threads(params, together)
             started = getattr(getattr(session, "runner", None), "threads", getattr(self.config, "threads", None))
-            if threads != started:  # the process started with the runner's -threads
-                session.run(f"set_thread_count {threads}")
-            session.run(tcl.HELPERS)
-            if a.parent is None:
-                session.run(tcl.load_root(self.pdk, self.design))
-            elif a.parent.kind == "tool":  # e.g. after synthesis: its netlist is the design
-                session.run(tcl.load_root(self.pdk, self.design, netlist=a.parent.checkpoint))
-            else:
-                session.run(tcl.load_checkpoint(self.pdk, self.design, a.parent.checkpoint))
+            self.checkpoints.prepare(session, threads, started)
+            self.checkpoints.load(session, self.pdk, self.design, a.parent)
             t1 = mark("load", t1)
             # the step sees every declared parameter (variant, then design and PDK
             # step_defaults, then the declared default); the attempt records the variant
@@ -483,14 +479,10 @@ class Flow:
                       threads=threads)
             fn(ctx)
             t1 = mark("step", t1)
-            parasitics = session.value("::flow_timing_prep")
-            metrics = parse_metrics(session.value("::flow_metrics"))
-            metrics["parasitics"] = parasitics
+            metrics = self.checkpoints.metrics(session)
             metrics.update(ctx.metrics)
             t1 = mark("metrics", t1)
-            session.run(f"write_db {tcl.q(odb)}")
-            if not os.path.isfile(odb) or os.path.getsize(odb) == 0:
-                raise RuntimeError(f"write_db produced no checkpoint at {odb}")
+            self.checkpoints.save(session, odb)
             mark("write_db", t1)
             a.metrics, a.outputs, a.checkpoint = metrics, ctx.outputs, odb
             a.status = "ok"
@@ -559,10 +551,10 @@ class Flow:
                 lines = [ln.rstrip("\n") for ln in f if not ln.startswith("# | ")]
             a.transcript_tail = lines[-40:]
         if self.config.debug_failed and session is not None and not getattr(session, "closed", False):
-            dbg = os.path.join(a.dir, "debug", f"{a.step}.{a.index}.failed.odb")
+            dbg = self.checkpoints.path(os.path.join(a.dir, "debug"), a.step, f"{a.index}.failed")
             try:
                 os.makedirs(os.path.dirname(dbg), exist_ok=True)
-                session.run(f"write_db {tcl.q(dbg)}", timeout=600)
+                self.checkpoints.save(session, dbg, timeout=600)
                 if os.path.isfile(dbg) and os.path.getsize(dbg) > 0:
                     a.debug_checkpoint = dbg
             except Exception as e:  # the session may be what failed
@@ -620,18 +612,3 @@ def _slowest(session, n: int = 8) -> list:
     """The ``n`` slowest Tcl commands of a session: [label, seconds]."""
     times = getattr(session, "timings", None) or []
     return [[lbl, round(sec, 3)] for lbl, sec in sorted(times, key=lambda x: -x[1])[:n]]
-
-
-def parse_metrics(s: str) -> dict:
-    toks = s.split()
-    out = {}
-    for k, v in zip(toks[0::2], toks[1::2]):
-        try:
-            f = float(v)
-        except ValueError:
-            out[k] = v
-            continue
-        if k in ("wns", "tns", "whs") or k.startswith(("wns_", "whs_")):
-            f = None if (f != f or abs(f) > 1e30) else f  # sta reports user units (ns)
-        out[k] = f
-    return out

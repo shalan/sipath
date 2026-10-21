@@ -8,7 +8,7 @@ One module per stage: ``floorplan`` (floorplan, macros, physical), ``place``
 and ``structure`` helpers. Every name stays importable from ``sipath.steps``."""
 from __future__ import annotations
 
-from .. import params
+from .. import params, registry
 from ..synth import synth  # tool step: Yosys, no OpenROAD process
 from .common import (  # noqa: F401
     _drt_numbers,
@@ -82,12 +82,13 @@ from .finish import (  # noqa: F401
     signoff,
 )
 
-STEPS = {
+STEPS = registry.STEPS  # the registry's table: plugins add to the same dict
+STEPS.update({
     "synth": synth, "floorplan": floorplan, "macros": macros, "physical": physical, "place": place, "cts": cts,
     "route_analog": route_analog, "route_digital": route_digital, "route_repair": route_repair, "fill": fill, "extract": extract, "views": views, "integrate": integrate, "ppa": ppa,
     "precheck": precheck,
     "signoff": signoff,
-}
+})
 
 STEPS.update({name: check_step(name) for name in params.CHECK_STEPS})  # `- step: drc`, `- step: lvs`, ...
 

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import re
 
-from .tcl import q, qlist
+from .tools.openroad.tcl import q, qlist
 
 
 def def_net_routing(def_text: str, net: str, vias: dict | None = None) -> list[tuple]:

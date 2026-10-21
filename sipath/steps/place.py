@@ -1,9 +1,9 @@
 """Steps ``place`` (global and detailed placement with repair) and ``cts``."""
 from __future__ import annotations
 
-from .. import tcl
+from ..tools.openroad import tcl
 from ..harness import CHANNEL_ROW
-from ..tcl import q, qlist, tcl_words
+from ..tools.openroad.tcl import q, qlist, tcl_words
 from .common import check_placement, clock_nets, reconnect_supplies, reports, routability_check, tie_max_fanout
 from .structure import cluster_spread, compact_cluster, datapath_check, enforce_fences, fence_violations, reabut_all
 

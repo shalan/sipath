@@ -14,7 +14,7 @@ __version__ = "0.1.0"  # pyproject.toml
 from .design import Datapath, Design, Group, Macro, MissingInput, Pad, PdnSpec, Strap
 from .pdk import load as load_pdk
 from .scheduler import Attempt, Ctx, EcoRefused, Flow, StepFailed, StepRun
-from .session import FakeSession, OpenRoadSession, TclError, find_openroad
+from .tools.openroad.session import FakeSession, OpenRoadSession, TclError, find_openroad
 
 __all__ = [
     "Attempt", "Ctx", "Datapath", "Design", "EcoRefused", "FakeSession", "Flow", "Group", "Macro",

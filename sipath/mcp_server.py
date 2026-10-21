@@ -37,9 +37,10 @@ import traceback
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
-from . import scores, steps, tcl
+from . import scores, steps
+from .tools.openroad import tcl
 from .scheduler import EcoRefused, StepCancelled, StepFailed
-from .session import OpenRoadSession, SessionDied, TclError, find_openroad
+from .tools.openroad.session import OpenRoadSession, SessionDied, TclError, find_openroad
 
 PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 STEPS = steps.STEPS

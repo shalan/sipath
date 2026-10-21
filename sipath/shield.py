@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import math
 
-from .tcl import tcl_parse
+from .tools.openroad.tcl import tcl_parse
 
 DUMP = r"""
 proc ::flow_sh_layers {} {

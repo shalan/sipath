@@ -2,8 +2,9 @@
 (power grid, taps, endcaps, supply straps)."""
 from __future__ import annotations
 
-from .. import datapath, tcl
-from ..tcl import qe, tcl_words
+from .. import datapath
+from ..tools.openroad import tcl
+from ..tools.openroad.tcl import qe, tcl_words
 from .common import _via_array, connect_supplies, grid_nets, macro_supply_pins
 from .structure import _dp_tap, _snap_box, datapath_check, reabut_all
 

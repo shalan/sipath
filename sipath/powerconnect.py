@@ -16,7 +16,7 @@ result is verified afterwards with ``check_power_grid`` by the caller.
 """
 from __future__ import annotations
 
-from .tcl import q, tcl_parse
+from .tools.openroad.tcl import q, tcl_parse
 
 DUMP = r"""
 proc ::flow_pc_dump {inst_name pin_pattern} {

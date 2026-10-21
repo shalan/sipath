@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import re
 
-from .. import analog, tcl
-from ..tcl import q
+from .. import analog
+from ..tools.openroad import tcl
+from ..tools.openroad.tcl import q
 from .common import _check_unrouted, _drt_numbers, _global_route, _timing_gate, antenna_loop, check_antennas, check_placement, min_area_repair, ppa_summary, reconnect_supplies, reports, run_rcx
 from .structure import datapath_check, enforce_fences, fence_violations, reabut_all
 

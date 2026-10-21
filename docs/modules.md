@@ -2,24 +2,93 @@
 
 Part of the [SiPath documentation](../README.md#documentation).
 
+## Layers
+
+The code is in layers. A unit test (`Layers` in `sipath/tests/test_unit.py`)
+reads every module's imports, including imports inside functions, and fails
+on any import that crosses these rules.
+
+| layer | modules | may import |
+|---|---|---|
+| core | `scheduler`, `params`, `scores`, `registry`, `config`, `report`, `recipes`, `toolchain` | core, model |
+| model | `design`, `pdk`, `netlist`, `lef` | core, model |
+| tools | `tools/` | core, model, tools |
+| steps | `steps/` and the libraries they use (everything not listed elsewhere) | core, model, tools, steps |
+| flows | `designfile`, `mcp_server`, `__main__`, the package's `__init__` | everything |
+
+- **Core: no tool knowledge.** The scheduler runs attempts, keeps the graph,
+  scores and resumes. A checkpoint is an opaque path to it. The checkpoint
+  store loads a parent, reads the metrics and saves
+  (`registry.checkpoint_store()`, by default `tools/openroad/checkpoint.py`:
+  OpenROAD databases). `Flow.eco` runs `registry.eco_runner()`, by default
+  `eco.run_eco`. The registry owns the step table (`registry.STEPS`, filled by
+  `steps/`). It names these built-ins by module path (`registry.BUILTIN`) and
+  imports them on first use, as it does for plugins. `toolchain` reads the
+  lock; it runs nothing.
+- **Model:** the design and PDK descriptions, Verilog netlists and LEF
+  macros, read without a tool.
+- **Tools:** how a tool runs and what it is told.
+- **Steps:** stage logic. In this phase the steps still write OpenROAD Tcl
+  inline.
+- **Flows:** design files, the default chain, the CLI and the MCP server.
+- **Compatibility aliases.** `sipath.session`, `sipath.tcl`,
+  `sipath.tclquote` and `sipath.nativetools` are the moved modules themselves
+  (`sys.modules` aliases), kept for plugins and older imports. Library code
+  imports the `sipath.tools` names, which the test enforces. Synthesis does
+  not import signoff.
+
+## Core
+
 | module | role |
 |---|---|
-| `session.py` | `OpenRoadSession`: one process per attempt; Tcl in over stdin, result/errorInfo back through files; a Tcl error raises `TclError`. Docker and native runners. `FakeSession` for graph tests. |
-| `tclquote.py`, `tcl.py` | quoting (no substitution possible) and Tcl-list parsing; Tcl generators and helpers |
-| `scheduler.py` | `Flow.step`, `Flow.eco`, the attempt graph (`graph.json`), resume, cancel; each attempt loads its parent's ODB and writes its own |
-| `config.py`, `params.py`, `schema.py`, `reference.py` | run configuration; step parameter and design-file declarations; the generated reference |
-| `design.py`, `designfile.py`, `pdk.py`, `pdks/` | design spec (unset fields from the PDK), design files and `run`; PDK descriptions and their loader |
+| `scheduler.py` | `Flow.step`, `Flow.eco`, the attempt graph (`graph.json`), resume, cancel, retries (`RetryWith`, recorded with `retry_of` and `retry_reason`) |
+| `params.py`, `config.py` | step parameter and design-file declarations; run configuration |
+| `scores.py`, `recipes.py` | named scores; ABC recipes and objective sets (`synth_recipes/`) |
+| `registry.py` | extension points (steps, scores, checks, harnesses, templates, extensions), the step table and the core's built-in defaults |
+| `report.py` | run reports (`report.md`, `report.html`) from `graph.json` |
+| `toolchain.py`, `toolchain.json` | the locked images and open_pdks release; a PDK tree's release |
+
+## Model
+
+| module | role |
+|---|---|
+| `design.py`, `pdk.py`, `pdks/` | design spec (unset fields from the PDK); PDK descriptions and their loader (`read_file`: YAML or JSON) |
+| `netlist.py`, `lef.py` | Verilog netlist model; LEF macros, pins and touching pins |
+
+## Tools (`tools/`)
+
+| module | role |
+|---|---|
+| `openroad/session.py` | `OpenRoadSession`: one process per attempt; Tcl in over stdin, result/errorInfo back through files; a Tcl error raises `TclError`. Docker and native runners. `FakeSession` for graph tests |
+| `openroad/tcl.py`, `openroad/tclquote.py` | Tcl generators and helpers; quoting (no substitution possible) and Tcl-list parsing |
+| `openroad/checkpoint.py` | the checkpoint store: process setup (threads, helpers), loading a parent, the metrics every attempt records, `write_db` |
+| `run.py` | `run_tool` (a tool next to OpenROAD, its output in a log) and the runner lookup; `ToolFailed` |
+| `yosys.py`, `klayout.py`, `magic.py`, `netgen.py` | per-tool commands and version probes (Netgen: probe only; it runs in the precheck image) |
+| `toolchain.py`, `native.py` | probing the locked images' tools (`toolchain --check`); the locked ORFS image's tools without Docker (`install-tools`) |
+
+## Steps and their libraries
+
+| module | role |
+|---|---|
 | `steps/` | one module per stage: `floorplan` (floorplan, macros, physical), `place` (place, cts), `analog_route`, `route` (route_digital, route_repair), `finish` (fill, extract, signoff and the check steps, views, integrate, ppa), helpers in `common` and `structure` |
-| `synth.py`, `recipes.py`, `synth_recipes/`, `blackbox.py` | the synth step; ABC recipes and objective sets; black-box Liberty models |
+| `synth.py`, `blackbox.py` | the synth step (Yosys, Verilator, a timing check); black-box Liberty models |
 | `chip.py`, `padplan.py`, `powerconnect.py` | pad ring (ICeWall); pad plan rules; straps from supply tabs to the grid |
 | `macroplace.py`, `third_party/` | hard macro placement (random, mpl, cdlns) and its rules; the vendored CD-LNS placer |
 | `analog.py`, `shield.py` | analog freeze, restore and coupling report; shields, guard and keep-away |
 | `datapath.py`, `congestion.py`, `minarea.py` | structured placement and re-abut; congestion reports; post-route minimum-area safety net |
-| `eco.py`, `equiv.py`, `liberty.py`, `netlist.py`, `wires.py` | ECOs; structural equivalence on Liberty functions; Liberty and Verilog models; wire re-encoding and restore after RCX |
-| `precheck.py` | ChipFoundry's tapeout precheck (cf-precheck) on a signed-off harness design: project export, golden root, results |
-| `signoff.py`, `lvs_full.py`, `klayout/` | signoff checks; full-device LVS; GDS stream-out, chip check, seal ring and XOR scripts |
+| `eco.py`, `equiv.py`, `liberty.py`, `wires.py` | ECOs and post-route repair; structural equivalence on Liberty functions; Liberty models; wire re-encoding and restore after RCX |
+| `signoff.py`, `lvs_full.py`, `precheck.py`, `klayout/` | signoff checks; full-device LVS; ChipFoundry's cf-precheck; GDS stream-out, chip check, seal ring and XOR scripts |
 | `harness.py`, `harnesses/`, `templates.py`, `templates/` | frames (OpenFrame, Caravel) and their pinned sources; design templates |
-| `registry.py`, `scores.py`, `demo.py` | extension points; named scores; stand-in scores for scheduler tests |
-| `mcp_server.py`, `report.py`, `viz.py` | MCP server; run reports; schematic drawings |
-| `limits.py`, `toolchain.py`, `toolchain.json` | regression limits; locked images and PDK release |
-| `examples/`, `tests/`, `bench/` | example designs; unit and live tests with `limits.yaml`; benchmarks against ORFS, synthesis and architectures |
+| `schema.py`, `reference.py`, `limits.py`, `viz.py`, `demo.py` | design-file schema; the generated reference; regression limits; pictures; stand-in steps for scheduler tests |
+
+## Flows
+
+| module | role |
+|---|---|
+| `designfile.py` | design files (YAML/JSON), the default chain, `run`, `harden`, explore mode |
+| `__main__.py` | the CLI |
+| `mcp_server.py` | the MCP server |
+
+`examples/`, `tests/` and `bench/` hold the example designs, the unit and
+live tests (with `limits.yaml`), and the benchmarks against ORFS, synthesis
+and architectures.

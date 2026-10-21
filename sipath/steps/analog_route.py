@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import json
 
-from .. import analog, tcl
-from ..tcl import q, tcl_words
+from .. import analog
+from ..tools.openroad import tcl
+from ..tools.openroad.tcl import q, tcl_words
 from .common import _drt_numbers, _no_supply_shorts, _via_array, check_placement, macro_supply_pins
 
 

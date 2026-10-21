@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .tcl import place_instance, q, qlist
+from .tools.openroad.tcl import place_instance, q, qlist
 
 
 @dataclass
@@ -432,10 +432,10 @@ def reabut(session, dp, tap=None) -> dict:
 
 # -- Tcl list helpers (results of `set out` are Tcl lists) ----------------------
 def _tcl_flat(s: str) -> list[str]:
-    from .tclquote import tcl_words
+    from .tools.openroad.tclquote import tcl_words
     return tcl_words(s)
 
 
 def _tcl_list(s: str) -> list[list[str]]:
-    from .tclquote import tcl_parse
+    from .tools.openroad.tclquote import tcl_parse
     return [x if isinstance(x, list) else [x] for x in tcl_parse(s)]

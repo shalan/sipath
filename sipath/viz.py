@@ -16,7 +16,7 @@ IO fillers, hard macros, the core area.
 """
 from __future__ import annotations
 
-from .tcl import q, tcl_parse
+from .tools.openroad.tcl import q, tcl_parse
 
 DUMP = r"""
 set block [ord::get_db_block]
@@ -178,7 +178,7 @@ def render(odb: str, out: str, runner=None, area: tuple | None = None, resolutio
     import os
     import subprocess
 
-    from .session import find_openroad
+    from .tools.openroad.session import find_openroad
     runner = runner or find_openroad()
     if runner is None:
         raise FileNotFoundError("OpenROAD not available")
@@ -212,7 +212,7 @@ def render(odb: str, out: str, runner=None, area: tuple | None = None, resolutio
 def draw(odb: str, out: str, runner=None, ring_only: bool = False) -> dict:
     import os
 
-    from .session import OpenRoadSession, find_openroad
+    from .tools.openroad.session import OpenRoadSession, find_openroad
     runner = runner or find_openroad()
     if runner is None:
         raise FileNotFoundError("OpenROAD not available")

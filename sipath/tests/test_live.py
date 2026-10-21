@@ -757,7 +757,7 @@ class LiveScale(unittest.TestCase):
             t0 = _t.time()
             m = s.value("::flow_metrics", timeout=600)
             took = _t.time() - t0
-        from sipath.scheduler import parse_metrics
+        from sipath.tools.openroad.checkpoint import parse_metrics
         m = parse_metrics(m)
         self.assertEqual(m["insts"], 100000)
         self.assertGreater(m["hpwl_um"], 100000 * 1.0)  # every chain net spans at least a cell

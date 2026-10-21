@@ -12,7 +12,7 @@ seeds and methods is done by the scheduler.
 """
 from __future__ import annotations
 
-from .tcl import q, qe, tcl_parse, tcl_words
+from .tools.openroad.tcl import q, qe, tcl_parse, tcl_words
 
 EDGE_ROW = {"south": "IO_SOUTH", "north": "IO_NORTH", "west": "IO_WEST", "east": "IO_EAST"}
 

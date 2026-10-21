@@ -6,8 +6,9 @@ import json
 import os
 import re
 
-from .. import analog, params, tcl
-from ..tcl import q, tcl_parse, tcl_words
+from .. import analog, params
+from ..tools.openroad import tcl
+from ..tools.openroad.tcl import q, tcl_parse, tcl_words
 from .common import _timing_gate, grid_nets, power_checks, ppa_summary, reports, run_rcx
 from .analog_route import analog_coupling
 

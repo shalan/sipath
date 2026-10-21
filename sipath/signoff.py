@@ -30,12 +30,16 @@ import fnmatch
 import json
 import os
 import re
-import subprocess
 import time
 import xml.etree.ElementTree as ET
 
-from . import tcl
-from .tcl import q, qlist, tcl_words
+from .lef import lef_macro, lef_macros, lef_pin_shorts  # noqa: F401 (re-exported)
+from .tools import klayout, magic
+from .tools.openroad import tcl
+from .tools.openroad.tcl import q, qlist, tcl_words
+from .tools.run import ToolFailed
+from .tools.run import run_tool as _run_tool
+from .tools.run import runner as _tool_runner
 
 from .params import SIGNOFF_CHECKS as DEFAULT_CHECKS, SIGNOFF_OPTIONAL, SIGNOFF_REQUIRED  # noqa: E402
 ALL_CHECKS = DEFAULT_CHECKS + SIGNOFF_OPTIONAL
@@ -44,16 +48,13 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 STREAM = os.path.join(HERE, "klayout", "stream.py")
 
 
-class SignoffError(RuntimeError):
+class SignoffError(ToolFailed):
     pass
 
 
 # --------------------------------------------------------------------- helpers
 def _runner(ctx):
-    r = getattr(ctx, "runner", None) or getattr(ctx.session, "runner", None)
-    if r is None or not hasattr(r, "tool_command"):
-        raise SignoffError("this step needs a real runner (its tools run next to OpenROAD)")
-    return r
+    return _tool_runner(ctx, SignoffError)
 
 
 def run_tool(ctx, args: list[str], log: str, timeout: float | None = None, image: str | None = None,
@@ -61,19 +62,7 @@ def run_tool(ctx, args: list[str], log: str, timeout: float | None = None, image
     """Run a tool of the installation (KLayout; Magic from ``image``); its
     output goes to ``log``. A non-zero exit fails the check; the output is
     returned. ``timeout``: default config.tool_timeout (7200 s)."""
-    if timeout is None:
-        timeout = float(getattr(getattr(ctx, "config", None), "tool_timeout", None) or 7200)
-    r = _runner(ctx)
-    cmd = r.tool_command(ctx.dir, args, image=image, env=env) if (image or env) else r.tool_command(ctx.dir, args)
-    t0 = time.time()
-    p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, cwd=ctx.dir)
-    out = p.stdout + p.stderr
-    with open(log, "w") as f:
-        f.write(f"# {' '.join(args)}\n# exit {p.returncode} after {time.time() - t0:.1f}s\n{out}")
-    if p.returncode != 0:
-        tail = "\n".join(out.strip().splitlines()[-15:])
-        raise SignoffError(f"{os.path.basename(args[0])} exited {p.returncode} (log {log}):\n{tail}")
-    return out
+    return _run_tool(ctx, args, log, timeout, image, env, error=SignoffError)
 
 
 def supplies(ctx) -> list[str]:
@@ -90,70 +79,6 @@ def _cfg(ctx) -> dict:
 
 
 # ----------------------------------------------------------------------- GDS
-def lef_macros(path: str) -> dict[str, list[str]]:
-    """{macro name: pin names in LEF order} for every MACRO in a LEF."""
-    with open(path, errors="replace") as f:
-        text = f.read()
-    out = {}
-    for m in re.finditer(r"^\s*MACRO\s+(\S+)(.*?)^\s*END\s+\1\s*$", text, re.M | re.S):
-        # unique, in order (a PDK LEF may declare a pin twice)
-        out[m.group(1)] = list(dict.fromkeys(re.findall(r"^\s*PIN\s+(\S+)", m.group(2), re.M)))
-    return out
-
-
-def lef_pin_shorts(path: str, master: str) -> dict[str, str]:
-    """Pins of ``master`` whose LEF rectangles overlap or touch on one layer
-    (one net in the abstract): {pin: first pin of its group, in LEF order}
-    for every pin but the first of each group."""
-    with open(path, errors="replace") as f:
-        text = f.read()
-    m = re.search(rf"^\s*MACRO\s+{re.escape(master)}\s*$(.*?)^\s*END\s+{re.escape(master)}\s*$", text, re.M | re.S)
-    if not m:
-        return {}
-    rects, order = [], []
-    for pm in re.finditer(r"^\s*PIN\s+(\S+)(.*?)^\s*END\s+\1\s*$", m.group(1), re.M | re.S):
-        name = pm.group(1)
-        order.append(name)
-        layer = None
-        for line in pm.group(2).splitlines():
-            t = line.replace(";", " ").split()
-            if t[:1] == ["LAYER"]:
-                layer = t[1]
-            elif t[:1] == ["RECT"] and layer:
-                x0, y0, x1, y1 = map(float, t[1:5])
-                rects.append((layer, min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1), name))
-    parent = {n: n for n in order}
-
-    def find(n):
-        while parent[n] != n:
-            parent[n] = parent[parent[n]]
-            n = parent[n]
-        return n
-    rects.sort(key=lambda r: (r[0], r[1]))
-    active = []
-    for r in rects:
-        active = [a for a in active if a[0] == r[0] and a[3] >= r[1]]
-        for a in active:
-            if a[5] != r[5] and a[2] <= r[4] and r[2] <= a[4]:
-                x, y = find(a[5]), find(r[5])
-                if x != y:
-                    if order.index(x) < order.index(y):
-                        parent[y] = x
-                    else:
-                        parent[x] = y
-        active.append(r)
-    return {n: find(n) for n in order if find(n) != n}
-
-
-def lef_macro(path: str) -> tuple[str, list[str]]:
-    """(macro name, pin names in LEF order) of a single-macro LEF."""
-    macros = lef_macros(path)
-    if not macros:
-        raise SignoffError(f"no MACRO in {path}")
-    name = next(iter(macros))
-    return name, macros[name]
-
-
 def design_masters(ctx) -> list[str]:
     return sorted(set(tcl_words(ctx.session.value(
         "set __m {}\nforeach __i [[ord::get_db_block] getInsts] { lappend __m [[$__i getMaster] getName] }\n"
@@ -211,7 +136,7 @@ def stream_gds(ctx, def_path: str, out: str, abstract: tuple[str, ...] = ()) -> 
         json.dump(cfg, f, indent=1)
     _runner(ctx).mount(STREAM, *lib_gds, *macro_gds)
     log = os.path.basename(out) + ".log"
-    run_tool(ctx, ["klayout", "-zz", "-rd", f"cfg_file={cfg_path}", "-r", STREAM], ctx.path(log))
+    klayout.batch(ctx, STREAM, ctx.path(log), {"cfg_file": cfg_path}, mode="-zz", error=SignoffError)
     if not os.path.isfile(out) or os.path.getsize(out) == 0:
         raise SignoffError(f"KLayout wrote no GDS at {out}")
     with open(out + ".json") as f:
@@ -425,24 +350,10 @@ XOR = os.path.join(HERE, "klayout", "xor.py")
 def _magic(ctx, script: str, name: str) -> str:
     """Run a Magic Tcl script batch (no display) with the PDK's rc file, in
     the Magic image (config.magic_image); returns its output."""
-    so = _cfg(ctx)
-    rc = so.get("magic_rc")
+    rc = _cfg(ctx).get("magic_rc")
     if not rc:
         raise SignoffError(f"PDK {ctx.pdk.name} gives no signoff.magic_rc: no Magic checks")
-    # <root>/<variant>/libs.tech/magic/<variant>.magicrc: the rc file loads its tech from $PDK_ROOT/<variant>
-    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(rc))))
-    path = ctx.path(f"{name}.tcl")
-    with open(path, "w") as f:
-        f.write(script)
-    cfg = getattr(ctx, "config", None)
-    from .config import MAGIC_IMAGE
-    image = getattr(cfg, "magic_image", None) or MAGIC_IMAGE
-    try:
-        return run_tool(ctx, ["magic", "-dnull", "-noconsole", "-rcfile", rc, path], ctx.path(f"{name}.log"),
-                        image=image, env={"PDK_ROOT": root})
-    except SignoffError as e:
-        raise SignoffError(f"{e}\n(Magic runs from the image {image}: build it with "
-                           f"docker build -t {image} docker/magic, or set magic_image)") from e
+    return magic.run(ctx, rc, script, name, error=SignoffError)
 
 
 def magic_drc(ctx, gds: str) -> dict:
@@ -518,7 +429,7 @@ quit -noprompt
         fill = [f"{g}/{dt}" for g, dt in (so.get("fill_gds") or {}).values()]
         json.dump({"a": klayout_gds, "b": mgds, "top": d.top, "out": res,
                    "ignore": list(so.get("xor_ignore", [])) + fill}, f, indent=1)
-    run_tool(ctx, ["klayout", "-b", "-rd", f"cfg_file={cfg_path}", "-r", XOR], ctx.path("xor.log"))
+    klayout.batch(ctx, XOR, ctx.path("xor.log"), {"cfg_file": cfg_path}, error=SignoffError)
     with open(res) as f:
         r = json.load(f)
     return {"count": len(r["differences"]), "layers_compared": r["layers_compared"],
@@ -767,7 +678,7 @@ class _View:
 def timing(ctx, verilog: str, spef_corners: dict) -> dict:
     """Independent STA: a fresh OpenROAD process with only the final netlist,
     Liberty, SDC and SPEF files."""
-    from .session import OpenRoadSession
+    from .tools.openroad.session import OpenRoadSession
     from .steps import design_rule_counts
     d, pdk = ctx.design, ctx.pdk
     r = _runner(ctx)

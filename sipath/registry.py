@@ -34,16 +34,60 @@ from typing import Callable
 from . import params as _params
 from . import scores as _scores
 
+STEPS: dict[str, Callable] = {}  # step name -> fn(ctx); the built-ins fill it (sipath.steps), plugins add
 CHECKS: dict[str, Callable] = {}  # signoff check name -> fn(ctx, summary) -> {"pass": bool, ...}
 HARNESSES: dict[str, type] = {}  # harness name -> Harness subclass
 EXTENSIONS: dict[str, dict] = {}  # design-file extensions namespace -> {key: schema.Field}
 TEMPLATES: dict[str, str] = {}  # design template name -> its directory (sipath.templates)
 _LOADED: set[str] = set()
 _ENTRY_POINTS_DONE = False
+# What the core runs by default, named like plugins (module or module:attribute) and imported on first
+# use: the core knows these names, not the code (no tool knowledge in scheduler, params, scores, registry).
+BUILTIN = {"steps": "sipath.steps",  # fills STEPS
+           "checkpoints": "sipath.tools.openroad.checkpoint:OpenRoadCheckpoints",  # the checkpoint store
+           "eco": "sipath.eco:run_eco"}  # the ECO step Flow.eco runs
+_DEFAULTS: dict[str, object] = {}
 
 
 class RegistryError(ValueError):
     pass
+
+
+def _builtin(key: str):
+    mod, _, attr = BUILTIN[key].partition(":")
+    m = importlib.import_module(mod)
+    return getattr(m, attr) if attr else m
+
+
+def builtin_steps() -> dict[str, Callable]:
+    """The step table with the built-in steps loaded."""
+    if "steps" not in _DEFAULTS:
+        _DEFAULTS["steps"] = _builtin("steps")
+    return STEPS
+
+
+def checkpoint_store():
+    """How attempts load, measure and save checkpoints (default: OpenROAD databases)."""
+    if "checkpoints" not in _DEFAULTS:
+        _DEFAULTS["checkpoints"] = _builtin("checkpoints")()
+    return _DEFAULTS["checkpoints"]
+
+
+def set_checkpoint_store(store):
+    """Another checkpoint store: prepare(session, threads, started), load(session, pdk, design, parent),
+    metrics(session) -> dict, save(session, path[, timeout]), path(dir, step, index)."""
+    _DEFAULTS["checkpoints"] = store
+
+
+def eco_runner() -> Callable:
+    """The step Flow.eco runs when no fn is given (default: sipath.eco.run_eco)."""
+    if "eco" not in _DEFAULTS:
+        _DEFAULTS["eco"] = _builtin("eco")
+    return _DEFAULTS["eco"]
+
+
+def set_eco_runner(fn: Callable):
+    _DEFAULTS["eco"] = fn
 
 
 # ----------------------------------------------------------------------- steps
@@ -51,12 +95,12 @@ def register_step(name: str, fn: Callable, params=(), tool: bool | None = None, 
     """Make ``fn(ctx)`` a step called ``name`` (design files, MCP, the CLI).
     ``params``: its sipath.params.Param declarations; ``tool``: run without
     OpenROAD (the step writes outputs["checkpoint"])."""
-    from . import steps
-    if name in steps.STEPS and not replace:
+    steps = builtin_steps()
+    if name in steps and not replace:
         raise RegistryError(f"step {name!r} is already registered")
     if tool is not None:
         fn.tool = bool(tool)
-    steps.STEPS[name] = fn
+    steps[name] = fn
     params = list(params)
     if not getattr(fn, "tool", False):  # an OpenROAD step: threads like the built-in ones
         params += [p for p in _params.COMMON if p.name not in {q.name for q in params}]
@@ -162,8 +206,7 @@ def import_step(ref: str) -> str:
     """Register the step function ``module:function`` (a design file's
     ``step`` or ``fn``) under that name and return it. The function may carry
     ``params`` (sipath.params.Param list) and ``tool`` attributes."""
-    from . import steps
-    if ref in steps.STEPS:
+    if ref in builtin_steps():
         return ref
     mod, _, attr = ref.partition(":")
     if not mod or not attr:
@@ -213,9 +256,9 @@ def load_entry_points() -> list[str]:
 
 def loaded() -> dict:
     """What plugins added (for provenance and the MCP server)."""
-    from . import steps
+    steps = builtin_steps()
     builtin = {"synth", "floorplan", "macros", "physical", "place", "cts", "route_analog", "route_digital",
                "route_repair", "fill", "extract", "signoff", "views", "integrate", "ppa"}
-    return {"plugins": sorted(_LOADED), "steps": sorted(set(steps.STEPS) - builtin),
+    return {"plugins": sorted(_LOADED), "steps": sorted(set(steps) - builtin),
             "checks": sorted(CHECKS), "harnesses": sorted(HARNESSES), "extensions": sorted(EXTENSIONS),
             "templates": sorted(TEMPLATES)}

@@ -6,9 +6,9 @@ import json
 import os
 import re
 
-from .. import tcl
-from ..session import TclError
-from ..tcl import q, qlist, tcl_parse, tcl_words
+from ..tools.openroad import tcl
+from ..tools.openroad.session import TclError
+from ..tools.openroad.tcl import q, qlist, tcl_parse, tcl_words
 
 
 def _drt_numbers(transcript: str) -> dict:
@@ -33,7 +33,7 @@ def _orient_xy(o, x, y, X, Y, W, H):
 def macro_supply_pins(session, inst) -> dict:
     """Which supply pins of a macro touch a special (PDN) shape of their net
     on the same layer. Pin shapes are transformed from master coordinates."""
-    from ..tcl import tcl_parse
+    from ..tools.openroad.tcl import tcl_parse
     o, bx0, by0, bx1, by1, W, H, pins, nets = tcl_parse(session.value(f"::flow_supply_pin_data {q(inst)}"))
     bx0, by0, bx1, by1, W, H = map(int, (bx0, by0, bx1, by1, W, H))
     nets = dict(zip(nets[0::2], nets[1::2]))
@@ -335,7 +335,7 @@ def ppa_summary(ctx, parasitics: str) -> dict:
     if m:
         power = dict(zip(("internal_w", "switching_w", "leakage_w", "total_w"), (float(x) for x in m.groups())))
     std, mac, core = float(kv["std_area"]), float(kv["macro_area"]), float(kv["core_area"])
-    from ..scheduler import parse_metrics
+    from ..tools.openroad.checkpoint import parse_metrics
     wl = ctx.metrics.get("wirelength_um")  # routed, when a detailed route ran
     wl_kind = "routed"
     if not wl:

@@ -11,7 +11,7 @@ import hashlib
 import threading
 import time
 
-from .session import FakeSession
+from .tools.openroad.session import FakeSession
 
 
 def fake_metrics(params: dict) -> str:

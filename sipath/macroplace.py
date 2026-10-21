@@ -43,7 +43,7 @@ import random
 from dataclasses import dataclass
 
 from . import congestion
-from .tcl import q, qlist, tcl_parse, tcl_words
+from .tools.openroad.tcl import q, qlist, tcl_parse, tcl_words
 
 ROT90 = ("R90", "R270", "MXR90", "MYR90")
 ALL_ORIENTS = ("R0", "MX", "MY", "R180", "R90", "R270", "MXR90", "MYR90")
@@ -747,7 +747,7 @@ def _nearest_legal(m, x, y, w, h, placed, core, keepouts, rules, mbox, grid, rea
 
 def _evaluate(ctx, analog_weight):
     s, d = ctx.session, ctx.design
-    from .tcl import routing_layers
+    from .tools.openroad.tcl import routing_layers
     s.run(routing_layers(d, ctx.pdk))
     rpt = ctx.path("quick_congestion.rpt")
     n, hp = tcl_parse(s.value(f"::flow_quick_eval {ctx.params.get('quick_density', 0.6)} {q(rpt)}",

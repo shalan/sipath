@@ -410,7 +410,7 @@ class TemplateHarness(Harness):
 def load_builtin() -> list[str]:
     """Register the harness descriptions shipped in sipath/harnesses (once)."""
     from . import registry
-    from .designfile import read_file
+    from .pdk import read_file
     names = []
     for f in sorted(os.listdir(HERE)):
         if not f.endswith((".yaml", ".yml")):
