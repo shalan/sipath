@@ -157,6 +157,26 @@ Part of the [SiPath documentation](../README.md#documentation).
 - Each attempt writes timing (per corner), clock skew, power and congestion
   reports.
 
+## Metrics
+- Every attempt records its metrics in `graph.json` (timing per corner,
+  wirelength, DRC, design-rule violators, heatmap summaries, ...). OpenROAD
+  steps also record `power_*_w`, the internal, switching, leakage and total
+  power of the typical corner from the step's power report, and
+  `power_total_w_<corner>`. They record `mem_peak_mb` too: the process's
+  peak resident memory (VmHWM; Linux, so the Docker runs and native Linux).
+- After every step `metrics.json` and `metrics.csv` (metric, value) sit
+  beside `graph.json`. They hold the selected chain's metrics in METRICS2.1
+  names, as ORFS and LibreLane write them: `<stage>__<category>__<metric>`
+  per ORFS stage (synth, floorplan, detailedplace, cts, globalroute,
+  detailedroute, finish), then each metric's last value without the stage
+  (LibreLane's final metrics; synthesis's estimates keep their prefix).
+  Examples: `cts__timing__setup__ws`, `timing__setup__ws__corner:ss_max`,
+  `route__wirelength`, `route__drc_errors`, `power__total`,
+  `design__max_slew_violation__count`, `design__lvs_error__count`,
+  `detailedroute__mem__peak`, `runtime__total` (seconds),
+  `heatmap__rudy__hot_share`. The names follow those conventions; they have
+  not been checked against either tool's dashboards.
+
 ## Heatmaps
 - `place`, `cts`, `route_digital` and `extract` collect OpenROAD's heatmaps
   (`gui::dump_heatmap`, headless) after the attempt's checkpoint is saved, in

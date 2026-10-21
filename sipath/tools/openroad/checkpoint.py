@@ -29,6 +29,12 @@ def parse_metrics(s: str) -> dict:
     return out
 
 
+# the process's peak resident memory in kB (VmHWM), or nothing where /proc is missing (not Linux)
+PEAK_MEMORY_TCL = (
+    "if {[catch {set __f [open /proc/[pid]/status]; set __s [read $__f]; close $__f} ]} { list } "
+    "elseif {[regexp {VmHWM:\\s+(\\d+)} $__s -> __kb]} { set __kb } else { list }")
+
+
 class OpenRoadCheckpoints:
     """Checkpoints as OpenROAD databases (``<step>.<index>.odb``)."""
 
@@ -53,10 +59,14 @@ class OpenRoadCheckpoints:
             session.run(tcl.load_checkpoint(pdk, design, parent.checkpoint))
 
     def metrics(self, session) -> dict:
-        """Every attempt's metrics, as the flow's helpers report them, with the parasitics they used."""
+        """Every attempt's metrics, as the flow's helpers report them, with the parasitics they used and the
+        process's peak memory (``mem_peak_mb``: VmHWM of /proc/<pid>/status; absent where there is no /proc)."""
         parasitics = session.value("::flow_timing_prep")
         metrics = parse_metrics(session.value("::flow_metrics"))
         metrics["parasitics"] = parasitics
+        mem = session.value(PEAK_MEMORY_TCL)
+        if mem.strip().isdigit():
+            metrics["mem_peak_mb"] = round(int(mem) / 1024, 1)
         return metrics
 
     def save(self, session, path: str, timeout: float | None = None):

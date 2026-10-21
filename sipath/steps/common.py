@@ -207,7 +207,33 @@ def reports(ctx, tag: str) -> dict:
             files[name] = f
     ctx.outputs.setdefault("reports", {}).update({f"{tag}_{k}": v for k, v in files.items()})
     ctx.metrics.update(design_rule_counts(ctx, files["design_rules"]))
+    ctx.metrics.update(power_metrics(files["power"]))
     return files
+
+
+def power_metrics(report: str) -> dict:
+    """Power from ``report_power`` (one corner, or ``== corner <name>`` sections): the typical corner's (else the
+    first's) internal, switching, leakage and total in W, and every corner's total. {} when there is none."""
+    import re
+    try:
+        text = open(report, errors="replace").read()
+    except OSError:
+        return {}
+    parts = re.split(r"^== corner (\S+)\s*$", text, flags=re.M)
+    sections = [("", parts[0])] + list(zip(parts[1::2], parts[2::2]))
+    found = {}
+    for corner, body in sections:
+        m = re.search(r"^Total\s+([-\d.eE+]+)\s+([-\d.eE+]+)\s+([-\d.eE+]+)\s+([-\d.eE+]+)", body, re.M)
+        if m:
+            found[corner] = [float(x) for x in m.groups()]
+    if not found:
+        return {}
+    pick = next((c for c in found if c.startswith("tt")), next(iter(found)))
+    internal, switching, leakage, total = found[pick]
+    out = {"power_internal_w": internal, "power_switching_w": switching, "power_leakage_w": leakage,
+           "power_total_w": total}
+    out.update({f"power_total_w_{c}": v[3] for c, v in found.items() if c})
+    return out
 
 def design_rule_counts(ctx, report: str) -> dict:
     """Slew / capacitance / fanout violators from ``report_check_types

@@ -2117,6 +2117,51 @@ class Snapshots(unittest.TestCase):
             self.assertEqual(designfile.snapshot(flow, tool), [])  # not a layout
 
 
+class Metrics2(unittest.TestCase):
+    """Power per stage, peak memory, and metrics.json in METRICS2.1 names."""
+
+    def test_power_report_parsing(self):
+        from sipath.steps.common import power_metrics
+        rpt = ("== corner tt_nom\nGroup Internal Switching Leakage Total\n"
+               "Total                  4.04e-04   3.48e-04   1.44e-09   7.52e-04 100.0%\n"
+               "== corner ss_max\nTotal                  3.23e-04   2.79e-04   1.02e-06   6.03e-04 100.0%\n")
+        with tempfile.TemporaryDirectory() as td:
+            f = os.path.join(td, "p.rpt")
+            open(f, "w").write(rpt)
+            m = power_metrics(f)
+            self.assertEqual((m["power_total_w"], m["power_leakage_w"], m["power_total_w_ss_max"]),
+                             (7.52e-04, 1.44e-09, 6.03e-04))  # the typical corner first
+            open(f, "w").write("report_power failed: no libraries\n")
+            self.assertEqual(power_metrics(f), {})
+        self.assertEqual(power_metrics("/nonexistent.rpt"), {})
+
+    def test_peak_memory_through_the_checkpoint_store(self):
+        from sipath.tools.openroad.checkpoint import PEAK_MEMORY_TCL, OpenRoadCheckpoints
+        s = FakeSession(".", responses={"::flow_metrics": "wns 1.0", "::flow_timing_prep": "placement",
+                                        PEAK_MEMORY_TCL: "204800"})
+        m = OpenRoadCheckpoints().metrics(s)
+        self.assertEqual((m["wns"], m["mem_peak_mb"]), (1.0, 200.0))
+        s2 = FakeSession(".", responses={"::flow_metrics": "wns 1.0"})
+        self.assertNotIn("mem_peak_mb", OpenRoadCheckpoints().metrics(s2))  # no /proc: no number, not a guess
+
+    def test_metrics2_names_stages_and_finals(self):
+        from sipath import report
+        g = {"design": "d", "steps": {"synth": {"selected": "synth.0"}, "cts": {"selected": "cts.0"},
+                                      "signoff": {"selected": "signoff.0"}},
+             "attempts": [{"id": "synth.0", "seconds": 3.0, "metrics": {"synth_area_um2": 100.0, "synth_wns_ns": -1.0}},
+                          {"id": "cts.0", "seconds": 5.0, "metrics": {"wns": 0.5, "wns_ss_max": 0.2, "mem_peak_mb": 250.0,
+                                                                     "heatmap_rudy_hot_share": 0.1, "parasitics": "placement"}},
+                          {"id": "signoff.0", "seconds": 9.0, "metrics": {"wns": 0.4, "lvs_match": True,
+                                                                           "power_total_w": 1e-3, "drc_signoff": 0}}]}
+        m = report.metrics2(g)
+        self.assertEqual((m["synth__design__instance__area"], m["cts__timing__setup__ws"],
+                          m["cts__timing__setup__ws__corner:ss_max"], m["cts__mem__peak"]), (100.0, 0.5, 0.2, 250.0))
+        self.assertEqual((m["timing__setup__ws"], m["design__lvs_error__count"], m["power__total"],
+                          m["klayout__drc_error__count"], m["heatmap__rudy__hot_share"]), (0.4, 0, 1e-3, 0, 0.1))
+        self.assertNotIn("design__instance__area", m)  # synthesis's estimate keeps its prefix
+        self.assertEqual(m["finish__runtime__total"], 9.0)
+
+
 class SdcClocks(unittest.TestCase):
     """Clock ports from the SDC when a design file does not name them (sipath.sdc)."""
 

@@ -233,6 +233,79 @@ def to_html(md: str, title: str) -> str:
             f"<style>{style}</style></head><body>\n" + "\n".join(body) + "\n</body></html>\n")
 
 
+# METRICS2.1 names (as ORFS and LibreLane write them): SiPath step -> stage, SiPath metric -> category__metric
+STAGES = {"synth": "synth", "floorplan": "floorplan", "macros": "floorplan", "physical": "floorplan",
+          "place": "detailedplace", "cts": "cts", "route_analog": "globalroute", "route_digital": "detailedroute",
+          "route_repair": "detailedroute", "fill": "finish", "extract": "finish", "signoff": "finish"}
+NAMES = {"insts": "design__instance__count", "std_util": "design__instance__utilization",
+         "synth_cells": "design__instance__count", "synth_area_um2": "design__instance__area",
+         "wns": "timing__setup__ws", "tns": "timing__setup__tns", "whs": "timing__hold__ws",
+         "synth_wns_ns": "timing__setup__ws", "synth_tns_ns": "timing__setup__tns",
+         "wirelength_um": "route__wirelength", "hpwl_um": "route__wirelength__estimated",
+         "drc": "route__drc_errors", "antenna_violations": "antenna__violating__nets",
+         "grt_overflow": "global_route__overflow",
+         "drv_slew": "design__max_slew_violation__count", "drv_cap": "design__max_cap_violation__count",
+         "drv_fanout": "design__max_fanout_violation__count",
+         "power_total_w": "power__total", "power_internal_w": "power__internal__total",
+         "power_switching_w": "power__switching__total", "power_leakage_w": "power__leakage__total",
+         "ir_worst_mV": "ir__drop__worst", "mem_peak_mb": "mem__peak",
+         "drc_signoff": "klayout__drc_error__count", "antenna_signoff": "antenna__violating__nets__signoff"}
+
+
+def metrics2(g: dict) -> dict:
+    """The selected chain's metrics in METRICS2.1 names: ``<stage>__<category>__<metric>`` for every step
+    (ORFS's stages; a later step of the same stage wins), then the last value of each without the stage prefix
+    (LibreLane's final metrics; synthesis's estimates only with their prefix). Per-corner setup slack as ``timing__setup__ws__corner:<corner>``, runtime as
+    ``runtime__total`` (seconds), LVS as ``design__lvs_error__count``, heatmaps as ``heatmap__<map>__<stat>``."""
+    by_id = {a["id"]: a for a in g.get("attempts", [])}
+    out, final = {"flow__name": "sipath", "design__name": g.get("design")}, {}
+    for name, s in (g.get("steps") or {}).items():
+        a = by_id.get(s.get("selected"))
+        if a is None:
+            continue
+        stage = STAGES.get(name, name)
+        vals = {}
+        for k, v in (a.get("metrics") or {}).items():
+            if isinstance(v, bool) or not isinstance(v, (int, float)):
+                if k == "lvs_match" and isinstance(v, bool):
+                    vals["design__lvs_error__count"] = 0 if v else 1
+                continue
+            if k in NAMES:
+                vals[NAMES[k]] = v
+            elif k.startswith(("wns_", "sta_wns_")):
+                vals[f"timing__setup__ws__corner:{k.split('wns_', 1)[1]}"] = v
+            elif k.startswith(("whs_", "sta_whs_")):
+                vals[f"timing__hold__ws__corner:{k.split('whs_', 1)[1]}"] = v
+            elif k.startswith("power_total_w_"):
+                vals[f"power__total__corner:{k[len('power_total_w_'):]}"] = v
+            elif k.startswith("heatmap_"):
+                mp, _, stat = k[len("heatmap_"):].rpartition("_")
+                if mp.endswith("_hot"):
+                    mp, stat = mp[:-4], "hot_share"
+                vals[f"heatmap__{mp}__{stat}"] = v
+        if a.get("seconds") is not None:
+            vals["runtime__total"] = a["seconds"]
+        out.update({f"{stage}__{k}": v for k, v in vals.items()})
+        if stage != "synth":  # final values describe the layout, not synthesis's estimates
+            final.update(vals)
+    out.update(final)
+    return out
+
+
+def write_metrics(workdir: str, g: dict) -> tuple[str, str]:
+    """``metrics.json`` and ``metrics.csv`` (metric,value) beside graph.json."""
+    import csv
+    m = metrics2(g)
+    jp, cp = os.path.join(workdir, "metrics.json"), os.path.join(workdir, "metrics.csv")
+    with open(jp, "w") as f:
+        json.dump(m, f, indent=1, sort_keys=True)
+    with open(cp, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["metric", "value"])
+        w.writerows(sorted(m.items()))
+    return jp, cp
+
+
 def write(workdir: str) -> tuple[str, str]:
     r = collect(workdir)
     md = markdown(workdir, r)
@@ -243,4 +316,6 @@ def write(workdir: str) -> tuple[str, str]:
         f.write(md)
     with open(hp, "w") as f:
         f.write(to_html(md, title))
+    with open(os.path.join(workdir, "graph.json")) as f:
+        write_metrics(workdir, json.load(f))
     return mp, hp
