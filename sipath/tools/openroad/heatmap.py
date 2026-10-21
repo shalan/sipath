@@ -6,7 +6,11 @@ checkpoint is written (``Ctx.after_save``), in the same process: RUDY and the
 routing map start the global router, which must touch neither the checkpoint
 nor the metrics read before it. Each map becomes ``<attempt>/heatmaps/<map>.csv``,
 ``outputs["heatmaps"][map]`` (unit, peak, p95, hot share, hotspot boxes with the
-instances or nets inside) and metrics ``heatmap_<map>_peak|p95|hot_share``. A map
+instances or nets inside, all from the full map) and metrics
+``heatmap_<map>_peak|p95|hot_share``. A map finer than 100 x 100 bins (RUDY and
+routing on a large die: one bin per gcell) is stored coarsened to at most 100
+per side, each bin the largest value it covers (``bins`` is the full map's
+count, ``stored_bins`` the file's). A map
 OpenROAD cannot give here (Power without Liberty, IR drop without
 ``analyze_power_grid``) is recorded as unavailable, with OpenROAD's reason.
 
@@ -118,6 +122,10 @@ def collect(ctx, maps) -> dict:
             kind, objs = ("nets", objects[1]) if name in NETS else ("instances", objects[0])
             for h in summ["hotspots"]:
                 h[kind] = heatmap.inside(h["box"], objs)
+        stored = heatmap.coarsen(bins, MAX_BINS)  # summary and hotspots from the raw map; the file at most 100x100
+        if len(stored) < len(bins):
+            heatmap.write(path, unit, stored)
+            summ["stored_bins"] = len(stored)
         found[name] = {"csv": path, **summ}
         ctx.metrics.update({f"heatmap_{name}_peak": summ["peak"], f"heatmap_{name}_p95": summ["p95"],
                             f"heatmap_{name}_hot_share": summ["hot_share"]})

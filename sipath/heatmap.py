@@ -86,6 +86,33 @@ def summary(name: str, unit: str, bins, top: int = 3) -> dict:
             "hotspots": regions(bins, th)[:top] if th is not None else []}
 
 
+def coarsen(bins, max_side: int = 100):
+    """``bins`` regridded to at most ``max_side`` per side: each coarse bin covers k x k fine bins (k the
+    smallest that fits) and takes the largest of their values, so hotspots stay visible. Unchanged when the
+    map already fits."""
+    xs = sorted({b[0] for b in bins})
+    ys = sorted({b[1] for b in bins})
+    k = max(1, -(-len(xs) // max_side), -(-len(ys) // max_side))
+    if k == 1:
+        return list(bins)
+    ix, iy = {x: i // k for i, x in enumerate(xs)}, {y: i // k for i, y in enumerate(ys)}
+    cells = {}
+    for b in bins:
+        key = (ix[b[0]], iy[b[1]])
+        c = cells.get(key)
+        cells[key] = list(b) if c is None else [min(c[0], b[0]), min(c[1], b[1]), max(c[2], b[2]), max(c[3], b[3]),
+                                               max(c[4], b[4])]
+    return [tuple(c) for _, c in sorted(cells.items(), key=lambda kv: (kv[0][0], kv[0][1]))]
+
+
+def write(path: str, unit: str, bins) -> None:
+    """A map back to ``gui::dump_heatmap``'s CSV form."""
+    with open(path, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["x0", "y0", "x1", "y1", f"value ({unit})"])
+        w.writerows([f"{v:g}" for v in b[:4]] + [f"{b[4]:.6e}"] for b in bins)
+
+
 def overlap(a, b) -> float:
     """Overlap area of two boxes (x0, y0, x1, y1); 0 when they only touch or are apart."""
     w = min(a[2], b[2]) - max(a[0], b[0])

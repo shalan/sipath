@@ -2221,6 +2221,15 @@ class Heatmaps(unittest.TestCase):
         objs = {"big": (0, 0, 30, 30), "in": (11, 1, 12, 2), "out": (40, 40, 41, 41)}
         self.assertEqual(heatmap.inside([10, 0, 30, 20], objs), {"count": 2, "top": ["big", "in"]})
         self.assertIn("<svg", heatmap.svg("placement", unit, bins))
+        self.assertEqual(heatmap.coarsen(bins, 3), bins)  # fits: unchanged
+        coarse = heatmap.coarsen(bins, 2)  # 3 x 3 -> 2 x 2, each the largest it covers
+        self.assertEqual(len(coarse), 4)
+        self.assertEqual(max(b[4] for b in coarse), 99.0)
+        self.assertEqual(coarse[0], (0.0, 0.0, 20.0, 20.0, 95.0))
+        with tempfile.TemporaryDirectory() as td:
+            out = os.path.join(td, "c.csv")
+            heatmap.write(out, unit, coarse)
+            self.assertEqual(heatmap.read(out), (unit, coarse))
         with tempfile.TemporaryDirectory() as td:
             with self.assertRaises(ValueError):
                 heatmap.read(self.write(td, "not,a,map\n"))

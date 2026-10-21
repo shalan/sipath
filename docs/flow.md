@@ -201,9 +201,16 @@ Part of the [SiPath documentation](../README.md#documentation).
 - The run report draws the selected attempts' maps (`heatmaps/<map>.svg`)
   with a table of their summaries; MCP's `query_heatmap(run, attempt, map,
   box?)` returns a map's summary and its bins, all or those in a box.
-- On gcd8 the collection takes under 0.1 s per step. On `extract` RUDY reads
-  higher than on `route_digital` when `fill` ran in between: metal fill takes
-  routing capacity.
+- RUDY and the routing map have one bin per gcell: 316,020 on the OpenFrame
+  die. A map finer than 100 × 100 is stored, and drawn, coarsened to at most
+  100 per side, each bin the largest value it covers. Its summary and hotspots
+  still come from the full map (`bins` is the full map's count, `stored_bins`
+  the file's). An OpenFrame run's heatmaps went from about 200 MB to 4.8 MB,
+  with the same summaries.
+- Collection time per step: under 0.1 s on gcd8, 1.6 to 2.4 s on aes, and
+  1.8 to 4.7 s on the OpenFrame die, against steps of 7 to 52 s there. On
+  `extract`, RUDY reads higher than on `route_digital` when `fill` ran in
+  between: metal fill takes routing capacity.
 
 ## Adaptive rounds
 - A flow item's `adapt: {rounds: N, ...}` turns what a step's selected
