@@ -672,13 +672,14 @@ def _cdlns(ctx, autos, placed, keepouts, rules, analog, dbu, mbox, core, grid) -
     with open(dump) as f:
         spec, hard = cdlns_spec(f.read(), dbu, core, edge, {m.inst: True for m in autos}, keepouts,
                                 int(p.get("seed", 0)) or 42, float(p.get("placer_seconds", 120)), gap_um, d.name)
+    spec["budget"] = p.get("placer_budget", "work")
     spec_path, out_path = ctx.path("cdlns_spec.json"), ctx.path("cdlns_out.json")
     with open(spec_path, "w") as f:
         json.dump(spec, f)
     runner = os.path.join(os.path.dirname(os.path.abspath(__file__)), "third_party", "run_cdlns.py")
     with open(ctx.path("cdlns.log"), "w") as log:
         r = subprocess.run([py, runner, spec_path, out_path], stdout=log, stderr=subprocess.STDOUT,
-                           timeout=float(p.get("placer_seconds", 120)) * 3 + 300)
+                           timeout=float(p.get("placer_seconds", 120)) * 6 + 600)
     if r.returncode != 0 or not os.path.isfile(out_path):
         tail = open(ctx.path("cdlns.log"), errors="replace").read().strip().splitlines()[-8:]
         raise RuntimeError(f"cdlns placer failed (exit {r.returncode}, log {ctx.path('cdlns.log')}):\n" +
@@ -686,7 +687,8 @@ def _cdlns(ctx, autos, placed, keepouts, rules, analog, dbu, mbox, core, grid) -
     with open(out_path) as f:
         pos = json.load(f)["positions"]
     ctx.outputs["cdlns"] = {"spec": spec_path, "macros": len(hard), "soft_macros": len(spec["macros"]) - spec["num_hard"],
-                            "nets": len(spec["nets"]), "gap_um": round(gap_um, 3), "seconds": spec["seconds"]}
+                            "nets": len(spec["nets"]), "gap_um": round(gap_um, 3), "seconds": spec["seconds"],
+                            "budget": spec["budget"]}
     by = {m.inst: m for m in autos}
     missing = sorted(set(by) - set(hard[:len(pos)]))
     if missing:

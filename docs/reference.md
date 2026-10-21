@@ -255,7 +255,8 @@ Set per attempt in `variants` (design file `flow:` or MCP `run_step`), or as def
 | parameter | type | default | allowed | description |
 |---|---|---|---|---|
 | `method` | str | random | random, mpl, cdlns | macro placement: seeded random search with orientation search (random), OpenROAD's rtl_macro_placer (mpl), or Team Macro Polo's CD-LNS placer from the Partcl/HRT challenge (cdlns; needs placer_python) |
-| `placer_seconds` | float | 120.0 | 1.. | time budget of the cdlns placer [s] |
+| `placer_seconds` | float | 120.0 | 1.. | budget of the cdlns placer (seconds of work: see placer_budget) [s] |
+| `placer_budget` | str | work | work, time | how the cdlns placer counts its budget: work (a clock that advances with the placer's own work: the same input and seed give the same placement on any machine) or time (the wall clock, as the placer was written: results vary with the machine's speed and load) |
 | `seed` | int | 0 |  | random seed of the search |
 | `samples` | int | 40 | 1.. | candidate locations tried per autoplaced macro |
 | `orients` | list[str] | – | R0, R90, R180, R270, MX, MY, MXR90, MYR90 | orientations to try; default: each macro's orients, else its orient |

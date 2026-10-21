@@ -160,6 +160,10 @@ placed macros), each attempt scored by `macro_quick` (lower is better):
 | mcu8 | cdlns | — | — | 0 | 58,329 |
 | mcu8 | mpl | — | — | — | 68,785 |
 
+The `cdlns` rows were measured with the wall clock. Since 2026-10-22 the placer runs
+on a work clock by default (`placer_budget: work`), so its result no longer varies
+between runs ([hard macros](flow.md#hard-macros-macroplacepy)).
+
 The random search wins on SiPath's score so far. cdlns gives the shortest
 macro-net wiring on sram8, but it packs the SRAMs about 36 µm apart, and the
 glue logic between them then routes with more overflow. The challenge's

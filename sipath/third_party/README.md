@@ -9,4 +9,8 @@ PyTorch; `python3 -m sipath setup-placer`), never imported by SiPath itself.
 | `macro_place/benchmark.py` | [partcleda/macro-place-challenge-2026](https://github.com/partcleda/macro-place-challenge-2026) commit 996193c, unchanged: the challenge's `Benchmark` (the placer's input) | Apache-2.0 (`macro_place/LICENSE.md`) |
 
 `run_cdlns.py` (SiPath's) builds a `Benchmark` from the floorplan SiPath
-exports and writes the placer's macro centres back.
+exports and writes the placer's macro centres back. `work_clock.py` (SiPath's)
+is the clock it gives the placer under `placer_budget: work` (the default): it
+advances by the reference cost of the placer's work, keyed on the pinned
+file's source lines, so the same input and seed give the same placement on
+any machine; the placer itself stays unchanged.

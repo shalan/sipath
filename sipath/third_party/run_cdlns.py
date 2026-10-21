@@ -6,8 +6,12 @@ spec: name, canvas [w, h] (um, origin at the canvas corner), macros (hard
 first: name, x, y = centre, w, h, fixed), num_hard, ports [[x, y], ...],
 pin_offsets (per hard macro, [[dx, dy], ...] from its centre), nets (lists of
 [owner, slot]: owner < num macros is a macro, else a port num_macros + i),
-grid [rows, cols], seed, seconds, gap. out: positions (centres of the hard
-macros) and the placer's log tail.
+grid [rows, cols], seed, seconds, gap, budget. out: positions (centres of
+the hard macros) and the placer's log tail.
+
+budget "work" (default): the placer reads the work clock (work_clock.py): the same spec
+and seed give the same placement. budget "time": the wall clock, as the placer was
+written (results vary with the machine).
 """
 import json
 import os
@@ -17,8 +21,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import torch  # noqa: E402
 
+import macropolo.cdlns_placer as _placer_module  # noqa: E402
 from macro_place.benchmark import Benchmark  # noqa: E402
 from macropolo.cdlns_placer import CDLNSPlacer  # noqa: E402
+
+from work_clock import work_clock  # noqa: E402
 
 
 def main(spec_path: str, out_path: str) -> int:
@@ -43,6 +50,8 @@ def main(spec_path: str, out_path: str) -> int:
         net_pin_nodes=[torch.tensor(net, dtype=torch.int64).reshape(-1, 2) for net in nets],
         hard_macro_indices=list(range(nh)), soft_macro_indices=list(range(nh, n)),
         num_hard_macros=nh, num_soft_macros=n - nh)
+    if s.get("budget", "work") == "work":
+        _placer_module.time = work_clock(_placer_module.__file__)
     placer = CDLNSPlacer(seed=int(s.get("seed", 42)), max_seconds=float(s.get("seconds", 120)),
                          gap=float(s.get("gap", 0.05)), true_proxy_check_every=0.0)
     out = placer.place(b)

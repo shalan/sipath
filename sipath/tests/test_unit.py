@@ -2058,6 +2058,35 @@ class TclQuoting(unittest.TestCase):
             self.assertTrue(out.startswith("{") or "\\" in out, out)
 
 
+class CdlnsWorkClock(unittest.TestCase):
+    """The cdlns placer's work clock (third_party/work_clock.py): its schedule follows work, not the machine."""
+
+    def load(self):
+        import importlib.util
+        path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "third_party", "work_clock.py")
+        spec = importlib.util.spec_from_file_location("work_clock", path)
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        return m
+
+    def test_reads_are_charged_by_line_and_only_for_the_pinned_file(self):
+        import hashlib
+        wc = self.load()
+        with tempfile.TemporaryDirectory() as td:
+            src = os.path.join(td, "placer.py")
+            with open(src, "w") as f:
+                f.write("def run(clock):\n    a = clock.time()\n    b = clock.time()\n    return a, b\n")
+            sha = hashlib.sha256(open(src, "rb").read()).hexdigest()
+            ns = {}
+            exec(compile(open(src).read(), src, "exec"), ns)
+            clock = wc.WorkClock(src, {3: 0.5}, tick=0.01)
+            self.assertEqual(ns["run"](clock), (0.01, 0.51))  # line 2: the tick; line 3: its charge
+            self.assertEqual(ns["run"](wc.WorkClock(src, {3: 0.5}, tick=0.01)), (0.01, 0.51))  # same work, same times
+            self.assertEqual(wc.work_clock(src, sha).charges, wc.CHARGES)
+            self.assertEqual(wc.work_clock(src, "0" * 64).charges, {})  # another version: the uniform tick
+        self.assertAlmostEqual(wc.TICK * 2 * 282, 1.0)  # two reads per annealing iteration, 282 iterations/s
+
+
 class SdcClocks(unittest.TestCase):
     """Clock ports from the SDC when a design file does not name them (sipath.sdc)."""
 

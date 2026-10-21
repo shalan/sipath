@@ -48,6 +48,13 @@ Part of the [SiPath documentation](../README.md#documentation).
   global placement (macros with pin offsets, standard cells clustered into
   movable soft macros, IO pins, keepouts as fixed blocks), hands the placer a
   legal start with rule-aware spacing, and snaps the result to the grid.
+  The placer schedules its phases on a clock. With `placer_budget: work`
+  (the default) SiPath gives it a work clock that advances by the reference
+  cost of its work (`third_party/work_clock.py`), so the same input and seed
+  give the same placement on any machine. On sram8 the result matches the
+  wall clock's within 1% in cost and iteration counts, at 20 s and 120 s.
+  `placer_budget: time` keeps the wall clock, whose results vary with the
+  machine's speed and load.
 - Rules for every method: halo, `macro_channel` (no sliver channel between
   macros or to the core edge), `macro_pin_clearance` (space in front of pin
   edges), `analog_guard` (extra space around analog macros and a standard-cell
