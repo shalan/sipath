@@ -32,7 +32,7 @@ jobs:
           - group: blocks
             classes: >-
               LiveRtl LiveSoftMacro LiveHs LiveResume LiveMcp LiveIhp LiveIhpRing
-              LiveScale OpenRoad LiveMacroPlacers
+              LiveScale OpenRoad LiveMacroPlacers LiveAdaptive
     env:
       SIPATH_LIMITS_IGNORE: max_runtime_s
       PDK_ROOT: /home/runner/pdk

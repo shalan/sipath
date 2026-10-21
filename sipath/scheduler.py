@@ -132,6 +132,8 @@ class Attempt:
     resumed: bool = False  # recorded by an earlier run of this flow, not run again
     retry_of: str | None = None  # the attempt whose RetryWith started this one
     retry_reason: str | None = None  # why that attempt asked for it (RetryWith.reason)
+    adapted_from: str | None = None  # the attempt an adaptive round derived this one from (Flow.extend)
+    adapt_reason: str | None = None  # what in it (e.g. the hotspots) the new params answer
     retry: dict | None = field(default=None, repr=False)  # params a RetryWith asked for (not recorded)
     retry_why: str | None = field(default=None, repr=False)  # its reason, handed to the retry
 
@@ -146,7 +148,7 @@ class Attempt:
             "started_at": self.started_at, "finished_at": self.finished_at, "process": self.process,
             "timing": self.timing, "transcript_tail": self.transcript_tail,
             "debug_checkpoint": self.debug_checkpoint, "resumed": self.resumed, "retry_of": self.retry_of,
-            "retry_reason": self.retry_reason,
+            "retry_reason": self.retry_reason, "adapted_from": self.adapted_from, "adapt_reason": self.adapt_reason,
         }
 
 
@@ -159,6 +161,7 @@ class StepRun:
     parent: str | None = None  # parent attempt id
     variants: list | None = None
     resumed: bool = False
+    rounds: list = field(default_factory=list)  # adaptive rounds (Flow.extend / Flow.stop_rounds), in order
 
 
 @dataclass
@@ -249,7 +252,8 @@ class Flow:
                         seconds=j.get("seconds") or 0.0, started_at=j.get("started_at"),
                         finished_at=j.get("finished_at"), process=j.get("process"), timing=j.get("timing") or {},
                         transcript_tail=j.get("transcript_tail") or [], debug_checkpoint=j.get("debug_checkpoint"),
-                        resumed=True, retry_of=j.get("retry_of"), retry_reason=j.get("retry_reason"))
+                        resumed=True, retry_of=j.get("retry_of"), retry_reason=j.get("retry_reason"),
+                        adapted_from=j.get("adapted_from"), adapt_reason=j.get("adapt_reason"))
             if j["parent"] and a.parent is None:
                 raise ValueError(f"{path}: attempt {a.id} names unknown parent {j['parent']}")
             if a.status in ("running", "pending"):
@@ -266,7 +270,7 @@ class Flow:
             if sel is None:
                 continue
             self.steps[name] = StepRun(name, atts, s.get("score"), sel, s.get("parent"), s.get("variants"),
-                                       resumed=True)
+                                       resumed=True, rounds=list(s.get("rounds") or []))
         log.info("resumed %s: %d attempts, %d completed steps", path, len(self.attempts), len(self.steps))
 
     def _recorded(self, name, parent, variants, score) -> StepRun | None:
@@ -346,6 +350,12 @@ class Flow:
             else:
                 attempts.append(self._new_attempt(name, k, v, parent, kind="tool" if getattr(fn, "tool", False)
                                                   else "step"))
+        self._run_batch(name, attempts, fn, parallel, parent)
+        return self._select(name, attempts, score, score_fn, parent=parent, variants=variants)
+
+    def _run_batch(self, name, attempts, fn, parallel, parent):
+        """Run the attempts not finished yet (at most ``parallel`` at once), then one retry for each that asked for
+        it (RetryWith), appended to ``attempts``; StepCancelled when any was cancelled."""
         todo = [a for a in attempts if a.status != "ok"]
         log.info("step %s: %d attempts (%d to run, %d recorded), parallel %d", name, len(attempts), len(todo),
                  len(attempts) - len(todo), self.config.cap(parallel))
@@ -353,17 +363,62 @@ class Flow:
         with ThreadPoolExecutor(max_workers=self.config.cap(parallel)) as ex:
             list(ex.map(lambda a: self._run_attempt(a, fn, together), todo))
         # a failed attempt that asked for it (RetryWith) gets one fresh attempt with the merged params
-        nxt = max(a.index for a in attempts) + 1
+        nxt = max(a.index for a in self.attempts if a.step == name) + 1
         for a in [a for a in todo if a.status == "failed" and a.retry]:
             r = self._new_attempt(name, nxt, {**a.params, **a.retry}, parent, kind=a.kind)
             r.retry_of, r.retry_reason, nxt = a.id, a.retry_why, nxt + 1
+            r.adapted_from, r.adapt_reason = a.adapted_from, a.adapt_reason
             log.info("attempt %s: retry of %s with %s", r.id, a.id, a.retry)
             self._run_attempt(r, fn, 1)
             attempts.append(r)
         if any(a.status == "cancelled" for a in attempts):
             self.save_graph()
             raise StepCancelled(f"step {name} cancelled: " + ", ".join(f"{a.id} {a.status}" for a in attempts))
-        return self._select(name, attempts, score, score_fn, parent=parent, variants=variants)
+
+    def extend(self, name: str, fn: Callable, variants: list[dict], origins: list[dict] | None = None,
+               parallel: int = 1) -> StepRun:
+        """More attempts of a step that already ran (an adaptive round): from the same parent, ranked by the same
+        score, then the step's selection is made again over all its attempts. ``origins`` (one per variant):
+        {"from": attempt id, "reason": text}, recorded as the attempt's ``adapted_from`` and ``adapt_reason``.
+        A variant equal to an attempt the step already has (a resumed round) is not run again. The round is
+        recorded in the step's ``rounds``."""
+        run = self.steps.get(name)
+        if run is None:
+            raise ValueError(f"step {name} has not run: nothing to extend")
+        origins = list(origins or [{}] * len(variants))
+        if len(origins) != len(variants):
+            raise ValueError(f"step {name}: {len(variants)} variants but {len(origins)} origins")
+        parent = next((a for a in self.attempts if a.id == run.parent), None) if run.parent else None
+        mine = [a for a in self.attempts if a.step == name and a.status in ("ok", "selected", "rejected")]
+        nxt = max([a.index for a in self.attempts if a.step == name] + [-1]) + 1
+        new = []
+        for v, o in zip(variants, origins):
+            old = next((a for a in mine if _same(a.params, v)), None)
+            if old is not None:
+                continue  # already tried (by an earlier round, or recorded before a resume)
+            a = self._new_attempt(name, nxt, v, parent, kind="tool" if getattr(fn, "tool", False) else "step")
+            a.adapted_from, a.adapt_reason, nxt = o.get("from"), o.get("reason"), nxt + 1
+            new.append(a)
+        before = run.selected.id if run.selected else None
+        if new:
+            self._run_batch(name, new, fn, parallel, parent)
+        everything = [a for a in self.attempts if a.step == name]
+        for a in everything:
+            if a.status in ("selected", "rejected"):
+                a.status = "ok"  # every finished attempt competes again
+        rounds = run.rounds + [{"from": before, "attempts": [a.id for a in new]}]
+        out = self._select(name, everything, run.score_name, score_mod.get(run.score_name), parent=parent,
+                           variants=run.variants, rounds=rounds)
+        out.rounds[-1]["selected"] = out.selected.id
+        self.save_graph()
+        return out
+
+    def stop_rounds(self, name: str, reason: str) -> StepRun:
+        """Record why a step's adaptive rounds stopped (nothing hot, nothing new to try), so a resume stops too."""
+        run = self.steps[name]
+        run.rounds = run.rounds + [{"from": run.selected.id if run.selected else None, "stopped": reason}]
+        self.save_graph()
+        return run
 
     def _name_taken(self, name: str) -> bool:
         return name in self.steps or any(a.step == name for a in self.attempts)
@@ -571,7 +626,7 @@ class Flow:
             except Exception as e:  # the session may be what failed
                 a.outputs["debug_checkpoint_error"] = f"{type(e).__name__}: {e}"
 
-    def _select(self, name, attempts, score_name, score_fn, parent=None, variants=None) -> StepRun:
+    def _select(self, name, attempts, score_name, score_fn, parent=None, variants=None, rounds=None) -> StepRun:
         ok = [a for a in attempts if a.status == "ok"]
         if getattr(score_fn, "selector", False):  # a rule over all attempts (e.g. synth_select)
             best, why = score_fn(ok) if ok else (None, "no successful attempt")
@@ -587,7 +642,8 @@ class Flow:
         for a in attempts:
             if a.status == "ok":
                 a.status = "selected" if a is best else "rejected"
-        run = StepRun(name, attempts, score_name, best, parent.id if parent else None, variants)
+        run = StepRun(name, attempts, score_name, best, parent.id if parent else None, variants,
+                      rounds=list(rounds if rounds is not None else getattr(self.steps.get(name), "rounds", [])))
         self.steps[name] = run
         self.save_graph()
         log.info("step %s: selected %s", name, best.id if best else None)
@@ -602,7 +658,8 @@ class Flow:
                 "provenance": self.provenance, "config": self.config.to_dict(),
                 "attempts": [a.to_json() for a in self.attempts],
                 "steps": {k: {"score": v.score_name, "selected": v.selected.id if v.selected else None,
-                              "parent": v.parent, "variants": v.variants}
+                              "parent": v.parent, "variants": v.variants,
+                              **({"rounds": v.rounds} if v.rounds else {})}
                           for k, v in self.steps.items()}}
 
     def save_graph(self):

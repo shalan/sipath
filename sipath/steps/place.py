@@ -194,6 +194,31 @@ def repair_legalized(ctx, rounds: int = 4) -> int:
     return rounds
 
 
+def placement_blockages(s, blockages) -> int:
+    """``create_blockage -region -max_density`` for each {box: [x0, y0, x1, y1] um, max_density: %}, for global
+    placement only: ``remove_placement_blockages`` destroys exactly these before legalization (fixed taps in a
+    partial blockage fail check_placement) so the checkpoint carries none of them."""
+    s.run("set ::flow_place_blockages {}\nset ::flow_blockages_before [[ord::get_db_block] getBlockages]")
+    for b in blockages or []:
+        box = b.get("box")
+        md = b.get("max_density", 50)
+        if (not isinstance(box, list) or len(box) != 4 or not all(isinstance(v, (int, float)) for v in box)
+                or box[0] >= box[2] or box[1] >= box[3]):
+            raise ValueError(f"place.blockages: box must be [x0, y0, x1, y1] um with x0 < x1, y0 < y1, not {box!r}")
+        if not isinstance(md, (int, float)) or not 0 <= md < 100:
+            raise ValueError(f"place.blockages: max_density must be a percentage in [0, 100), not {md!r}")
+        s.run(f"create_blockage -region {{{box[0]} {box[1]} {box[2]} {box[3]}}} -max_density {md}")
+    s.run("foreach __b [[ord::get_db_block] getBlockages] {\n"
+          "  if {$__b ni $::flow_blockages_before} { lappend ::flow_place_blockages $__b }\n}")
+    return len(blockages or [])
+
+
+def remove_placement_blockages(s) -> None:
+    s.run("if {[info exists ::flow_place_blockages]} {\n"
+          "  foreach __b $::flow_place_blockages { odb::dbBlockage_destroy $__b }\n"
+          "  set ::flow_place_blockages {}\n}")
+
+
 def place(ctx):
     """Timing-driven global placement, repair, detailed placement."""
     d, s, p = ctx.design, ctx.session, ctx.params
@@ -204,6 +229,9 @@ def place(ctx):
     if p.get("remove_buffers"):
         s.run("remove_buffers")
     ctx.metrics["tie_max_fanout"] = tie_max_fanout(ctx)
+    blockages = placement_blockages(s, p.get("blockages"))
+    if blockages:  # partial placement blockages: regions gpl and legalization fill to at most max_density
+        ctx.metrics["placement_blockages"] = blockages
     fence_groups = [g for g in d.groups if g.kind == "fence"]
     # with fences, this gpl build diverges inside the region after its first
     # timing-driven iteration unless the virtual resizes are discarded
@@ -227,6 +255,8 @@ def place(ctx):
         ctx.outputs["clusters"][g.name].update(compact_cluster(s, g, fences))
     s.run(tcl.repair_after_place(p.get("max_util"), ctx.pdk))
     ctx.outputs["reabut"] = reabut_all(ctx)  # sizing may have grown FIRM datapath cells
+    if blockages:
+        remove_placement_blockages(s)
     s.run("detailed_placement")
     if d.harness:  # long pin nets across a mostly empty wrapper: buffers along the rows, then repair again
         ctx.outputs["pin_repeaters"] = space_pin_repeaters(ctx)

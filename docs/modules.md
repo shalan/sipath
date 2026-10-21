@@ -72,6 +72,7 @@ on any import that crosses these rules.
 
 | module | role |
 |---|---|
+| `steps/adapt.py` | adaptive rounds: the `place` adapter (hotspots into partial blockages and a lower density), registered in `registry.ADAPTERS` |
 | `steps/` | one module per stage: `floorplan` (floorplan, macros, physical), `place` (place, cts), `analog_route`, `route` (route_digital, route_repair), `finish` (fill, extract, signoff and the check steps, views, integrate, ppa), helpers in `common` and `structure` |
 | `synth.py`, `blackbox.py` | the synth step (Yosys, Verilator, a timing check); black-box Liberty models |
 | `chip.py`, `padplan.py`, `powerconnect.py` | pad ring (ICeWall); pad plan rules; straps from supply tabs to the grid |

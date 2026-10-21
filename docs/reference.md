@@ -208,6 +208,7 @@ YAML or JSON; relative paths are relative to the file. Keys not listed are error
 | `variants` | list[dict] |  | one parameter dict per attempt (see Step parameters) |
 | `score` | str |  | named score that picks the best attempt |
 | `parallel` | int |  | attempts at once |
+| `adapt` | dict |  | adaptive rounds: {rounds: N, ...the step adapter's options}; each round turns what the selected attempt measured (place: its heatmaps' hotspots) into new attempts of the same step, and the step selects again over all of them (score: hotspots_then_wns unless given) |
 | `sweep` | any |  | synth: an objective (delay, area, balanced: its five measured ABC recipes) or a list of recipes, one attempt each; selected by synth_select unless score is given |
 | `synth_opts_sweep` | list |  | synth: front-end option sets, e.g. [[], [booth], [adder=kogge-stone]]; every recipe runs with each |
 
@@ -278,6 +279,7 @@ Set per attempt in `variants` (design file `flow:` or MCP `run_step`), or as def
 | parameter | type | default | allowed | description |
 |---|---|---|---|---|
 | `density` | float | 0.55 | 0.05..1.0 | global placement target density |
+| `blockages` | list[dict] | – |  | partial placement blockages: [{box: [x0, y0, x1, y1] (um), max_density: %}] filled to at most max_density by global placement and legalization (e.g. from a heatmap's hotspots) |
 | `seed` | int | – |  | global placement random seed; default: the tool's |
 | `routability_driven` | bool | true |  | routability-driven global placement (ORFS's default; off left aes too congested to route) |
 | `improve_placement` | bool | true |  | after detailed placement: improve_placement -max_displacement "5 1" and optimize_mirroring, as ORFS (skipped with fences) |

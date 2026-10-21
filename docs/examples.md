@@ -26,6 +26,7 @@ Colab or Codespaces.
 - [13. Driving a run from an agent (MCP)](#13-driving-a-run-from-an-agent-mcp)
 - [14. Regression limits and repeated runs](#14-regression-limits-and-repeated-runs)
 - [15. Design-space exploration: sweeps at several steps, in parallel](#15-design-space-exploration-sweeps-at-several-steps-in-parallel)
+- [16. Heatmaps and adaptive rounds: hotspots into the next placement](#16-heatmaps-and-adaptive-rounds-hotspots-into-the-next-placement)
 
 ## 1. RTL to a signed-off layout
 
@@ -472,4 +473,57 @@ What this shows:
 - **An interrupted sweep resumes.** `--resume` keeps the attempts that
   finished (a sweep of three that stopped after two runs only the third) and
   re-runs nothing that is recorded.
+
+## 16. Heatmaps and adaptive rounds: hotspots into the next placement
+
+`place`, `cts`, `route_digital` and `extract` collect OpenROAD's heatmaps
+after each checkpoint is saved ([heatmaps](flow.md#heatmaps)). `adapt` turns
+the placement's hotspots into the next attempts:
+
+```yaml
+core_utilization: 0.65
+flow:
+- step: synth
+- step: floorplan
+- step: physical
+- step: place
+  variants: [{density: 0.8}]
+  adapt: {rounds: 2}          # score: hotspots_then_wns unless one is given
+  parallel: 2
+- step: cts
+- step: route_analog
+- step: route_digital
+- step: route_repair
+  variants: [{drv_sizing: true}]
+- step: fill
+- step: extract
+- step: signoff
+```
+
+On gcd8 (measured):
+
+| attempt | from | parameters | hot share (placement) | setup WNS |
+|---|---|---|---|---|
+| place.0 | | density 0.8 | 20% | 4.614 ns |
+| place.1 (selected) | place.0 | + blockages at 70% over 3 hotspots | 8% | 4.572 ns |
+| place.2 | place.1 | + 2 more blockages | 16% | 4.592 ns |
+
+The rounds stopped after the second ("no proposal scored better than the
+selection"); a lower density was not proposed because the cells already fill
+75% of the rows. The run signs off (DRC 0, LVS match) with `drv_sizing`, which
+fixes one net the spread placement leaves 0.03 ns over the slew limit; slack
+at the slow corner is 3.81 ns against 4.21 ns without the rounds. This design
+has no routing congestion to relieve, so here the rounds cost slack for
+nothing measurable downstream.
+
+Look at the maps and the rounds afterwards:
+
+```bash
+python3 -m sipath report runs/dense
+```
+
+```text
+query_heatmap {"run_id": R, "attempt": "place.0", "map": "placement"}     (peak, hotspots, bins)
+adapt_step    {"run_id": R, "step": "place", "rounds": 1, "options": {"max_density": 60}}
+```
 

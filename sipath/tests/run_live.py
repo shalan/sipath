@@ -20,7 +20,7 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # rough wall times (s) on the reference machine, for the order only (longest first)
-EXPECTED = {"LiveMcuDie": 2900, "LiveOpenFrame": 2400, "LiveSoftMacro": 300, "LiveMacroPlacers": 120, "LiveHs": 110, "LiveRtl": 90, "LiveResume": 40,
+EXPECTED = {"LiveMcuDie": 2900, "LiveOpenFrame": 2400, "LiveSoftMacro": 300, "LiveMacroPlacers": 120, "LiveHs": 110, "LiveRtl": 90, "LiveAdaptive": 60, "LiveResume": 40,
             "LiveMcp": 30, "LiveIhp": 30, "LiveScale": 10, "LiveIhpRing": 5, "OpenRoad": 5}
 
 

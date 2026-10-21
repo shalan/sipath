@@ -776,6 +776,42 @@ class LiveScale(unittest.TestCase):
 
 
 @LIVE
+@LIVE
+class LiveAdaptive(unittest.TestCase):
+    """Adaptive rounds on a crowded gcd8 (65% core utilization, placement density 0.8): the placement's density
+    hotspots become partial blockages in the next attempts, and the step selects again (hotspots_then_wns)."""
+
+    def test_hotspots_become_the_next_placement(self):
+        import yaml
+        from sipath import designfile
+        wd = _workdir("adaptive")
+        if not KEEP:
+            self.addCleanup(_rmtree, wd)
+        ex = os.path.join(os.path.dirname(__file__), "..", "examples")
+        with open(os.path.join(ex, "gcd8.yaml")) as fh:
+            d = yaml.safe_load(fh)
+        d.update(rtl=[os.path.abspath(os.path.join(ex, r)) for r in d["rtl"]],
+                 sdc=os.path.abspath(os.path.join(ex, d["sdc"])), core_utilization=0.65,
+                 flow=[{"step": "synth"}, {"step": "floorplan"}, {"step": "physical"},
+                       {"step": "place", "variants": [{"density": 0.8}], "adapt": {"rounds": 2}, "parallel": 2}])
+        path = os.path.join(wd, "dense.yaml")
+        with open(path, "w") as fh:
+            yaml.safe_dump(d, fh)
+        f = designfile.run(path, os.path.join(wd, "run"), RUNNER)
+        run = f.steps["place"]
+        first, sel = run.attempts[0], run.selected
+        self.assertEqual(run.score_name, "hotspots_then_wns")
+        self.assertGreater(first.metrics["heatmap_placement_hot_share"], 0)  # there is something to answer
+        self.assertIsNot(sel, first)
+        self.assertEqual(sel.adapted_from, first.id)
+        self.assertTrue(sel.params.get("blockages"))
+        self.assertIn("hotspots", sel.adapt_reason)
+        self.assertLess(sel.metrics["heatmap_placement_hot_share"], first.metrics["heatmap_placement_hot_share"])
+        self.assertEqual(sel.metrics["placement_blockages"], len(sel.params["blockages"]))
+        self.assertTrue(run.rounds and run.rounds[-1].get("stopped"))  # why the rounds ended
+        self.assertEqual(run.rounds[0]["from"], first.id)
+
+
 class LiveResume(unittest.TestCase):
     """Kill a run in the middle of a sweep, resume it: finished work is kept,
     the rest runs, and the selection matches an uninterrupted run."""

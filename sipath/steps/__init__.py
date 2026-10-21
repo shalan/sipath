@@ -71,6 +71,7 @@ from .route import (  # noqa: F401
     route_digital,
     route_repair,
 )
+from .adapt import adapt_place
 from .finish import (  # noqa: F401
     check_step,
     precheck,
@@ -91,6 +92,7 @@ STEPS.update({
 })
 
 STEPS.update({name: check_step(name) for name in params.CHECK_STEPS})  # `- step: drc`, `- step: lvs`, ...
+registry.ADAPTERS.setdefault("place", adapt_place)  # adaptive rounds: hotspots -> the next placements
 
 # parameters each step reads from its variant dict; anything else is a mistake
 # parameters are declared (type, default, doc) in sipath.params

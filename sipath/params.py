@@ -170,6 +170,9 @@ STEP_PARAMS: dict[str, list[Param]] = {
     "physical": [],
     "place": [
         Param("density", "float", 0.55, "global placement target density", min=0.05, max=1.0),
+        Param("blockages", "list[dict]", None, "partial placement blockages: [{box: [x0, y0, x1, y1] (um), "
+              "max_density: %}] filled to at most max_density by global placement and legalization (e.g. from a "
+              "heatmap's hotspots)"),
         Param("seed", "int", None, "global placement random seed; default: the tool's"),
         Param("routability_driven", "bool", True, "routability-driven global placement (ORFS's default; off "
               "left aes too congested to route)"),

@@ -286,10 +286,48 @@ def run(path_or_design, workdir: str, runner=None, overrides: dict | None = None
         if fn is None:
             raise ValueError(f"unknown step {name!r}; known: {sorted(steps_mod.STEPS)}")
         steps_mod.check_params(ref, item.get("variants"))
-        r = flow.step(name, fn, parent=parent, variants=item.get("variants"), score=item.get("score"),
+        score = item.get("score") or ("hotspots_then_wns" if item.get("adapt") else None)
+        r = flow.step(name, fn, parent=parent, variants=item.get("variants"), score=score,
                       parallel=item.get("parallel", 1))
+        if item.get("adapt"):
+            r = adapt(flow, name, ref, fn, item["adapt"], item.get("parallel", 1))
         parent = r.selected
     return flow
+
+
+def adapt(flow, name: str, ref: str, fn, cfg: dict, parallel: int = 1, start: int = 0):
+    """Adaptive rounds of step ``name`` (function ``ref``): ``cfg`` = {rounds: N, ...adapter options}. Each round
+    asks the step's adapter (registry.adapter) for new attempts from the selected one, runs those not tried yet
+    (Flow.extend) and selects again over all. Stops after N rounds, when the adapter proposes nothing (nothing
+    hot) or nothing new, or when no proposal beat the selection; the reason is recorded (resume replays it).
+    ``start``: the step's rounds before this call (an agent's further rounds count, and stop, from there)."""
+    from . import registry
+    from .scheduler import _same
+    cfg = dict(cfg or {})
+    rounds = cfg.pop("rounds", 1)
+    if not isinstance(rounds, int) or isinstance(rounds, bool) or rounds < 1:
+        raise ValueError(f"{name}.adapt.rounds must be an integer >= 1, not {rounds!r}")
+    propose = registry.adapter(ref)
+    if propose is None:
+        raise ValueError(f"step {ref!r} has no adapter: adapt is available for {sorted(registry.ADAPTERS)}")
+    unknown = set(cfg) - set(getattr(propose, "options", cfg))
+    if unknown:
+        raise ValueError(f"{name}.adapt: unknown option(s) {sorted(unknown)}; "
+                         f"known: rounds, {', '.join(sorted(getattr(propose, 'options', {})))}")
+    run = flow.steps[name]
+    while not any("stopped" in x for x in run.rounds[start:]) and len(run.rounds) < rounds:
+        props = propose(flow, run.selected, cfg)
+        fresh = [(p, why) for p, why in props if not any(_same(p, a.params) for a in run.attempts)]
+        if not fresh:
+            run = flow.stop_rounds(name, "nothing hot to answer" if not props else "no new parameters to try")
+            break
+        steps_mod.check_params(ref, [p for p, _ in fresh])
+        run = flow.extend(name, fn, [p for p, _ in fresh], [{"from": run.selected.id, "reason": w} for _, w in fresh],
+                          parallel)
+        if run.rounds[-1]["selected"] == run.rounds[-1]["from"]:
+            run = flow.stop_rounds(name, "no proposal scored better than the selection")
+            break
+    return run
 
 
 def harden(path: str, outdir: str, workdir: str | None = None, runner=None, config=None,

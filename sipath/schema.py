@@ -124,6 +124,9 @@ FLOW_STEP = {
     "variants": F("list[dict]", "one parameter dict per attempt (see Step parameters)"),
     "score": F("str", "named score that picks the best attempt"),
     "parallel": F("int", "attempts at once"),
+    "adapt": F("dict", "adaptive rounds: {rounds: N, ...the step adapter's options}; each round turns what the "
+                       "selected attempt measured (place: its heatmaps' hotspots) into new attempts of the same step, "
+                       "and the step selects again over all of them (score: hotspots_then_wns unless given)"),
     "sweep": F("any", "synth: an objective (delay, area, balanced: its five measured ABC recipes) or a list of "
                       "recipes, one attempt each; selected by synth_select unless score is given"),
     "synth_opts_sweep": F("list", "synth: front-end option sets, e.g. [[], [booth], [adder=kogge-stone]]; every "

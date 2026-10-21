@@ -178,6 +178,40 @@ Part of the [SiPath documentation](../README.md#documentation).
   higher than on `route_digital` when `fill` ran in between: metal fill takes
   routing capacity.
 
+## Adaptive rounds
+- A flow item's `adapt: {rounds: N, ...}` turns what a step's selected
+  attempt measured into new attempts of the same step. Each round asks the
+  step's adapter (`registry.ADAPTERS`) for proposals, runs those not tried
+  yet from the same parent (`Flow.extend`), and selects again over all the
+  step's attempts. With `adapt` and no `score`, the step ranks by
+  `hotspots_then_wns`: global-route overflow, then the summed share of hot
+  bins in the placement, RUDY and routing heatmaps, then setup slack.
+- The rounds stop after N, when nothing is hot, when the adapter proposes
+  nothing new, or when no proposal scores better than the selection. Each
+  new attempt records `adapted_from` and `adapt_reason`; the step records its
+  `rounds` and why they stopped, so a resume replays them and runs nothing
+  again. MCP's `adapt_step` runs more rounds on a step an agent ran.
+- `place` (the built-in adapter, options `maps` [placement, rudy],
+  `max_density` 70, `density_step` 0.05, `min_density` 0.3, `max_blockages`
+  6) proposes two attempts:
+  - **Local:** the same parameters plus partial placement blockages
+    (`place` `blockages`: `create_blockage -max_density`) over the hotspot
+    boxes not covered yet. They guide global placement only. The step removes
+    exactly the blockages it created before legalization (fixed taps inside
+    one fail `check_placement`), so the checkpoint carries none.
+  - **Global:** a lower `density`, only while it stays above the cells'
+    utilization, which global placement cannot spread below.
+- Measured on gcd8 at 65% core utilization and density 0.8 (two rounds):
+  - **Round 1:** blockages over three density hotspots took the hot share of
+    the placement map from 20% to 8%, with setup slack 4.614 → 4.572 ns.
+  - **Round 2:** no proposal scored better, so the rounds stopped.
+  - **Signoff cost:** the spread placement left one net 0.03 ns over the slew
+    limit after routing. With `route_repair` `drv_sizing` it signs off, at
+    3.81 ns of slow-corner slack against 4.21 ns without the rounds.
+  - **No win here:** this design had no routing congestion to relieve (RUDY
+    had no hot bins). Measure the rounds on a congested design before
+    relying on them.
+
 ## Sweeps and ECOs
 - `variants=[...]`, `parallel=N`, `score="<name>"` (default `auto`: setup slack
   when constrained, else wirelength); rejected attempts stay in `graph.json`.

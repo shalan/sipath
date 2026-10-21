@@ -2140,6 +2140,108 @@ class Heatmaps(unittest.TestCase):
                     s.query_heatmap(*args)
 
 
+class Adaptive(unittest.TestCase):
+    """Adaptive rounds: Flow.extend, designfile.adapt, the place adapter and its blockages."""
+
+    def flow(self, td):
+        d = Design("fake", "fake", "x.v", "x.sdc", "macro", floorplan_def="x.def")
+        return Flow(d, sky130hd("/p"), td, demo.fake_factory(), validate_inputs=False)
+
+    @staticmethod
+    def step(ctx):  # density lower is better here; blockages better still
+        ctx.metrics["wns"] = 1.0 - ctx.params.get("density", 0.8) + 0.5 * len(ctx.params.get("blockages") or [])
+
+    def test_extend_reselects_records_and_resumes(self):
+        with tempfile.TemporaryDirectory() as td:
+            f = self.flow(td)
+            run = f.step("place", self.step, variants=[{"density": 0.8}], score="setup_wns")
+            self.assertEqual(run.selected.id, "place.0")
+            run = f.extend("place", self.step, [{"density": 0.7}, {"density": 0.8, "blockages": [{"box": [0, 0, 1, 1]}]}],
+                           [{"from": "place.0", "reason": "hot"}, {"from": "place.0", "reason": "hotter"}])
+            self.assertEqual(run.selected.id, "place.2")
+            self.assertEqual([a.status for a in run.attempts], ["rejected", "rejected", "selected"])
+            self.assertEqual((run.selected.adapted_from, run.selected.adapt_reason), ("place.0", "hotter"))
+            self.assertEqual(run.rounds, [{"from": "place.0", "attempts": ["place.1", "place.2"], "selected": "place.2"}])
+            f.stop_rounds("place", "nothing hot")
+            g = json.load(open(os.path.join(td, "graph.json")))
+            self.assertEqual(g["steps"]["place"]["rounds"][-1]["stopped"], "nothing hot")
+            self.assertEqual(g["steps"]["place"]["variants"], [{"density": 0.8}])  # the base variants
+            ran = []
+            f2 = Flow(f.design, f.pdk, td, demo.fake_factory(), validate_inputs=False, resume=True)
+            r2 = f2.step("place", lambda c: ran.append(1), variants=[{"density": 0.8}], score="setup_wns")
+            self.assertEqual((r2.selected.id, len(r2.rounds), ran), ("place.2", 2, []))  # recorded, not rerun
+            r3 = f2.extend("place", lambda c: ran.append(1), [{"density": 0.7}])
+            self.assertEqual((ran, r3.rounds[-1]["attempts"]), ([], []))  # tried before: not run again
+            with self.assertRaisesRegex(ValueError, "nothing to extend"):
+                f2.extend("cts", self.step, [{}])
+
+    def test_design_file_rounds_stop_with_a_reason(self):
+        from sipath import designfile, registry
+        calls = []
+
+        def propose(flow, a, cfg):
+            calls.append(a.id)
+            d = a.params.get("density", 0.8)
+            return [({**a.params, "density": round(d - 0.1, 2)}, f"lower than {d}")] if d > 0.55 else []
+        propose.options = {"step": 0.1}
+        old = registry.adapter("place")
+        registry.ADAPTERS["place"] = propose
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                f = self.flow(td)
+                f.step("place", self.step, variants=[{"density": 0.8}], score="setup_wns")
+                run = designfile.adapt(f, "place", "place", self.step, {"rounds": 5})
+                self.assertEqual([a.params["density"] for a in run.attempts], [0.8, 0.7, 0.6, 0.5])
+                self.assertEqual(run.selected.params["density"], 0.5)
+                self.assertEqual(run.rounds[-1]["stopped"], "nothing hot to answer")
+                self.assertEqual(len(calls), 4)
+                again = designfile.adapt(f, "place", "place", self.step, {"rounds": 6}, start=len(run.rounds))
+                self.assertEqual(again.rounds[-1]["stopped"], "nothing hot to answer")  # a later call: rounds again
+                self.assertEqual(len(calls), 5)
+                with self.assertRaisesRegex(ValueError, "unknown option"):
+                    designfile.adapt(f, "place", "place", self.step, {"rounds": 1, "bogus": 1})
+                with self.assertRaisesRegex(ValueError, "no adapter"):
+                    designfile.adapt(f, "place", "nope", self.step, {"rounds": 1})
+                with self.assertRaisesRegex(ValueError, "rounds must be"):
+                    designfile.adapt(f, "place", "place", self.step, {"rounds": 0})
+        finally:
+            registry.ADAPTERS["place"] = old
+
+    def test_place_adapter_turns_hotspots_into_blockages(self):
+        from sipath.steps.adapt import adapt_place
+        hot = {"placement": {"hotspots": [{"box": [10, 0, 30, 20], "peak": 97.5}, {"box": [0, 20, 10, 30], "peak": 91}]},
+               "rudy": {"hotspots": [{"box": [12, 2, 28, 18], "peak": 120}]}}  # inside the first: not repeated
+        a = Attempt("place.0", "place", 0, {"density": 0.8}, None, "/x", status="selected")
+        a.outputs, a.metrics = {"heatmaps": hot}, {"std_util": 0.5}
+        f = types.SimpleNamespace(pdk=sky130hd("/p"), design=Design("fake", "fake", "x.v", "x.sdc", "macro"))
+        props = adapt_place(f, a, {})
+        local, glob_ = props
+        self.assertEqual([b["box"] for b in local[0]["blockages"]], [[12, 2, 28, 18], [0, 20, 10, 30]])
+        self.assertEqual(local[0]["blockages"][0]["max_density"], 70)
+        self.assertIn("rudy 120", local[1])
+        self.assertEqual(glob_[0], {"density": 0.75})
+        a.metrics = {"std_util": 0.754}  # global placement cannot go below the cells' utilization
+        self.assertEqual(len(adapt_place(f, a, {})), 1)
+        a.outputs = {"heatmaps": {"placement": {"hotspots": []}}}
+        self.assertEqual(adapt_place(f, a, {}), [])
+
+    def test_blockages_are_checked_and_scores_rank_hotspots(self):
+        from sipath import scores
+        from sipath.steps.place import placement_blockages
+        s = FakeSession(".")
+        self.assertEqual(placement_blockages(s, [{"box": [1, 2, 3, 4], "max_density": 60}]), 1)
+        self.assertTrue(any("create_blockage -region {1 2 3 4} -max_density 60" in x for x in s.scripts))
+        self.assertTrue(any("flow_place_blockages" in x for x in s.scripts[-1:]))  # remembered, to remove them
+        for bad in ([{"box": [3, 2, 1, 4]}], [{"box": [1, 2, 3]}], [{"box": [1, 2, 3, 4], "max_density": 100}]):
+            with self.assertRaises(ValueError):
+                placement_blockages(s, bad)
+        sc = scores.get("hotspots_then_wns")
+        cool = sc({"wns": 0.5, "heatmap_placement_hot_share": 0.08, "heatmap_rudy_hot_share": 0.0})
+        hot = sc({"wns": 0.9, "heatmap_placement_hot_share": 0.2, "heatmap_rudy_hot_share": 0.0})
+        self.assertGreater(cool, hot)  # fewer hot bins wins over slack
+        self.assertIsNone(sc({"wns": 0.5}))  # no heatmaps: no score
+
+
 class Phase0Rules(unittest.TestCase):
     def flow(self, td, d=None):
         d = d or Design("fake", "fake", "x.v", "x.sdc", "macro", floorplan_def="x.def")
@@ -2797,7 +2899,7 @@ class McpProtocol(unittest.TestCase):
         c.rpc("notifications/initialized", notify=True)
         names = {t["name"] for t in c.rpc("tools/list")["result"]["tools"]}
         self.assertEqual(names, {"list_designs", "list_scores", "describe_step", "open_run", "run_step", "run_eco", "list_attempts",
-                                 "get_outputs", "query_checkpoint", "query_heatmap", "draw_checkpoint", "render_checkpoint",
+                                 "get_outputs", "query_checkpoint", "query_heatmap", "adapt_step", "draw_checkpoint", "render_checkpoint",
                                  "job_status", "cancel_job", "list_jobs"})
         self.assertIn("resources", init["result"]["capabilities"])
         self.assertEqual(c.rpc("resources/list")["result"], {"resources": []})

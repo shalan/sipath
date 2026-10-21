@@ -97,6 +97,17 @@ TOOLS = [
                           "background": {"type": "boolean", "description": "return a job id at once; poll "
                                          "job_status"}},
                          ["run_id", "step"])},
+    {"name": "adapt_step", "description": "Adaptive rounds on a step that already ran (place): each round turns "
+     "what its selected attempt measured (the heatmaps' hotspots) into new attempts of the same step (partial "
+     "placement blockages over the hotspots; a lower density while above the cells' utilization), runs them from "
+     "the same parent and selects again over all (by the step's score; hotspots_then_wns ranks by hot bins). Stops "
+     "after `rounds`, when nothing is hot, when nothing new is proposed, or when no proposal scores better; the "
+     "rounds and the reason are recorded in the step (list_attempts shows adapted_from and adapt_reason). "
+     "options: the adapter's (place: maps, max_density, density_step, min_density, max_blockages).",
+     "inputSchema": _obj({"run_id": {"type": "string"}, "step": {"type": "string"},
+                          "rounds": {"type": "integer", "minimum": 1}, "options": {"type": "object"},
+                          "parallel": {"type": "integer", "minimum": 1, "maximum": 16},
+                          "background": {"type": "boolean"}}, ["run_id", "step"])},
     {"name": "run_eco", "description": "ECO from the head of the selected chain. ops: "
      "{op:'resize', inst, master} or {op:'buffer', net, master, loads?, name?}. Refused for a sibling or stale "
      "parent; an equivalence failure writes no checkpoint; more than max_patch_nets touched nets triggers a full "
@@ -298,6 +309,35 @@ class Server:
                     "recorded": bool(getattr(r, "resumed", False)),
                     "attempts": [self._summary(a) for a in r.attempts]}
         return self._job(run_id, f"run_step {step}", body, len(variants or [{}]), background)
+
+    def adapt_step(self, run_id, step, rounds=1, options=None, parallel=1, background=False):
+        from . import designfile, registry
+        flow = self._run(run_id)["flow"]
+        if step not in flow.steps:
+            raise ToolError(f"step {step!r} has not run in {run_id}; run it first (run_step)")
+        if registry.adapter(step) is None:
+            raise ToolError(f"step {step!r} has no adapter; adaptive rounds exist for {sorted(registry.ADAPTERS)}")
+        if not isinstance(rounds, int) or isinstance(rounds, bool) or rounds < 1:
+            raise ToolError(f"rounds must be an integer >= 1, not {rounds!r}")
+        if not isinstance(parallel, int) or isinstance(parallel, bool) or not 1 <= parallel <= 16:
+            raise ToolError(f"parallel must be an integer 1..16, not {parallel!r}")
+        opts = dict(options or {})
+        known = set(getattr(registry.adapter(step), "options", {}))
+        if set(opts) - known:
+            raise ToolError(f"unknown option(s) {sorted(set(opts) - known)}; known: {sorted(known)}")
+
+        def body():
+            done = len(flow.steps[step].rounds)
+            try:
+                r = designfile.adapt(flow, step, step, STEPS[step], {"rounds": done + rounds, **opts}, parallel,
+                                     start=done)
+            except StepCancelled:
+                raise
+            except (StepFailed, ValueError) as e:
+                raise ToolError(str(e)[:4000]) from e
+            return {"step": step, "selected": r.selected.id, "score": r.score_name, "rounds": r.rounds[done:],
+                    "attempts": [self._summary(a) for a in r.attempts]}
+        return self._job(run_id, f"adapt_step {step}", body, 2 * rounds, background)
 
     def run_eco(self, run_id, parent, ops, name=None, max_patch_nets=25, background=False):
         flow = self._run(run_id)["flow"]

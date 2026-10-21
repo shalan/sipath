@@ -36,6 +36,9 @@ from . import scores as _scores
 
 STEPS: dict[str, Callable] = {}  # step name -> fn(ctx); the built-ins fill it (sipath.steps), plugins add
 CHECKS: dict[str, Callable] = {}  # signoff check name -> fn(ctx, summary) -> {"pass": bool, ...}
+# step name -> fn(flow, attempt, cfg) -> [(params, reason)]: the next attempts an adaptive round tries, from what
+# the attempt measured (e.g. its heatmaps' hotspots); [] when there is nothing to answer. The built-ins fill it.
+ADAPTERS: dict[str, Callable] = {}
 HARNESSES: dict[str, type] = {}  # harness name -> Harness subclass
 EXTENSIONS: dict[str, dict] = {}  # design-file extensions namespace -> {key: schema.Field}
 TEMPLATES: dict[str, str] = {}  # design template name -> its directory (sipath.templates)
@@ -88,6 +91,20 @@ def eco_runner() -> Callable:
 
 def set_eco_runner(fn: Callable):
     _DEFAULTS["eco"] = fn
+
+
+def register_adapter(step: str, fn: Callable, replace: bool = False):
+    """How a step proposes the next attempts of an adaptive round (``adapt`` in a design file)."""
+    builtin_steps()
+    if step in ADAPTERS and not replace:
+        raise RegistryError(f"adapter for step {step!r} is already registered")
+    ADAPTERS[step] = fn
+    return fn
+
+
+def adapter(step: str) -> Callable | None:
+    builtin_steps()
+    return ADAPTERS.get(step)
 
 
 # ----------------------------------------------------------------------- steps

@@ -50,6 +50,17 @@ def routability_then_wns(m):
     return (-m["grt_overflow"], round(m["wns"], 3), -m["hpwl_um"])
 
 
+def hotspots_then_wns(m):
+    """Least global-route overflow, then the smallest share of hot bins in the placement-density, RUDY and
+    routing-congestion heatmaps (summed; to 0.1%), then setup slack (to 1 ps). For adaptive rounds that turn
+    hotspots into the next attempts' parameters (``adapt``)."""
+    hot = [m.get(f"heatmap_{k}_hot_share") for k in ("placement", "rudy", "routing")]
+    hot = [h for h in hot if h is not None]
+    if not hot or m.get("wns") is None:
+        return None
+    return (-(m.get("grt_overflow") or 0), -round(sum(hot), 3), round(m["wns"], 3))
+
+
 def drc_then_slack(m):
     """Fewest DRC violations, then the worse of setup and hold slack."""
     if m.get("drc") is None or m.get("wns") is None:
@@ -158,7 +169,8 @@ def synth_select(attempts, fallback: str = "knee"):
 synth_select.selector = True  # chooses among all attempts (Flow._select), not one attempt's number
 
 SCORES = {f.__name__: f for f in (setup_wns, hpwl, drc_then_wns, drc_then_slack, wns_then_hpwl, macro_hpwl,
-                                           macro_quick, routability_then_wns, synth_area, synth_wns_then_area, synth_select, auto)}
+                                           macro_quick, routability_then_wns, hotspots_then_wns, synth_area, synth_wns_then_area,
+                                           synth_select, auto)}
 
 
 def get(name):

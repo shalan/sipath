@@ -474,6 +474,34 @@ attempts("runs/gcd8_full", ["synth", "place", "route_digital"], ["synth_wns_ns",
 code("""
 pictures("runs/gcd8_full", "place.0", "place.1", "place.2")
 """)
+recipe(16, "Heatmaps and adaptive rounds: hotspots into the next placement",
+       "16-heatmaps-and-adaptive-rounds-hotspots-into-the-next-placement", """
+A crowded gcd8 (65% core utilization, placement density 0.8). Placement
+collects heatmaps after its checkpoint is saved; `adapt` turns the density
+hotspots into partial blockages for the next attempts, and the step selects
+again by `hotspots_then_wns`. The flow stops after placement.
+""")
+code("""
+path = derive("gcd8", "adapt", core_utilization=0.65, flow=[
+    {"step": "synth"}, {"step": "floorplan"}, {"step": "physical"},
+    {"step": "place", "variants": [{"density": 0.8}], "adapt": {"rounds": 2}, "parallel": 2}])
+!python3 -m sipath run {path} runs/gcd8_adapt --resume
+g = json.load(open("runs/gcd8_adapt/graph.json"))
+print("rounds:", g["steps"]["place"]["rounds"])
+pd.DataFrame([{"attempt": a["id"], "status": a["status"], "from": a.get("adapted_from"),
+               "blockages": len(a["params"].get("blockages") or []),
+               "hot share": a["metrics"].get("heatmap_placement_hot_share"), "wns": a["metrics"].get("wns"),
+               "reason": (a.get("adapt_reason") or "")[:90]} for a in g["attempts"] if a["step"] == "place"])
+""")
+code("""
+sel = g["steps"]["place"]["selected"]
+show = lambda a: display(HTML(open(outputs("runs/gcd8_adapt", a)["heatmaps"]["placement"]["csv"][:-4] + ".svg").read()))
+!python3 -m sipath report runs/gcd8_adapt
+print("placement density, first attempt then the selected one:")
+show("place.0"); show(sel)
+pictures("runs/gcd8_adapt", "place.0", sel)
+""")
+
 md("""
 ## Next
 
