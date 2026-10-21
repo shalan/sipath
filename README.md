@@ -36,6 +36,7 @@ steps from the CLI or Python.
 ## Contents
 
 [Quick start](#quick-start) · [Features](#features) ·
+[The reference flow](#the-reference-flow) · [EDA tools](#eda-tools) ·
 [Results](#results) · [Known limits](#known-limits) ·
 [Documentation](#documentation) · [Repository](#repository) ·
 [License](#license)
@@ -104,6 +105,57 @@ Other commands:
 | **Heatmaps** | Placement density, RUDY, routing congestion, pin density, power and IR drop after place, CTS, routing and extraction (OpenROAD's own maps, taken after the checkpoint is saved); peak, p95, hot share and the hotspots with the instances or nets inside; in the run report and over MCP ([flow](docs/flow.md#heatmaps)) |
 | **Agents** | MCP server: runs, steps, adaptive rounds, ECOs, background jobs with progress, checkpoint queries, heatmaps and pictures ([agents](docs/agents.md)) |
 | **Quality** | Regression limits per design; 194 unit tests and 47 live tests; CI on GitHub Actions (unit tests on every push, live tests nightly) |
+
+## The reference flow
+
+A design file without `flow:` runs this chain. A `flow:` list replaces it:
+any order, your own steps, several variants per step and a score to choose.
+Every step runs as one or more attempts (OpenROAD processes, in parallel),
+and the next step continues from the attempt its score selects. Every
+attempt is kept in `graph.json`.
+
+```mermaid
+flowchart TD
+    Y["<b>design.yaml</b><br/>RTL or netlist · SDC · PDK · utilization<br/>flow: steps, variants, scores"]
+    Y --> S["<b>synth</b><br/>Yosys + ABC recipe sweep · lint · equivalence"]
+    S --> F["<b>floorplan</b><br/>die and core · pins or pad ring · rows"]
+    F --> M["<b>macros</b><br/>hard-macro placement (when there are macros)"]
+    M --> P["<b>physical</b><br/>power grid · taps · endcaps"]
+    F -. no macros .-> P
+    P --> PL["<b>place</b><br/>global and detailed placement · repair"]
+    PL --> C["<b>cts</b><br/>clock tree · repair"]
+    C --> RA["<b>route_analog</b><br/>analog nets: wide rule · shields · frozen"]
+    RA --> RD["<b>route_digital</b><br/>global and detailed routing · antennas"]
+    RD --> RR["<b>route_repair</b><br/>timing repair on extracted parasitics · patch routes"]
+    RR --> FI["<b>fill</b><br/>metal fill"]
+    FI --> X["<b>extract</b><br/>RC extraction per corner · IR drop"]
+    X --> SO["<b>signoff</b><br/>DRC · LVS · density · antennas · nine-corner STA"]
+    SO --> O(["routed DEF · SPEF · signed-off GDS · report.html"])
+    SO -. harness designs .-> PC["<b>precheck</b> → <b>integrate</b><br/>ChipFoundry precheck · chip with seal ring"]
+    SO -. sipath harden .-> V["<b>views</b><br/>LEF · Liberty · GDS · netlists"]
+    H[["place · cts · route_digital · extract:<br/>heatmaps after each checkpoint"]] -.- PL
+```
+
+`fill` and `signoff` run when the PDK has fill rules and signoff decks; a
+netlist design starts at `floorplan`. Each box is a step with typed
+parameters ([reference](docs/reference.md)); [how the flow
+works](docs/flow.md) describes them.
+
+## EDA tools
+
+Versions are the ones locked in `sipath/toolchain.json` (images pinned by
+digest); `python3 -m sipath toolchain --check` compares what is installed.
+
+| tool | version | what SiPath uses it for | from |
+|---|---|---|---|
+| [OpenROAD](https://github.com/The-OpenROAD-Project/OpenROAD) (OpenSTA, OpenRCX, PDNSim, RePlAce, TritonCTS, FastRoute, TritonRoute, Resizer, ICeWall) | 26Q3-1867-g84e3ff1eb2 | floorplan to extraction in live sessions; timing at synthesis and nine-corner signoff STA; antenna checks; heatmaps; layout pictures | ORFS image, or `install-tools` |
+| [Yosys](https://github.com/YosysHQ/yosys) with ABC and slang | 0.68 | synthesis and the ABC recipe sweep, SystemVerilog through slang, lint, bounded equivalence | ORFS image |
+| [Verilator](https://github.com/verilator/verilator) | not locked | RTL lint (`--lint-only -Wall`), when it is found | host, optional |
+| [KLayout](https://github.com/KLayout/klayout) | 0.30.7 | GDS stream-out, DRC, density, standard-cell and full-device LVS, XOR, seal ring, chip check | ORFS image |
+| [Magic](https://github.com/RTimothyEdwards/magic) | 8.3.685 | chip assembly into a frame (`integrate`); optional Magic DRC and XOR | Magic image (`docker/magic`) |
+| [cf-precheck](https://pypi.org/project/cf-precheck/), with [Netgen](https://github.com/RTimothyEdwards/netgen) and [CVC](https://github.com/d-m-bailey/cvc) | 1.3.7 (Netgen 1.5.325, CVC 1.1.7) | ChipFoundry's tapeout precheck on harness designs: LVS (Netgen), OEB and ERC (CVC), XOR, DRC | precheck image (`docker/precheck`) |
+| [open_pdks](https://github.com/RTimothyEdwards/open_pdks) via [ciel](https://github.com/fossi-foundation/ciel) | 8afc8346 | the Sky130 PDK: sky130A/B, hd and hs cells, IO, SRAM macros | `python3 -m sipath install-pdk` |
+| CD-LNS macro placer (PyTorch) | vendored | the `cdlns` macro placement method | `python3 -m sipath setup-placer` |
 
 ## Results
 
