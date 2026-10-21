@@ -51,7 +51,7 @@ YAML or JSON; relative paths are relative to the file. Keys not listed are error
 | `pdn` | object |  | power grid; unset fields take the PDK's |
 | `groups` | list[object] |  | hierarchy groups (fences, clusters) |
 | `datapaths` | list[object] |  | structured placement |
-| `clock_ports` | list[str] |  | clock ports (CTS nets) |
+| `clock_ports` | list[str] |  | clock ports (CTS nets); default: the ports of the SDC's create_clock commands, else clk |
 | `clock_nets` | list[str] |  | explicit CTS nets |
 | `keepouts` | list[box] |  | boxes the macro autoplacer avoids (um) |
 | `macro_channel` | number |  | space between facing macros (um) |

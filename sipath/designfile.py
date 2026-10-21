@@ -137,6 +137,11 @@ def design_from_dict(data: dict, base: str) -> Design:
         kw["pad_rules"] = PadRules(**data["pad_rules"])
     if kw.get("pad_masters", {}).get("fill"):
         kw["pad_masters"] = dict(kw["pad_masters"])
+    if "clock_ports" not in data and kw.get("sdc") and os.path.isfile(kw["sdc"]):
+        from .sdc import clock_ports  # the SDC's create_clock ports, when the file does not name them
+        found = clock_ports(kw["sdc"])
+        if found:
+            kw["clock_ports"] = found
     return Design(**kw)
 
 

@@ -975,7 +975,7 @@ class Layers(unittest.TestCase):
     flow, and library code imports the moved modules from sipath.tools (not their compatibility aliases)."""
     ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     CORE = {"scheduler", "params", "scores", "registry", "config", "report", "recipes", "toolchain"}
-    MODEL = {"design", "pdk", "netlist", "lef", "heatmap"}
+    MODEL = {"design", "pdk", "netlist", "lef", "heatmap", "sdc"}
     FLOWS = {"designfile", "mcp_server", "__main__", ""}  # "": the package's __init__ (its public API)
     ALIASES = {"session", "tcl", "tclquote", "nativetools"}  # = sipath.tools.openroad.*, sipath.tools.native
     FORBIDDEN = {("synth", "signoff")}  # synthesis reaches its tools through sipath.tools
@@ -2056,6 +2056,35 @@ class TclQuoting(unittest.TestCase):
         for v in ("a}b", "x]y[exec rm]", "$env(HOME)"):
             out = q(v)
             self.assertTrue(out.startswith("{") or "\\" in out, out)
+
+
+class SdcClocks(unittest.TestCase):
+    """Clock ports from the SDC when a design file does not name them (sipath.sdc)."""
+
+    def test_forms_variables_and_virtual_clocks(self):
+        from sipath import sdc
+        with tempfile.TemporaryDirectory() as td:
+            p = os.path.join(td, "c.sdc")
+            with open(p, "w") as f:
+                f.write("set clk_port_name PCLK\nset clk_port [get_ports $clk_port_name]\n"
+                        "create_clock -name core -period 10 $clk_port\n"
+                        "create_clock -name io -period 5\n"  # virtual: no port
+                        "create_clock -name h -period 11 [get_ports {HCLK}]\n"
+                        "# create_clock -name x -period 1 [get_ports nope]\n"
+                        "create_clock -name g -period 20 [get_ports {gpio_in[0]}]\n")
+            self.assertEqual(sdc.clock_ports(p), ["PCLK", "HCLK", "gpio_in[0]"])
+
+    def test_design_files_take_the_sdc_ports_unless_given(self):
+        from sipath import designfile
+        with tempfile.TemporaryDirectory() as td:
+            with open(os.path.join(td, "t.sdc"), "w") as f:
+                f.write("create_clock -name pclk -period 10 [get_ports PCLK]\n")
+            base = {"name": "t", "top": "t", "mode": "macro", "netlist": "t.v", "sdc": "t.sdc", "pdk": "sky130A"}
+            self.assertEqual(designfile.design_from_dict(base, td).clock_ports, ["PCLK"])
+            self.assertEqual(designfile.design_from_dict({**base, "clock_ports": ["clk"]}, td).clock_ports, ["clk"])
+            with open(os.path.join(td, "t.sdc"), "w") as f:
+                f.write("create_clock -name v -period 10\n")  # nothing to take: the default stays
+            self.assertEqual(designfile.design_from_dict(base, td).clock_ports, ["clk"])
 
 
 class Heatmaps(unittest.TestCase):

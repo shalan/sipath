@@ -11,7 +11,7 @@ on any import that crosses these rules.
 | layer | modules | may import |
 |---|---|---|
 | core | `scheduler`, `params`, `scores`, `registry`, `config`, `report`, `recipes`, `toolchain` | core, model |
-| model | `design`, `pdk`, `netlist`, `lef`, `heatmap` | core, model |
+| model | `design`, `pdk`, `netlist`, `lef`, `heatmap`, `sdc` | core, model |
 | tools | `tools/` | core, model, tools |
 | steps | `steps/` and the libraries they use (everything not listed elsewhere) | core, model, tools, steps |
 | flows | `designfile`, `mcp_server`, `__main__`, the package's `__init__` | everything |
@@ -53,7 +53,7 @@ on any import that crosses these rules.
 | module | role |
 |---|---|
 | `design.py`, `pdk.py`, `pdks/` | design spec (unset fields from the PDK); PDK descriptions and their loader (`read_file`: YAML or JSON) |
-| `netlist.py`, `lef.py` | Verilog netlist model; LEF macros, pins and touching pins |
+| `netlist.py`, `lef.py`, `sdc.py` | Verilog netlist model; LEF macros, pins and touching pins; an SDC's clock ports |
 | `heatmap.py` | heatmap CSVs (`gui::dump_heatmap`): read, summarised (peak, p95, hot share, hot regions), queried by box, drawn as SVG |
 
 ## Tools (`tools/`)

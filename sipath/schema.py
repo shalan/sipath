@@ -173,7 +173,8 @@ DESIGN = {
     "pdn": F("object", "power grid; unset fields take the PDK's", fields=PDN),
     "groups": F("list[object]", "hierarchy groups (fences, clusters)", fields=GROUP),
     "datapaths": F("list[object]", "structured placement", fields=DATAPATH),
-    "clock_ports": F("list[str]", "clock ports (CTS nets)"),
+    "clock_ports": F("list[str]", "clock ports (CTS nets); default: the ports of the SDC's create_clock "
+                                  "commands, else clk"),
     "clock_nets": F("list[str]", "explicit CTS nets"),
     "keepouts": F("list[box]", "boxes the macro autoplacer avoids (um)"),
     "macro_channel": F("number", "space between facing macros (um)"),
