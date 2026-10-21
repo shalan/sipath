@@ -28,6 +28,8 @@ require_digest         SIPATH_REQUIRE_DIGEST     refuse an image not pinned by d
 require_pdk_release    SIPATH_REQUIRE_PDK        refuse an open_pdks tree whose release is not the locked one
                                                  (default on; sipath/toolchain.json, `sipath install-pdk`)
 debug_failed           SIPATH_DEBUG_FAILED       write a debug ODB for failed attempts
+snapshots              SIPATH_SNAPSHOTS          a layout picture after every step (`sipath run`): off, selected
+                                                 (the attempt each step selects) or all (every finished attempt)
 log_level              SIPATH_LOG_LEVEL          ``logging`` level of the ``flow`` logger
 =====================  ======================  =====================================
 """
@@ -48,7 +50,7 @@ ENV = {"threads": "SIPATH_THREADS", "command_timeout": "SIPATH_TIMEOUT", "tool_t
        "native_tools": "SIPATH_NATIVE_TOOLS",
        "placer_python": "SIPATH_PLACER_PYTHON",
        "require_digest": "SIPATH_REQUIRE_DIGEST", "require_pdk_release": "SIPATH_REQUIRE_PDK", "debug_failed": "SIPATH_DEBUG_FAILED",
-       "log_level": "SIPATH_LOG_LEVEL"}
+       "log_level": "SIPATH_LOG_LEVEL", "snapshots": "SIPATH_SNAPSHOTS"}
 
 
 def default_threads() -> int:
@@ -84,6 +86,7 @@ class Config:
     require_pdk_release: bool = True  # an open_pdks tree of another release is refused (SIPATH_REQUIRE_PDK=0 allows it)
     debug_failed: bool = False
     log_level: str = "WARNING"
+    snapshots: str = "off"  # off | selected | all: layout pictures after every step (designfile.run)
 
     def __post_init__(self):
         self.validate()
@@ -95,6 +98,8 @@ class Config:
             raise ConfigError("command_timeout must be > 0")
         if int(self.parallel_cap) < 0:
             raise ConfigError("parallel_cap must be >= 0")
+        if self.snapshots not in ("off", "selected", "all"):
+            raise ConfigError(f"snapshots must be off, selected or all, not {self.snapshots!r}")
         if self.container_cpus is not None and float(self.container_cpus) <= 0:
             raise ConfigError("container_cpus must be > 0")
         if self.require_digest:

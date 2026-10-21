@@ -2087,6 +2087,36 @@ class CdlnsWorkClock(unittest.TestCase):
         self.assertAlmostEqual(wc.TICK * 2 * 282, 1.0)  # two reads per annealing iteration, 282 iterations/s
 
 
+class Snapshots(unittest.TestCase):
+    """Layout pictures after every step (config snapshots): which attempts, never fatal."""
+
+    def test_selected_all_and_failures(self):
+        from sipath import designfile
+        with tempfile.TemporaryDirectory() as td:
+            def att(i, status, ck):
+                a = Attempt(f"place.{i}", "place", i, {}, None, td, status=status)
+                a.checkpoint = os.path.join(td, ck)
+                open(a.checkpoint, "w").close()
+                return a
+            atts = [att(0, "selected", "p0.odb"), att(1, "rejected", "p1.odb"), att(2, "failed", "p2.odb")]
+            run = types.SimpleNamespace(selected=atts[0], attempts=atts)
+            flow = types.SimpleNamespace(workdir=td, runner=None, save_graph=lambda: None)
+            drawn = []
+
+            def fake_render(odb, png, runner=None):
+                if odb.endswith("p1.odb"):
+                    raise RuntimeError("no display")
+                drawn.append(os.path.basename(png))
+                open(png, "w").close()
+            with unittest.mock.patch("sipath.viz.render", fake_render):
+                self.assertEqual([os.path.basename(x) for x in designfile.snapshot(flow, run)], ["place.0.png"])
+                with self.assertLogs("sipath", "WARNING"):
+                    designfile.snapshot(flow, run, "all")  # place.1 fails: logged; place.2 failed: not drawn
+            self.assertEqual(drawn, ["place.0.png"])  # drawn once: the second call found it up to date
+            tool = types.SimpleNamespace(selected=att(3, "selected", "x.synth.v"), attempts=[])
+            self.assertEqual(designfile.snapshot(flow, tool), [])  # not a layout
+
+
 class SdcClocks(unittest.TestCase):
     """Clock ports from the SDC when a design file does not name them (sipath.sdc)."""
 

@@ -2,7 +2,8 @@
 
     python3 -m sipath validate          inputs present + scheduler graph rules (FakeSession; no design)
     python3 -m sipath gen-inputs        (re)write sipath/examples/inputs
-    python3 -m sipath run <design.yaml|dp8|mcu8|ihp_add8> [workdir] [--resume] [--explore] [--config file] [-v]
+    python3 -m sipath run <design.yaml|dp8|mcu8|ihp_add8> [workdir] [--resume] [--explore] [--snapshots[=all]]
+                                      [--config file] [-v]
                                       real OpenROAD run -> routed DEF + SPEF; --resume continues the
                                       attempt graph in workdir (finished steps are not run again);
                                       --explore: a fast first cut at PPA (typical corner, global routing,
@@ -175,6 +176,7 @@ def main(argv) -> int:
         from . import designfile
         from .config import Config
         resume, verbose, explore = "--resume" in argv, "-v" in argv, "--explore" in argv
+        snapshots = "all" if "--snapshots=all" in argv else ("selected" if "--snapshots" in argv else None)
         args = [a for a in argv[1:] if not a.startswith("-")]
         cfg_file = argv[argv.index("--config") + 1] if "--config" in argv else None
         if cfg_file in args:
@@ -189,8 +191,10 @@ def main(argv) -> int:
         name = os.path.splitext(os.path.basename(path))[0]
         wd = argv[2] if len(argv) > 2 else os.path.join(os.getcwd(), "runs", name)
         fcfg = designfile.file_config(path)
-        flow = designfile.run(path, wd, config=Config.load(cfg_file, **fcfg) if (cfg_file or fcfg) else cfg,
-                              resume=resume, explore=explore)
+        run_cfg = Config.load(cfg_file, **fcfg) if (cfg_file or fcfg) else cfg
+        if snapshots:
+            run_cfg = run_cfg.replace(snapshots=snapshots)
+        flow = designfile.run(path, wd, config=run_cfg, resume=resume, explore=explore)
         last = list(flow.steps.values())[-1].selected
         ppa_md = (last.outputs.get("reports") or {}).get("ppa")
         if ppa_md and os.path.isfile(ppa_md):

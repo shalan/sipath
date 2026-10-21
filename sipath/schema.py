@@ -116,6 +116,9 @@ CONFIG = {
     "require_pdk_release": F("bool", "refuse an open_pdks tree whose release is not the locked one (default on)"),
     "debug_failed": F("bool", "write a debug checkpoint for a failed attempt"),
     "log_level": F("str", "flow logger level", choices=("DEBUG", "INFO", "WARNING", "ERROR")),
+    "snapshots": F("str", "a layout picture after every step (_pictures/<attempt>.png, in the report): off, "
+                          "selected (each step's selected attempt) or all (every finished attempt)",
+                   choices=("off", "selected", "all")),
 }
 FLOW_STEP = {
     "step": F("str", "step name: a registered step, any name with fn, or module:function (a step function "

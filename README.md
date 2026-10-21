@@ -77,7 +77,7 @@ Other commands:
 | `sipath harden <design> <dir>` | a design's hardened-macro views (LEF, Liberty, GDS, SPEF) |
 | `sipath install-tools [dir]` | the locked ORFS image's tools without Docker (Linux x86_64, glibc 2.35+: Colab, Ubuntu 22.04+) |
 | `sipath setup-placer` | the Python with CPU PyTorch for the CD-LNS macro placer |
-| `sipath render <run> [step]`, `sipath draw` | OpenROAD's layout picture, or a schematic SVG, of a step's checkpoint (`all`: every step) |
+| `sipath render <run> [step]`, `sipath draw` | OpenROAD's layout picture, or a schematic SVG, of a step's checkpoint (`all`: every step); `sipath run ... --snapshots` draws one after every step |
 | `sipath lvs <gds> <top> <spice>` | full-device LVS of a layout with the PDK's own deck |
 | `sipath limits <run> <design>` | a run against its regression limits |
 | `sipath validate`, `sipath docs`, `sipath schema` | check the examples; regenerate the reference; JSON Schema |

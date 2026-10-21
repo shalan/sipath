@@ -192,6 +192,7 @@ YAML or JSON; relative paths are relative to the file. Keys not listed are error
 | `require_pdk_release` | bool |  | refuse an open_pdks tree whose release is not the locked one (default on) |
 | `debug_failed` | bool |  | write a debug checkpoint for a failed attempt |
 | `log_level` | str |  | flow logger level (one of: DEBUG, INFO, WARNING, ERROR) |
+| `snapshots` | str |  | a layout picture after every step (_pictures/<attempt>.png, in the report): off, selected (each step's selected attempt) or all (every finished attempt) (one of: off, selected, all) |
 
 ### inputs
 
@@ -505,6 +506,7 @@ Design file `config:`, a `--config` file, or `SIPATH_<KEY>` environment variable
 | `require_pdk_release` | bool | refuse an open_pdks tree whose release is not the locked one (default on) |
 | `debug_failed` | bool | write a debug checkpoint for a failed attempt |
 | `log_level` | str | flow logger level |
+| `snapshots` | str | a layout picture after every step (_pictures/<attempt>.png, in the report): off, selected (each step's selected attempt) or all (every finished attempt) |
 
 ## PDK description keys
 

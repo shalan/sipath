@@ -44,8 +44,8 @@ core_utilization: 0.4
 ```
 
 ```bash
-python3 -m sipath run my_gcd8.yaml runs/gcd8
-python3 -m sipath render runs/gcd8 all          # a picture per step: runs/gcd8/_pictures/place.0.png, ...
+python3 -m sipath run my_gcd8.yaml runs/gcd8 --snapshots   # a picture after every step (_pictures/)
+python3 -m sipath render runs/gcd8 all          # or afterwards: runs/gcd8/_pictures/place.0.png, ...
 python3 -m sipath report runs/gcd8
 ```
 

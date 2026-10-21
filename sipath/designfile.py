@@ -313,8 +313,36 @@ def run(path_or_design, workdir: str, runner=None, overrides: dict | None = None
                       parallel=item.get("parallel", 1))
         if item.get("adapt"):
             r = adapt(flow, name, ref, fn, item["adapt"], item.get("parallel", 1))
+        if cfg.snapshots != "off":
+            snapshot(flow, r, cfg.snapshots)
         parent = r.selected
     return flow
+
+
+def snapshot(flow, run, which: str = "selected") -> list[str]:
+    """Layout pictures of a step just run (config ``snapshots``): its selected attempt, or every finished one
+    (``all``), as ``<workdir>/_pictures/<attempt>.png`` (the run report shows them in flow order). A step whose
+    checkpoint is not a layout (synthesis) has none; a render that fails is logged, never fatal."""
+    import logging
+    from .viz import render
+    out = []
+    atts = [run.selected] if which == "selected" else [a for a in run.attempts if a.status in ("selected", "rejected")]
+    for a in atts:
+        if a is None or not str(a.checkpoint or "").endswith(".odb"):
+            continue
+        png = os.path.join(flow.workdir, "_pictures", f"{a.id}.png")
+        if os.path.isfile(png) and os.path.getmtime(png) >= os.path.getmtime(a.checkpoint):
+            out.append(png)  # resumed: already drawn
+            continue
+        try:
+            os.makedirs(os.path.dirname(png), exist_ok=True)
+            render(a.checkpoint, png, flow.runner)
+            out.append(png)
+        except Exception as e:  # a picture never fails the run
+            logging.getLogger("sipath").warning("snapshot of %s not written: %s", a.id, e)
+    if out:
+        flow.save_graph()  # the report picks up the new pictures
+    return out
 
 
 def adapt(flow, name: str, ref: str, fn, cfg: dict, parallel: int = 1, start: int = 0):
