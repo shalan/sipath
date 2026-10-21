@@ -34,9 +34,22 @@ SIMPLE = ("name", "top", "mode", "die", "core_margin", "analog_nets", "analog_nd
           "plugins", "extensions", "supply_names", "harness", "harness_options")
 
 
-def default_flow(d: Design) -> list[dict]:
+def default_flow(d: Design, pdk=None) -> list[dict]:
+    """The reference flow, for a design file without ``flow:``: synthesis (RTL) or the netlist, floorplan,
+    macros (if any), power, placement, CTS, routing, repair, then metal fill, extraction and signoff when the
+    PDK has fill rules and a signoff section (a PDK without signoff decks ends at extraction). ``pdk``: the
+    loaded PDK; without it, the design's PDK is loaded when that needs no
+    platform tree, else fill and signoff are left out (``run`` gives the run's PDK)."""
+    if pdk is None:
+        from .pdk import load as load_pdk
+        try:
+            pdk = load_pdk(d.pdk) if isinstance(d.pdk, str) else d.pdk
+        except (ValueError, OSError):  # e.g. a PDK read from the ORFS platform tree, not known yet
+            pdk = None
+    so = (getattr(pdk, "signoff", None) or {}) if pdk is not None else {}
     chain = (["synth"] if d.rtl else []) + ["floorplan"] + (["macros"] if d.macros else []) + [
-        "physical", "place", "cts", "route_analog", "route_digital", "route_repair", "extract"]
+        "physical", "place", "cts", "route_analog", "route_digital", "route_repair"]
+    chain += (["fill"] if so.get("fill_rules") else []) + ["extract"] + (["signoff"] if so else [])
     return [{"step": s} for s in chain]
 
 
@@ -260,17 +273,21 @@ def run(path_or_design, workdir: str, runner=None, overrides: dict | None = None
     from .config import Config
     from .tools.openroad.session import find_openroad
     if isinstance(path_or_design, Design):
-        d, spec, fcfg = path_or_design, list(flow_steps or default_flow(path_or_design)), {}
+        d, spec, fcfg = path_or_design, list(flow_steps or []), {}
+        defaulted = not flow_steps
     else:
         d, spec = load(path_or_design)
         fcfg = file_config(path_or_design)
+        defaulted = not read_file(os.path.abspath(path_or_design)).get("flow")
     cfg = config or Config.load(**fcfg)
     runner = runner or find_openroad(cfg)
     if runner is None:
         raise FileNotFoundError("OpenROAD not available")
+    flow = build(d, workdir, runner, cfg, resume, explore=explore)
+    if defaulted:  # the reference flow, now that the run's PDK is known (fill and signoff need its decks)
+        spec = default_flow(d, flow.pdk)
     if explore:  # a first cut at PPA: see explore_flow
         spec = explore_flow(spec)
-    flow = build(d, workdir, runner, cfg, resume, explore=explore)
     flow.progress = progress
     parent = None
     for item in spec:

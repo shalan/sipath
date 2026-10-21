@@ -209,8 +209,15 @@ Part of the [SiPath documentation](../README.md#documentation).
     limit after routing. With `route_repair` `drv_sizing` it signs off, at
     3.81 ns of slow-corner slack against 4.21 ns without the rounds.
   - **No win here:** this design had no routing congestion to relieve (RUDY
-    had no hot bins). Measure the rounds on a congested design before
-    relying on them.
+    had no hot bins).
+- Measured on aes (35% core utilization, the benchmark's settings), which is
+  congested: 8.8% of the RUDY bins over 100%, peak 136%. Blockages over the
+  six hotspots lowered the RUDY peak to 124.5% but spread the congestion
+  (8.8% → 9.0% hot RUDY bins, 2.7% → 3.3% hot placement bins), at −0.08 ns
+  of setup slack; no lower density was proposed (0.50 is below the cells'
+  53%). The round lost and the rounds stopped; the run then reproduced the
+  baseline exactly (all 244 metric values). So far, on both designs,
+  blockages move congestion rather than remove it.
 
 ## Sweeps and ECOs
 - `variants=[...]`, `parallel=N`, `score="<name>"` (default `auto`: setup slack

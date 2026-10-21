@@ -266,8 +266,16 @@ def synth_script(pdk, d, out: str, abc_script: str, port_buffers: bool = True, f
     return "\n".join(lines) + "\n"
 
 
-# reset port names and their active level, tried in order when equiv_reset is not given
-RESET_NAMES = (("rst_n", 0), ("resetn", 0), ("reset_n", 0), ("rstn", 0), ("nrst", 0), ("rst", 1), ("reset", 1))
+# reset port names (any case) and their active level, tried in order when equiv_reset is not given: common
+# names, AMBA's (PRESETn, HRESETn, ARESETn) and lowRISC's rst_ni
+RESET_NAMES = (("rst_n", 0), ("resetn", 0), ("reset_n", 0), ("rstn", 0), ("nrst", 0), ("rst_ni", 0), ("presetn", 0),
+               ("hresetn", 0), ("aresetn", 0), ("arst_n", 0), ("rst", 1), ("reset", 1), ("arst", 1))
+
+
+def find_reset(ports) -> tuple[str, int] | None:
+    """(port, active level) of the first RESET_NAMES entry among ``ports``, matched without case."""
+    by_lower = {p.lower(): p for p in ports}
+    return next(((by_lower[n], lvl) for n, lvl in RESET_NAMES if n in by_lower), None)
 
 
 def equiv_script(pdk, d, netlist: str, depth: int, reset: tuple[str, int] | None, timeout: int,
@@ -306,7 +314,7 @@ def equivalence(ctx, netlist: str) -> dict:
             raise ValueError(f"synth: equiv_reset port {name!r} is not a port of {d.top}")
         reset = (name, int(level or 0))
     else:
-        reset = next(((n, lvl) for n, lvl in RESET_NAMES if n in ports), None)
+        reset = find_reset(ports)
     depth, timeout = int(p.get("equiv_depth", 10)), int(p.get("equiv_timeout", 600))
     script = ctx.path("equiv.ys")
     with open(script, "w") as f:
@@ -323,7 +331,9 @@ def equivalence(ctx, netlist: str) -> dict:
     elif "FAIL" in text and "model found" in text:
         res["result"] = "mismatch"
         tail = text[text.rfind("Time Signal Name"):][:3000] if "Time Signal Name" in text else text[-3000:]
-        raise RuntimeError(f"synth: the netlist differs from the RTL within {depth} cycles from reset "
+        hint = "" if reset else (" (no reset port recognised, so the registers start undefined; name it with "
+                                 "equiv_reset, e.g. PRESETn:0)")
+        raise RuntimeError(f"synth: the netlist differs from the RTL within {depth} cycles from reset{hint} "
                            f"(log {log}):\n{tail}")
     elif "timeout" in text.lower() or "Interrupted" in text:
         res["result"] = "inconclusive (timeout)"

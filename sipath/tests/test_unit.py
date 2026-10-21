@@ -1347,6 +1347,9 @@ class SynthUnits(unittest.TestCase):
         self.assertEqual([x["step"] for x in steps][:2], ["synth", "floorplan"])
         self.assertIsNone(d.netlist)
         self.assertEqual(designfile.default_flow(d)[0], {"step": "synth"})
+        # the reference flow ends in signoff on a PDK with signoff decks (sky130A), as gcd8.yaml spells it out
+        self.assertEqual([s["step"] for s in designfile.default_flow(d)], [s["step"] for s in steps])
+        self.assertEqual([s["step"] for s in designfile.default_flow(d)][-3:], ["fill", "extract", "signoff"])
         with self.assertRaisesRegex(ValueError, "netlist or rtl: one is required"):
             schema.validate({"name": "t", "top": "t", "mode": "macro", "pdk": "sky130A", "sdc": "s.sdc"})
         bad = Design(name="t", top="t", netlist=None, sdc=d.sdc, mode="macro")
@@ -1403,6 +1406,10 @@ class RtlEquivalence(unittest.TestCase):
         self.assertIn("-set-at 1 in_rst_n 0 -seq 7 -prove-skip 1 -timeout 99 miter", s)
         self.assertNotIn("-set-at", synth.equiv_script(pdk, d, "/n/t.v", 7, None, 99))
         self.assertEqual([n for n, _ in synth.RESET_NAMES][:2], ["rst_n", "resetn"])
+        self.assertEqual(synth.find_reset(["PCLK", "PRESETn", "PSEL"]), ("PRESETn", 0))  # AMBA names, any case
+        self.assertEqual(synth.find_reset(["clk", "rst_ni"]), ("rst_ni", 0))
+        self.assertEqual(synth.find_reset(["clk", "RST"]), ("RST", 1))
+        self.assertIsNone(synth.find_reset(["clk", "en"]))
 
 
 class BlackboxModels(unittest.TestCase):
