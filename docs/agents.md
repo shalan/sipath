@@ -2,6 +2,43 @@
 
 Part of the [SiPath documentation](../README.md#documentation).
 
+## With Claude Code
+
+The repository's `.mcp.json` registers the server as `sipath`. Open the
+repository in Claude Code; it asks once whether to use the project's MCP
+server (`/mcp` shows it). The tools then appear as `mcp__sipath__<tool>`;
+Claude Code asks before each call unless you allow them, for example with
+`"permissions": {"allow": ["mcp__sipath__*"]}` in your `.claude/settings.json`
+or `.claude/settings.local.json`. Runs go under `runs/` of the repository.
+Elsewhere (another project, Claude Desktop) register the same command:
+
+```bash
+claude mcp add --transport stdio --scope project sipath -- python3 -m sipath mcp
+```
+
+Then ask in plain words; the agent picks the tools. For example:
+
+```text
+Run gcd8 to signoff with sipath and summarise the signoff checks and the
+slowest steps.
+
+On gcd8, sweep placement density 0.45, 0.6 and 0.75 in parallel. Compare the
+placement-density and RUDY heatmaps and the setup slack of the three, explain
+which you keep, and continue the flow to signoff from it.
+
+Open a run for sipath/examples/dp8.yaml and take it through routing. Query
+the routing heatmap of the routed attempt: where is the worst hotspot, and
+which nets cross it?
+
+Make gcd8 crowded (core_utilization 0.65, placement density 0.8) and run it
+to placement. If the placement heatmap has hotspots, run two adaptive rounds
+on place and tell me what they changed and what it cost in slack.
+```
+
+Long steps (aes signoff takes most of an hour) are better run with
+`background: true` and followed with `job_status`; Claude Code moves a tool
+call still running after two minutes to the background on its own.
+
 `python3 -m sipath mcp` serves `open_run` (an example name or any design file;
 `resume` picks up a workdir), `run_step`, `run_eco`, `job_status`,
 `cancel_job`, `list_jobs`, `list_attempts`, `get_outputs`, `describe_step`,

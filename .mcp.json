@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "sipath": {
+      "command": "python3",
+      "args": ["-m", "sipath", "mcp"],
+      "env": {"PYTHONPATH": "${CLAUDE_PROJECT_DIR:-.}"}
+    }
+  }
+}
