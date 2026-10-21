@@ -2132,7 +2132,10 @@ class Heatmaps(unittest.TestCase):
             s.runs["r1"] = {"flow": f, "design": "fake", "job": None}
             out = s.query_heatmap("r1", "place.0", "placement", [12, 12, 18, 18])
             self.assertEqual((out["peak"], out["bins_in_box"], out["bin_values"][0]["value"]), (99.0, 1, 40.0))
-            self.assertEqual(s.query_heatmap("r1", "place.0", "placement")["bins_in_box"], 9)
+            summary = s.query_heatmap("r1", "place.0", "placement")
+            self.assertEqual((summary["bins_in_box"], summary["peak"]), (9, 99.0))
+            self.assertNotIn("bin_values", summary)  # the summary alone unless the bins are asked for
+            self.assertEqual(len(s.query_heatmap("r1", "place.0", "placement", bins=True)["bin_values"]), 9)
             for args, msg in (((["r1", "place.0", "rudy"]), "has no rudy"), ((["r1", "place.0", "irdrop"]), "GUI-0072"),
                               ((["r1", "place.0", "placement", [5, 5, 1, 1]]), "x0 < x1"),
                               ((["r1", "place.0", "nope"]), "unknown map")):

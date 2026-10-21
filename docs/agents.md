@@ -35,6 +35,12 @@ to placement. If the placement heatmap has hotspots, run two adaptive rounds
 on place and tell me what they changed and what it cost in slack.
 ```
 
+Tried with Claude Code 2.1.301, non-interactively (`claude -p "..."
+--allowedTools "mcp__sipath__*"`, the built-in tools disallowed): it loaded the
+project server, listed the designs, ran gcd8's synth, floorplan, physical and
+place each from the previous selected attempt, and reported the placement
+heatmap and the setup slack: 10 turns, about a minute, $0.40.
+
 Long steps (aes signoff takes most of an hour) are better run with
 `background: true` and followed with `job_status`; Claude Code moves a tool
 call still running after two minutes to the background on its own.
@@ -59,9 +65,9 @@ call still running after two minutes to the background on its own.
   result files: a guard against accidental writes, not a security sandbox.
 - `query_heatmap {"run_id": R, "attempt": "route_digital.0", "map": "routing", "box": [x0, y0, x1, y1]}`:
   a heatmap the attempt collected (placement, rudy, routing, pin, power,
-  irdrop; see [heatmaps](flow.md#heatmaps)): unit, peak, p95, hot share, the
-  hotspots with the instances or nets inside, and the bins (at most 2500;
-  give a box for a region of a larger map).
+  irdrop; see [heatmaps](flow.md#heatmaps)): unit, peak, p95, hot share and
+  the hotspots with the instances or nets inside; the bins only with a box
+  (those overlapping it) or `bins: true` (at most 2500).
 - `adapt_step {"run_id": R, "step": "place", "rounds": 2, "options": {"max_density": 60}}`: adaptive rounds on
   a step that already ran (see [adaptive rounds](flow.md#adaptive-rounds)): the selected attempt's hotspots
   become new attempts of the step, which selects again; returns the rounds, why they stopped, and the

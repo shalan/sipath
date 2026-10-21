@@ -134,12 +134,13 @@ TOOLS = [
      "annotations": {"readOnlyHint": True}},
     {"name": "query_heatmap", "description": "A heatmap an attempt collected after its checkpoint was saved "
      "(place, cts, route_digital, extract; maps: placement density, RUDY, routing congestion, pin density, power, "
-     "IR drop): unit, peak, p95, hot threshold and share of hot bins, the hotspot boxes with the instances or nets "
-     "inside them, and the bins (microns): all, or those overlapping box [x0, y0, x1, y1]. At most 2500 bins are "
-     "returned; give a box to see a region of a larger map.",
+     "IR drop): unit, peak, p95, hot threshold and share of hot bins, and the hotspot boxes with the instances or "
+     "nets inside them. The bins themselves (microns, values) only when asked: box [x0, y0, x1, y1] returns those "
+     "overlapping it, bins: true returns all (at most 2500; give a box for a region of a larger map).",
      "inputSchema": _obj({"run_id": {"type": "string"}, "attempt": {"type": "string"},
                           "map": {"type": "string", "enum": list(heatmap.MAPS)},
-                          "box": {"type": "array", "items": {"type": "number"}, "minItems": 4, "maxItems": 4}},
+                          "box": {"type": "array", "items": {"type": "number"}, "minItems": 4, "maxItems": 4},
+                          "bins": {"type": "boolean", "description": "return the bins (default: only with a box)"}},
                          ["run_id", "attempt", "map"]),
      "annotations": {"readOnlyHint": True}},
     {"name": "draw_checkpoint", "description": "Schematic SVG of an attempt's checkpoint: IO pads, corners, "
@@ -508,7 +509,7 @@ class Server:
         return {"attempt": a.id, "status": a.status, "files": files,
                 "outputs": {k: v for k, v in a.outputs.items() if not isinstance(v, str)}}
 
-    def query_heatmap(self, run_id, attempt, map, box=None):
+    def query_heatmap(self, run_id, attempt, map, box=None, bins=None):
         a = self._attempt(self._run(run_id)["flow"], attempt)
         maps = (a.outputs or {}).get("heatmaps") or {}
         if map not in heatmap.MAPS:
@@ -525,10 +526,12 @@ class Server:
                 raise ToolError(f"box must be [x0, y0, x1, y1] microns with x0 < x1 and y0 < y1, not {box!r}")
         if not os.path.isfile(e.get("csv", "")):
             raise ToolError(f"attempt {a.id}: {map} heatmap file missing: {e.get('csv')}")
-        unit, bins = heatmap.read(e["csv"])
-        found = heatmap.query(bins, box)
-        return {"attempt": a.id, "map": map, **{k: v for k, v in e.items()}, "box": box,
-                "bins_in_box": len(found), "bins_returned": min(len(found), 2500), "bin_values": found[:2500]}
+        unit, all_bins = heatmap.read(e["csv"])
+        found = heatmap.query(all_bins, box)
+        out = {"attempt": a.id, "map": map, **{k: v for k, v in e.items()}, "box": box, "bins_in_box": len(found)}
+        if bins if bins is not None else box is not None:  # the summary alone unless the bins are asked for
+            out.update(bins_returned=min(len(found), 2500), bin_values=found[:2500])
+        return out
 
     def _ckpt(self, run_id, attempt):
         flow = self._run(run_id)["flow"]
