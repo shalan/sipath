@@ -1,4 +1,5 @@
-"""SiPath: a Python physical-design flow driving a live OpenROAD process.
+"""SiPath: physical-design flow infrastructure (attempt graph, step library, tool
+adapters, plugins, MCP) with a reference RTL-to-GDS flow, driven by design files.
 
 Public API:
     Flow, StepRun, Attempt, Ctx, StepFailed, EcoRefused   (sipath.scheduler)

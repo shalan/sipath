@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "sipath"
 version = "0.1.0"
-description = "The path to silicon, steered by AI: a Python physical-design flow driving live OpenROAD processes."
+description = "The path to silicon, steered by AI: physical-design flow infrastructure (attempt graph, step library, tool adapters, MCP) with a reference RTL-to-GDS flow, driven by YAML design files."
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]

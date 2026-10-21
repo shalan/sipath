@@ -12,19 +12,26 @@
 [![Open the tutorial in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/shalan/sipath/blob/main/notebooks/sipath_tutorial.ipynb)
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/shalan/sipath?quickstart=1)
 
-SiPath is a Python physical-design flow that drives live OpenROAD sessions,
-from RTL or a gate-level netlist to a **routed DEF, SPEF and a signed-off
-GDS**. It is built to be steered by an AI agent:
+SiPath is **flow infrastructure for physical design**, with a **reference
+flow** built on it. A flow is data: a design file in YAML (or JSON) lists the
+steps, the parameter variants of each, and the scores that choose between the
+attempts. The infrastructure runs it:
 
-- an **MCP server** lets an agent open runs, launch sweeps, read metrics and
-  reports, run ECOs and query checkpoints;
-- an **attempt graph** keeps every path tried and selects the best by score;
-- **signoff** (DRC, LVS, STA) is the judge of what counts: a failed required
-  check fails the run.
+- an **attempt graph**: every step runs as one or more attempts (parallel
+  variants, retries, adaptive rounds), every attempt is kept, a named score
+  selects the one the next step continues from; runs resume and cancel;
+- a **step library** and **tool adapters** (OpenROAD in live sessions, Yosys,
+  KLayout, Magic, Netgen), extended by plugins: your own steps, scores,
+  signoff checks, harnesses and templates;
+- **signoff** as the judge: a failed required check fails the run;
+- an **MCP server**, so an AI agent drives the same runs: it opens runs,
+  launches sweeps, reads metrics, heatmaps and reports, and runs ECOs.
 
-A person drives the same steps from the CLI or Python. PDKs and designs are
-data: a PDK description (Sky130 from open_pdks is the most complete; IHP
-SG13G2 is the second PDK) and a design file in YAML or JSON.
+The **reference flow** is the step chain a design file gets when it names no
+`flow:`. It takes RTL or a gate-level netlist to a **routed DEF, SPEF and a
+signed-off GDS**. PDKs are data too: Sky130 from open_pdks is the most
+complete description, and IHP SG13G2 is the second. A person drives the same
+steps from the CLI or Python.
 
 ## Contents
 

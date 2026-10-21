@@ -41,9 +41,12 @@ md(f"""
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)]({COLAB})
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)]({CODESPACES})
 
-[SiPath](https://github.com/{REPO}) takes RTL to a signed-off layout on Sky130 with
-OpenROAD, Yosys and KLayout. This notebook runs the
-[example flows]({DOCS}/examples.md) one after another, on small designs.
+[SiPath](https://github.com/{REPO}) is flow infrastructure for physical design: a
+design file in YAML says which steps run, with which parameter variants and
+scores, and SiPath runs them as an attempt graph on OpenROAD, Yosys and
+KLayout. Its reference flow takes RTL to a signed-off layout on Sky130. This
+notebook runs the [example flows]({DOCS}/examples.md) one after another, on
+small designs.
 
 **Where it runs**
 - **Google Colab** (the badge above): the setup unpacks the locked ORFS
