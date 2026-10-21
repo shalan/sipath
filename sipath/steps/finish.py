@@ -7,6 +7,7 @@ import os
 import re
 
 from .. import analog, params
+from ..tools.openroad import heatmap as heatmaps
 from ..tools.openroad import tcl
 from ..tools.openroad.tcl import q, tcl_parse, tcl_words
 from .common import _timing_gate, grid_nets, power_checks, ppa_summary, reports, run_rcx
@@ -299,6 +300,7 @@ def ppa(ctx):
 
 def extract(ctx):
     s = ctx.session
+    heatmaps.schedule(ctx, ctx.params.get("heatmaps"))  # collected after the checkpoint is saved
     nets = ctx.design.analog_nets
     if nets and analog.is_frozen(s, nets):
         # special nets are skipped by OpenRCX: restore their regular wiring first

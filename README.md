@@ -94,8 +94,9 @@ Other commands:
 | **Signoff** | KLayout DRC and density, standard-cell LVS, antennas, nine-corner STA, harness conformance; opt-in Magic DRC, XOR and full-device LVS; every check also a step of its own ([signoff](docs/signoff.md)) |
 | **Tapeout precheck** | ChipFoundry's own precheck (cf-precheck, pinned) on a signed-off OpenFrame design: the project exported in its layout, run in a pinned image with Magic, Netgen and CVC, its results per check ([signoff](docs/signoff.md#tapeout-precheck)) |
 | **Exploration** | Variants of a step in parallel, chosen by named scores; resume and cancel; an explore mode that gives PPA and a suggested clock in about a minute; ECOs checked for equivalence |
-| **Agents** | MCP server: runs, steps, ECOs, background jobs with progress, checkpoint queries and pictures ([agents](docs/agents.md)) |
-| **Quality** | Regression limits per design; 171 unit tests and 46 live tests; CI on GitHub Actions (unit tests on every push, live tests nightly) |
+| **Heatmaps** | Placement density, RUDY, routing congestion, pin density, power and IR drop after place, CTS, routing and extraction (OpenROAD's own maps, taken after the checkpoint is saved); peak, p95, hot share and the hotspots with the instances or nets inside; in the run report and over MCP ([flow](docs/flow.md#heatmaps)) |
+| **Agents** | MCP server: runs, steps, ECOs, background jobs with progress, checkpoint queries, heatmaps and pictures ([agents](docs/agents.md)) |
+| **Quality** | Regression limits per design; 190 unit tests and 46 live tests; CI on GitHub Actions (unit tests on every push, live tests nightly) |
 
 ## Results
 

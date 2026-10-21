@@ -11,7 +11,7 @@ on any import that crosses these rules.
 | layer | modules | may import |
 |---|---|---|
 | core | `scheduler`, `params`, `scores`, `registry`, `config`, `report`, `recipes`, `toolchain` | core, model |
-| model | `design`, `pdk`, `netlist`, `lef` | core, model |
+| model | `design`, `pdk`, `netlist`, `lef`, `heatmap` | core, model |
 | tools | `tools/` | core, model, tools |
 | steps | `steps/` and the libraries they use (everything not listed elsewhere) | core, model, tools, steps |
 | flows | `designfile`, `mcp_server`, `__main__`, the package's `__init__` | everything |
@@ -25,8 +25,8 @@ on any import that crosses these rules.
   `steps/`). It names these built-ins by module path (`registry.BUILTIN`) and
   imports them on first use, as it does for plugins. `toolchain` reads the
   lock; it runs nothing.
-- **Model:** the design and PDK descriptions, Verilog netlists and LEF
-  macros, read without a tool.
+- **Model:** the design and PDK descriptions, Verilog netlists, LEF macros
+  and heatmap CSVs, read without a tool.
 - **Tools:** how a tool runs and what it is told.
 - **Steps:** stage logic. In this phase the steps still write OpenROAD Tcl
   inline.
@@ -54,6 +54,7 @@ on any import that crosses these rules.
 |---|---|
 | `design.py`, `pdk.py`, `pdks/` | design spec (unset fields from the PDK); PDK descriptions and their loader (`read_file`: YAML or JSON) |
 | `netlist.py`, `lef.py` | Verilog netlist model; LEF macros, pins and touching pins |
+| `heatmap.py` | heatmap CSVs (`gui::dump_heatmap`): read, summarised (peak, p95, hot share, hot regions), queried by box, drawn as SVG |
 
 ## Tools (`tools/`)
 
@@ -62,6 +63,7 @@ on any import that crosses these rules.
 | `openroad/session.py` | `OpenRoadSession`: one process per attempt; Tcl in over stdin, result/errorInfo back through files; a Tcl error raises `TclError`. Docker and native runners. `FakeSession` for graph tests |
 | `openroad/tcl.py`, `openroad/tclquote.py` | Tcl generators and helpers; quoting (no substitution possible) and Tcl-list parsing |
 | `openroad/checkpoint.py` | the checkpoint store: process setup (threads, helpers), loading a parent, the metrics every attempt records, `write_db` |
+| `openroad/heatmap.py` | heatmaps dumped after an attempt's checkpoint is saved (`Ctx.after_save`), with the instances or nets in each hotspot |
 | `run.py` | `run_tool` (a tool next to OpenROAD, its output in a log) and the runner lookup; `ToolFailed` |
 | `yosys.py`, `klayout.py`, `magic.py`, `netgen.py` | per-tool commands and version probes (Netgen: probe only; it runs in the precheck image) |
 | `toolchain.py`, `native.py` | probing the locked images' tools (`toolchain --check`); the locked ORFS image's tools without Docker (`install-tools`) |

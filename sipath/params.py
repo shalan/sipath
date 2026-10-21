@@ -299,6 +299,17 @@ TOOL_STEPS = ("synth", "integrate", "precheck")
 for _step, _ps in STEP_PARAMS.items():
     if _step not in TOOL_STEPS:
         _ps.extend(p for p in COMMON if p.name not in {q.name for q in _ps})
+# heatmaps collected after the checkpoint is saved (sipath.tools.openroad.heatmap): what each step can give
+HEATMAP_MAPS = ("placement", "rudy", "routing", "pin", "power", "irdrop")
+_HEATMAPS = {"place": ["placement", "rudy", "pin", "power"], "cts": ["placement", "rudy", "pin", "power"],
+             "route_digital": ["placement", "rudy", "routing", "pin", "power"],
+             "extract": ["placement", "rudy", "routing", "pin", "power", "irdrop"]}
+for _step, _maps in _HEATMAPS.items():
+    STEP_PARAMS[_step].append(Param(
+        "heatmaps", "list[str]", _maps, "heatmaps written after the checkpoint is saved (gui::dump_heatmap; CSVs, "
+        "summary metrics heatmap_<map>_peak|p95|hot_share, hotspots with their instances or nets); [] for none",
+        choices=HEATMAP_MAPS))
+
 DECLARED = {step: {p.name: p for p in ps} for step, ps in STEP_PARAMS.items()}
 BUILTIN = {step: list(ps) for step, ps in STEP_PARAMS.items()}  # before any plugin registers (for the reference)
 

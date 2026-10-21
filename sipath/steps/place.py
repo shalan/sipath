@@ -1,6 +1,7 @@
 """Steps ``place`` (global and detailed placement with repair) and ``cts``."""
 from __future__ import annotations
 
+from ..tools.openroad import heatmap as heatmaps
 from ..tools.openroad import tcl
 from ..harness import CHANNEL_ROW
 from ..tools.openroad.tcl import q, qlist, tcl_words
@@ -196,6 +197,7 @@ def repair_legalized(ctx, rounds: int = 4) -> int:
 def place(ctx):
     """Timing-driven global placement, repair, detailed placement."""
     d, s, p = ctx.design, ctx.session, ctx.params
+    heatmaps.schedule(ctx, p.get("heatmaps"))  # collected after the checkpoint is saved
     if p.get("repair_tie_fanout", True):  # one tie cell per load, placed by gpl next to it
         for master, port in ctx.pdk.tie_cells():
             s.run(f"repair_tie_fanout -separation 5 {q(master + '/' + port)}")
@@ -258,6 +260,7 @@ def _analog_terms(ctx) -> dict[str, list[str]]:
 
 def cts(ctx):
     s = ctx.session
+    heatmaps.schedule(ctx, ctx.params.get("heatmaps"))
     nets = clock_nets(ctx)
     analog_before = _analog_terms(ctx)
     s.run(tcl.cts(ctx.pdk, nets))

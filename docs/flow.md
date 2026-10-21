@@ -150,6 +150,34 @@ Part of the [SiPath documentation](../README.md#documentation).
 - Each attempt writes timing (per corner), clock skew, power and congestion
   reports.
 
+## Heatmaps
+- `place`, `cts`, `route_digital` and `extract` collect OpenROAD's heatmaps
+  (`gui::dump_heatmap`, headless) after the attempt's checkpoint is saved, in
+  the same process (`Ctx.after_save`). RUDY and the routing map start the
+  global router, so taking them earlier could change the checkpoint; taken
+  after the save they change neither it nor the metrics read before it (gcd8:
+  all 242 metric values identical with and without). A failed collection is
+  recorded in `after_save_errors` and never fails the attempt.
+- Maps (step parameter `heatmaps`, `[]` for none): `placement` (density),
+  `rudy`, `routing` (congestion; route_digital and extract), `pin` (density),
+  `power`, `irdrop` (extract, after its IR analysis: the core power net on the
+  rail layer). Grids: bins sized to give at most 100 per side (10 µm at
+  least); RUDY and routing follow the global router's gcells, with the
+  routing steps' layer range and capacities set. A map OpenROAD cannot give
+  is recorded as unavailable, with its reason.
+- Each map is `heatmaps/<map>.csv` in the attempt directory, summarised in
+  `outputs["heatmaps"][map]`: unit, peak, p95, the share of hot bins (at least
+  90% for placement, 100% for RUDY and routing, else 80% of the map's peak)
+  and up to three hotspots (hot bins merged into 4-connected boxes) with the
+  instances (without fill, taps and endcaps) or nets inside them. Metrics
+  `heatmap_<map>_peak`, `_p95` and `_hot_share`.
+- The run report draws the selected attempts' maps (`heatmaps/<map>.svg`)
+  with a table of their summaries; MCP's `query_heatmap(run, attempt, map,
+  box?)` returns a map's summary and its bins, all or those in a box.
+- On gcd8 the collection takes under 0.1 s per step. On `extract` RUDY reads
+  higher than on `route_digital` when `fill` ran in between: metal fill takes
+  routing capacity.
+
 ## Sweeps and ECOs
 - `variants=[...]`, `parallel=N`, `score="<name>"` (default `auto`: setup slack
   when constrained, else wirelength); rejected attempts stay in `graph.json`.

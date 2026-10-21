@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from .. import analog
+from ..tools.openroad import heatmap as heatmaps
 from ..tools.openroad import tcl
 from ..tools.openroad.tcl import q
 from .common import _check_unrouted, _drt_numbers, _global_route, _timing_gate, antenna_loop, check_antennas, check_placement, min_area_repair, ppa_summary, reconnect_supplies, reports, run_rcx
@@ -20,6 +21,7 @@ def route_digital(ctx):
     iters, max_drc, max_antenna (default 0), pin_access (True),
     repair_after_grt (True), fail_on_violation. Post-route repair and fillers
     are the next step (route_repair)."""
+    heatmaps.schedule(ctx, ctx.params.get("heatmaps"))  # collected after the checkpoint is saved
     d, s, p = ctx.design, ctx.session, ctx.params
     frozen = list(d.analog_nets) + list(d.analog_supplies)
     before = analog.signature(s, frozen) if frozen else ""

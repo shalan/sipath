@@ -289,12 +289,14 @@ Set per attempt in `variants` (design file `flow:` or MCP `run_step`), or as def
 | `congestion_check` | bool | true |  | global route after placement and record the congestion |
 | `congestion_margin` | float | 0.0 | 0..1 | extra layer capacity reduction for the congestion check |
 | `threads` | int | – | 1.. | OpenROAD threads for this step's attempts (set_thread_count; signoff: also KLayout DRC); unset: the run's threads, shared among the attempts running at once |
+| `heatmaps` | list[str] | ['placement', 'rudy', 'pin', 'power'] | placement, rudy, routing, pin, power, irdrop | heatmaps written after the checkpoint is saved (gui::dump_heatmap; CSVs, summary metrics heatmap_<map>_peak|p95|hot_share, hotspots with their instances or nets); [] for none |
 
 ### cts
 
 | parameter | type | default | allowed | description |
 |---|---|---|---|---|
 | `threads` | int | – | 1.. | OpenROAD threads for this step's attempts (set_thread_count; signoff: also KLayout DRC); unset: the run's threads, shared among the attempts running at once |
+| `heatmaps` | list[str] | ['placement', 'rudy', 'pin', 'power'] | placement, rudy, routing, pin, power, irdrop | heatmaps written after the checkpoint is saved (gui::dump_heatmap; CSVs, summary metrics heatmap_<map>_peak|p95|hot_share, hotspots with their instances or nets); [] for none |
 
 ### route_analog
 
@@ -318,6 +320,7 @@ Set per attempt in `variants` (design file `flow:` or MCP `run_step`), or as def
 | `repair_after_grt` | bool | true |  | repair timing on global-route parasitics, then re-route incrementally |
 | `fail_on_violation` | bool | false |  | fail the attempt when setup or hold is not met after the step |
 | `threads` | int | – | 1.. | OpenROAD threads for this step's attempts (set_thread_count; signoff: also KLayout DRC); unset: the run's threads, shared among the attempts running at once |
+| `heatmaps` | list[str] | ['placement', 'rudy', 'routing', 'pin', 'power'] | placement, rudy, routing, pin, power, irdrop | heatmaps written after the checkpoint is saved (gui::dump_heatmap; CSVs, summary metrics heatmap_<map>_peak|p95|hot_share, hotspots with their instances or nets); [] for none |
 
 ### route_repair
 
@@ -381,6 +384,7 @@ Set per attempt in `variants` (design file `flow:` or MCP `run_step`), or as def
 | `max_analog_aggressor_ff` | float | – | 0.. | fail when one digital net couples more than this onto an analog net (worst corner) [fF] |
 | `fail_on_violation` | bool | false |  | fail the attempt when setup or hold is not met after the step |
 | `threads` | int | – | 1.. | OpenROAD threads for this step's attempts (set_thread_count; signoff: also KLayout DRC); unset: the run's threads, shared among the attempts running at once |
+| `heatmaps` | list[str] | ['placement', 'rudy', 'routing', 'pin', 'power', 'irdrop'] | placement, rudy, routing, pin, power, irdrop | heatmaps written after the checkpoint is saved (gui::dump_heatmap; CSVs, summary metrics heatmap_<map>_peak|p95|hot_share, hotspots with their instances or nets); [] for none |
 
 ### signoff
 

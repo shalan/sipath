@@ -975,7 +975,7 @@ class Layers(unittest.TestCase):
     flow, and library code imports the moved modules from sipath.tools (not their compatibility aliases)."""
     ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     CORE = {"scheduler", "params", "scores", "registry", "config", "report", "recipes", "toolchain"}
-    MODEL = {"design", "pdk", "netlist", "lef"}
+    MODEL = {"design", "pdk", "netlist", "lef", "heatmap"}
     FLOWS = {"designfile", "mcp_server", "__main__", ""}  # "": the package's __init__ (its public API)
     ALIASES = {"session", "tcl", "tclquote", "nativetools"}  # = sipath.tools.openroad.*, sipath.tools.native
     FORBIDDEN = {("synth", "signoff")}  # synthesis reaches its tools through sipath.tools
@@ -2051,6 +2051,95 @@ class TclQuoting(unittest.TestCase):
             self.assertTrue(out.startswith("{") or "\\" in out, out)
 
 
+class Heatmaps(unittest.TestCase):
+    """Heatmaps (sipath.heatmap; collected after the checkpoint is saved, sipath.tools.openroad.heatmap)."""
+    CSV = "x0,y0,x1,y1,value (%)\n" + "".join(
+        f"{x},{y},{x + 10},{y + 10},{v}\n" for (x, y), v in {(0, 0): 20, (10, 0): 95, (20, 0): 92, (0, 10): 30,
+                                                            (10, 10): 40, (20, 10): 99, (0, 20): 91, (10, 20): 10,
+                                                            (20, 20): 15}.items())
+
+    def write(self, td, text=None):
+        path = os.path.join(td, "placement.csv")
+        with open(path, "w") as f:
+            f.write(self.CSV if text is None else text)
+        return path
+
+    def test_read_summary_regions_query_svg(self):
+        from sipath import heatmap
+        with tempfile.TemporaryDirectory() as td:
+            unit, bins = heatmap.read(self.write(td))
+        self.assertEqual((unit, len(bins)), ("%", 9))
+        s = heatmap.summary("placement", unit, bins)
+        self.assertEqual((s["peak"], s["hot_threshold"], s["hot_share"]), (99.0, 90.0, 4 / 9))
+        # (10,0) (20,0) (20,10) touch: one region; (0,20) is apart
+        self.assertEqual([(h["box"], h["peak"], h["bins"]) for h in s["hotspots"]],
+                         [([10.0, 0.0, 30.0, 20.0], 99.0, 3), ([0.0, 20.0, 10.0, 30.0], 91.0, 1)])
+        self.assertAlmostEqual(s["p95"], 97.4)
+        self.assertEqual(len(heatmap.query(bins, [12, 12, 18, 18])), 1)  # one bin overlaps; touching ones do not
+        self.assertEqual(len(heatmap.query(bins)), 9)
+        self.assertEqual(heatmap.summary("power", "W", bins)["hot_threshold"], 0.8 * 99)  # relative elsewhere
+        objs = {"big": (0, 0, 30, 30), "in": (11, 1, 12, 2), "out": (40, 40, 41, 41)}
+        self.assertEqual(heatmap.inside([10, 0, 30, 20], objs), {"count": 2, "top": ["big", "in"]})
+        self.assertIn("<svg", heatmap.svg("placement", unit, bins))
+        with tempfile.TemporaryDirectory() as td:
+            with self.assertRaises(ValueError):
+                heatmap.read(self.write(td, "not,a,map\n"))
+
+    def test_collected_after_the_checkpoint_never_failing_it(self):
+        seen = []
+
+        def step(ctx):
+            ctx.metrics["wns"] = 1.0
+            ctx.after_save.append(lambda c: seen.append(os.path.isfile(os.path.join(c.dir, "s.0.odb"))))
+            ctx.after_save.append(lambda c: c.metrics.update({"heatmap_placement_peak": 7.0, "wns": -5.0}))
+            ctx.after_save.append(lambda c: 1 / 0)
+        with tempfile.TemporaryDirectory() as td:
+            f = Flow(Design("fake", "fake", "x.v", "x.sdc", "macro", floorplan_def="x.def"), sky130hd("/p"), td,
+                     demo.fake_factory(), validate_inputs=False)
+            a = f.step("s", step).selected
+        self.assertEqual(seen, [True])  # the checkpoint existed before any observation ran
+        self.assertEqual(a.status, "selected")
+        self.assertEqual((a.metrics["heatmap_placement_peak"], a.metrics["wns"]), (7.0, 1.0))  # added, not changed
+        self.assertIn("ZeroDivisionError", a.outputs["after_save_errors"][0])
+        self.assertIn("after_save", a.timing["phases"])
+
+    def test_steps_schedule_only_known_maps(self):
+        from sipath import params
+        from sipath.tools.openroad import heatmap as collector
+        ctx = types.SimpleNamespace(after_save=[])
+        collector.schedule(ctx, [])
+        self.assertEqual(ctx.after_save, [])
+        collector.schedule(ctx, ["placement", "irdrop"])
+        self.assertEqual(len(ctx.after_save), 1)
+        with self.assertRaisesRegex(ValueError, "unknown map"):
+            collector.schedule(ctx, ["heat"])
+        with self.assertRaisesRegex(ValueError, "not one of"):
+            params.check("place", {"heatmaps": ["heat"]})
+        self.assertEqual(params.DECLARED["extract"]["heatmaps"].default[-1], "irdrop")
+
+    def test_query_heatmap_over_mcp(self):
+        from sipath import mcp_server
+        from sipath.mcp_server import ToolError
+        with tempfile.TemporaryDirectory() as td:
+            d = Design("fake", "fake", "x.v", "x.sdc", "macro", floorplan_def="x.def")
+            f = Flow(d, sky130hd("/p"), td, demo.fake_factory(), validate_inputs=False)
+            csv = self.write(td)
+            a = Attempt("place.0", "place", 0, {}, None, td, status="selected")
+            a.outputs = {"heatmaps": {"placement": {"csv": csv, "unit": "%", "peak": 99.0, "hotspots": []},
+                                      "irdrop": {"unavailable": "GUI-0072"}}}
+            f.attempts.append(a)
+            s = mcp_server.Server(emit=lambda m: None)
+            s.runs["r1"] = {"flow": f, "design": "fake", "job": None}
+            out = s.query_heatmap("r1", "place.0", "placement", [12, 12, 18, 18])
+            self.assertEqual((out["peak"], out["bins_in_box"], out["bin_values"][0]["value"]), (99.0, 1, 40.0))
+            self.assertEqual(s.query_heatmap("r1", "place.0", "placement")["bins_in_box"], 9)
+            for args, msg in (((["r1", "place.0", "rudy"]), "has no rudy"), ((["r1", "place.0", "irdrop"]), "GUI-0072"),
+                              ((["r1", "place.0", "placement", [5, 5, 1, 1]]), "x0 < x1"),
+                              ((["r1", "place.0", "nope"]), "unknown map")):
+                with self.assertRaisesRegex(ToolError, msg):
+                    s.query_heatmap(*args)
+
+
 class Phase0Rules(unittest.TestCase):
     def flow(self, td, d=None):
         d = d or Design("fake", "fake", "x.v", "x.sdc", "macro", floorplan_def="x.def")
@@ -2708,7 +2797,7 @@ class McpProtocol(unittest.TestCase):
         c.rpc("notifications/initialized", notify=True)
         names = {t["name"] for t in c.rpc("tools/list")["result"]["tools"]}
         self.assertEqual(names, {"list_designs", "list_scores", "describe_step", "open_run", "run_step", "run_eco", "list_attempts",
-                                 "get_outputs", "query_checkpoint", "draw_checkpoint", "render_checkpoint",
+                                 "get_outputs", "query_checkpoint", "query_heatmap", "draw_checkpoint", "render_checkpoint",
                                  "job_status", "cancel_job", "list_jobs"})
         self.assertIn("resources", init["result"]["capabilities"])
         self.assertEqual(c.rpc("resources/list")["result"], {"resources": []})

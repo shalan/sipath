@@ -20,6 +20,15 @@ class LiveRtl(unittest.TestCase):
         f = designfile.run(os.path.join(os.path.dirname(__file__), "..", "examples", "gcd8.yaml"), wd, RUNNER)
         sy = f.steps["synth"].selected
         self.assertEqual(sy.kind, "tool")
+        # heatmaps, after each checkpoint was saved: every map these steps give, IR drop after extraction
+        for step, maps in (("place", 4), ("cts", 4), ("route_digital", 5), ("extract", 6)):
+            hm = f.steps[step].selected.outputs["heatmaps"]
+            self.assertEqual(len(hm), maps, hm)
+            for name, e in hm.items():
+                self.assertNotIn("unavailable", e, f"{step} {name}")
+                self.assertTrue(os.path.isfile(e["csv"]))
+                self.assertGreater(f.steps[step].selected.metrics[f"heatmap_{name}_peak"], 0)
+        self.assertEqual(f.steps["extract"].selected.outputs["heatmaps"]["irdrop"]["unit"], "uV")
         self.assertEqual(sy.metrics["lint_warnings"], 0)
         self.assertGreater(sy.metrics["synth_cells"], 50)
         self.assertGreater(sy.metrics["synth_flops"], 20)
@@ -364,7 +373,9 @@ class LiveSoftMacro(unittest.TestCase):
         f = self.flow
         for a in f.attempts:
             if a.status in ("selected", "rejected"):
-                self.assertEqual(set(a.timing["phases"]), {"start", "load", "step", "metrics", "write_db"}, a.id)
+                observed = {"after_save"} if a.step in ("place", "cts", "route_digital", "extract") else set()  # heatmaps
+                self.assertEqual(set(a.timing["phases"]), {"start", "load", "step", "metrics", "write_db"} | observed,
+                                 a.id)
                 self.assertTrue(a.timing["slowest"] and a.timing["slowest"][0][1] > 0)
         g = _read_json(os.path.join(f.workdir, "graph.json"))
         if RUNNER.kind == "docker":

@@ -175,6 +175,9 @@ class Ctx:
     runner: object = None  # how the installation's tools run (tool steps, signoff)
     config: object = None  # sipath.config.Config of the run (e.g. the Magic image)
     threads: int | None = None  # OpenROAD threads of this attempt (see Flow._threads)
+    # fn(ctx) run after the checkpoint is saved, in the same process: observations of the saved state
+    # (heatmaps) that may disturb the process but never the checkpoint or the metrics read before it
+    after_save: list = field(default_factory=list)
 
     def path(self, name: str) -> str:
         return os.path.join(self.dir, name)
@@ -483,7 +486,15 @@ class Flow:
             metrics.update(ctx.metrics)
             t1 = mark("metrics", t1)
             self.checkpoints.save(session, odb)
-            mark("write_db", t1)
+            t1 = mark("write_db", t1)
+            if ctx.after_save:
+                for observe in ctx.after_save:
+                    try:
+                        observe(ctx)
+                    except Exception as e:  # an observation never fails the attempt it observes
+                        ctx.outputs.setdefault("after_save_errors", []).append(f"{type(e).__name__}: {e}")
+                metrics.update({k: v for k, v in ctx.metrics.items() if k not in metrics})
+                mark("after_save", t1)
             a.metrics, a.outputs, a.checkpoint = metrics, ctx.outputs, odb
             a.status = "ok"
             log.info("attempt %s: ok in %.1fs", a.id, time.time() - t0)

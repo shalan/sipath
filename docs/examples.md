@@ -366,6 +366,7 @@ job_status   {"job_id": J}                                                      
 list_attempts {"run_id": R, "step": "place"}
 get_outputs  {"run_id": R, "attempt": "place.1"}                               (metrics, reports, files)
 render_checkpoint {"run_id": R, "attempt": "place.1"}                          (a layout picture)
+query_heatmap {"run_id": R, "attempt": "place.1", "map": "rudy"}               (congestion: peak, hotspots, bins)
 run_eco      {"run_id": R, "parent": "signoff.0", "ops": [{"op": "resize", "inst": "u1", "master": "sky130_fd_sc_hd__nand2_4"}]}
 ```
 

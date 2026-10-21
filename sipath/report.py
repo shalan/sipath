@@ -20,6 +20,8 @@ import html
 import json
 import os
 
+from . import heatmap
+
 KEY_METRICS = ("synth_cells", "synth_area_um2", "equiv", "insts", "utilization", "hpwl_um", "wns", "tns", "whs",
                "drc", "wirelength_um", "vias", "antenna_violations", "fill_shapes", "drc_signoff",
                "density_violations", "lvs_match", "signoff_pass", "magic_drc_violations", "xor_violations",
@@ -69,6 +71,17 @@ def collect(workdir: str) -> dict:
             for k in ("def_", "spef", "gds", "verilog", "chip_gds", "netlist", "signoff"):
                 if isinstance(out.get(k), str):
                     files.append((a["id"], k, out[k]))
+    heatmaps = []  # the selected attempts' heatmaps, drawn next to their CSVs
+    for s in steps:
+        for name, e in ((s["sel"] or {}).get("outputs", {}).get("heatmaps") or {}).items():
+            if "csv" not in e or not os.path.isfile(e["csv"]):
+                continue
+            svg = os.path.splitext(e["csv"])[0] + ".svg"
+            if not os.path.isfile(svg) or os.path.getmtime(svg) < os.path.getmtime(e["csv"]):
+                unit, bins = heatmap.read(e["csv"])
+                with open(svg, "w") as f:
+                    f.write(heatmap.svg(name, unit, bins))
+            heatmaps.append({"step": s["name"], "attempt": s["selected"], "map": name, "svg": svg, **e})
     ppa = None  # the last step's PPA first cut (explore mode, or a ppa step)
     for s in reversed(steps):
         if s["sel"] and isinstance(s["sel"].get("outputs", {}).get("ppa"), dict):
@@ -79,7 +92,8 @@ def collect(workdir: str) -> dict:
     pictures += sorted(glob.glob(os.path.join(workdir, "_pictures", "*.png")), key=lambda p: (
         order.index(os.path.basename(p)[:-4]) if os.path.basename(p)[:-4] in order else len(order), p))
     return {"design": g.get("design", {}), "pdk": g.get("pdk"), "provenance": g.get("provenance", {}),
-            "steps": steps, "signoff": signoff, "ppa": ppa, "files": files, "pictures": pictures}
+            "steps": steps, "signoff": signoff, "ppa": ppa, "files": files, "pictures": pictures,
+            "heatmaps": heatmaps}
 
 
 def markdown(workdir: str, r: dict) -> str:
@@ -151,6 +165,23 @@ def markdown(workdir: str, r: dict) -> str:
             out.append(f"| {c} ({mark}) | {res} |")
         for f in s.get("failures", []):
             out.append(f"\n- {f[:400]}")
+    if r.get("heatmaps"):
+        out += ["", "## Heatmaps", "", "Selected attempts; each map scaled to its own peak (blue low, red high).",
+                "", "| attempt | map | unit | peak | p95 | hot share (threshold) | top hotspot |", "|---|---|---|---|---|---|---|"]
+        for h in r["heatmaps"]:
+            top = h["hotspots"][0] if h.get("hotspots") else None
+            where = ""
+            if top:
+                objs = top.get("instances") or top.get("nets") or {}
+                where = f"[{', '.join(f'{v:g}' for v in top['box'])}] {_fmt(top['peak'])}"
+                if objs:
+                    where += f": {objs['count']} {'nets' if 'nets' in top else 'instances'}, e.g. {', '.join(objs['top'][:3])}"
+            th = "" if h.get("hot_threshold") is None else f" (>= {_fmt(h['hot_threshold'])})"
+            out.append(f"| {h['attempt']} | {h['map']} | {h['unit']} | {_fmt(h['peak'])} | {_fmt(h['p95'])} | "
+                       f"{h['hot_share']:.1%}{th} | {where} |")
+        out.append("")
+        for h in r["heatmaps"]:
+            out.append(f"![{h['attempt']} {h['map']}]({_rel(h['svg'], workdir)})")
     if r["pictures"]:
         out += ["", "## Pictures", ""] + [f"![{os.path.basename(p)}]({_rel(p, workdir)})" for p in r["pictures"]]
     if r["files"]:

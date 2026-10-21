@@ -37,7 +37,7 @@ import traceback
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
-from . import scores, steps
+from . import heatmap, scores, steps
 from .tools.openroad import tcl
 from .scheduler import EcoRefused, StepCancelled, StepFailed
 from .tools.openroad.session import OpenRoadSession, SessionDied, TclError, find_openroad
@@ -120,6 +120,16 @@ TOOLS = [
      "annotations": {"readOnlyHint": True}},
     {"name": "get_outputs", "description": "Files an attempt produced (checkpoint, DEF, SPEF, reports) with sizes.",
      "inputSchema": _obj({"run_id": {"type": "string"}, "attempt": {"type": "string"}}, ["run_id", "attempt"]),
+     "annotations": {"readOnlyHint": True}},
+    {"name": "query_heatmap", "description": "A heatmap an attempt collected after its checkpoint was saved "
+     "(place, cts, route_digital, extract; maps: placement density, RUDY, routing congestion, pin density, power, "
+     "IR drop): unit, peak, p95, hot threshold and share of hot bins, the hotspot boxes with the instances or nets "
+     "inside them, and the bins (microns): all, or those overlapping box [x0, y0, x1, y1]. At most 2500 bins are "
+     "returned; give a box to see a region of a larger map.",
+     "inputSchema": _obj({"run_id": {"type": "string"}, "attempt": {"type": "string"},
+                          "map": {"type": "string", "enum": list(heatmap.MAPS)},
+                          "box": {"type": "array", "items": {"type": "number"}, "minItems": 4, "maxItems": 4}},
+                         ["run_id", "attempt", "map"]),
      "annotations": {"readOnlyHint": True}},
     {"name": "draw_checkpoint", "description": "Schematic SVG of an attempt's checkpoint: IO pads, corners, "
      "IO fillers, hard macros, core (ring_only: IO ring only, with a ring-continuity note). Returns the file path.",
@@ -457,6 +467,28 @@ class Server:
                 files.setdefault(n, {"path": os.path.join(a.dir, n), "bytes": os.path.getsize(os.path.join(a.dir, n))})
         return {"attempt": a.id, "status": a.status, "files": files,
                 "outputs": {k: v for k, v in a.outputs.items() if not isinstance(v, str)}}
+
+    def query_heatmap(self, run_id, attempt, map, box=None):
+        a = self._attempt(self._run(run_id)["flow"], attempt)
+        maps = (a.outputs or {}).get("heatmaps") or {}
+        if map not in heatmap.MAPS:
+            raise ToolError(f"unknown map {map!r}; maps: {list(heatmap.MAPS)}")
+        if map not in maps:
+            raise ToolError(f"attempt {a.id} has no {map} heatmap (heatmaps are collected by place, cts, "
+                            f"route_digital and extract; this attempt has {sorted(maps) or 'none'})")
+        e = maps[map]
+        if "unavailable" in e:
+            raise ToolError(f"attempt {a.id}: the {map} heatmap was unavailable: {e['unavailable']}")
+        if box is not None:
+            if (not isinstance(box, list) or len(box) != 4 or not all(isinstance(v, (int, float)) for v in box)
+                    or box[0] >= box[2] or box[1] >= box[3]):
+                raise ToolError(f"box must be [x0, y0, x1, y1] microns with x0 < x1 and y0 < y1, not {box!r}")
+        if not os.path.isfile(e.get("csv", "")):
+            raise ToolError(f"attempt {a.id}: {map} heatmap file missing: {e.get('csv')}")
+        unit, bins = heatmap.read(e["csv"])
+        found = heatmap.query(bins, box)
+        return {"attempt": a.id, "map": map, **{k: v for k, v in e.items()}, "box": box,
+                "bins_in_box": len(found), "bins_returned": min(len(found), 2500), "bin_values": found[:2500]}
 
     def _ckpt(self, run_id, attempt):
         flow = self._run(run_id)["flow"]
