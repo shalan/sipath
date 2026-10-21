@@ -323,7 +323,7 @@ Set per attempt in `variants` (design file `flow:` or MCP `run_step`), or as def
 
 | parameter | type | default | allowed | description |
 |---|---|---|---|---|
-| `rounds` | int | 2 | 0.. | post-route timing repair rounds on extracted parasitics |
+| `rounds` | int | 2 | 0.. | post-route timing repair rounds on extracted parasitics (a failure of OpenROAD's incremental global router inside repair retries the attempt with 0) |
 | `max_patch_nets` | int | – | 0.. | nets changed by repair above which the design is routed again instead of patched (default: a quarter of the signal nets, at least 40) |
 | `drv_sizing` | bool | false |  | also size up the drivers of nets whose standard cells see slew or capacitance violations on extracted parasitics (estimates miss some: wires doubled by detours) |
 | `antenna_rounds` | int | 3 | 0.. | antenna repair rounds |

@@ -2182,6 +2182,8 @@ class Scheduler(unittest.TestCase):
             self.assertEqual(len(calls), 2)
             g = json.load(open(os.path.join(td, "graph.json")))
             self.assertEqual([a.get("retry_of") for a in g["attempts"] if a["step"] == "patch"], [None, first.id])
+            self.assertEqual([a.get("retry_reason") for a in g["attempts"] if a["step"] == "patch"],
+                             [None, "patch lost nets"])  # the retry says why it ran
 
         def always(ctx):  # a retry that asks again is not retried
             raise RetryWith({"full": True}, "still lost")
@@ -2190,6 +2192,38 @@ class Scheduler(unittest.TestCase):
             with self.assertRaises(StepFailed):
                 f.step("patch", always, score="setup_wns")
             self.assertEqual(len([a for a in f.attempts if a.step == "patch"]), 2)
+
+    def test_repair_on_a_failing_global_router_retries_without_repair(self):
+        from sipath import eco
+        from sipath.scheduler import RetryWith
+        from sipath.session import TclError
+
+        class Session:
+            def __init__(self):
+                self.scripts = []
+
+            def run(self, script, check=True, timeout=None):
+                self.scripts.append(script)
+                if script.startswith("repair_timing"):  # aes: a resized pin leaves its net's guides
+                    raise TclError(script, "GRT-0229", "", "[ERROR GRT-0229] Vertical edge usage exceeds ...")
+        with tempfile.TemporaryDirectory() as td:
+            ctx = types.SimpleNamespace(design=types.SimpleNamespace(analog_nets=[], analog_supplies=[], groups=[]),
+                                        pdk=None, path=lambda n: os.path.join(td, n))
+            with unittest.mock.patch.object(eco, "_slacks", lambda s: (-1.0, 0.1)), \
+                    unittest.mock.patch.object(eco, "_locations", lambda s: {}), \
+                    unittest.mock.patch.object(eco, "_masters", lambda s: {}), \
+                    unittest.mock.patch.object(eco, "_wire_signature", lambda s, p: ""), \
+                    unittest.mock.patch.object(eco, "patch_limit", lambda s, m: 40), \
+                    unittest.mock.patch.object(eco.wires, "normalize", lambda s, p: None), \
+                    unittest.mock.patch.object(eco.tcl, "margins", lambda *a: ""):
+                ctx.session = Session()
+                with self.assertRaises(RetryWith) as r:
+                    eco.post_route_repair(ctx)
+                self.assertEqual(r.exception.params, {"rounds": 0})
+                ctx.session = Session()  # the retry: no repair_timing at all, and it says so
+                out = eco.post_route_repair(ctx, max_iter=0)
+                self.assertFalse(any(x.startswith("repair_timing") for x in ctx.session.scripts))
+                self.assertEqual(out["rounds"][0]["note"], "post-route timing repair off (rounds 0)")
 
     def test_every_step_leaves_a_run_report(self):
         with tempfile.TemporaryDirectory() as td:

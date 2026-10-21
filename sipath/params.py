@@ -210,7 +210,8 @@ STEP_PARAMS: dict[str, list[Param]] = {
         Param("fail_on_violation", "bool", False, _FAIL),
     ],
     "route_repair": [
-        Param("rounds", "int", 2, "post-route timing repair rounds on extracted parasitics", min=0),
+        Param("rounds", "int", 2, "post-route timing repair rounds on extracted parasitics (a failure of "
+              "OpenROAD's incremental global router inside repair retries the attempt with 0)", min=0),
         Param("max_patch_nets", "int", None, "nets changed by repair above which the design is routed again "
               "instead of patched (default: a quarter of the signal nets, at least 40)", min=0),
         Param("drv_sizing", "bool", False, "also size up the drivers of nets whose standard cells see slew or "

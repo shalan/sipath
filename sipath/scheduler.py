@@ -129,7 +129,9 @@ class Attempt:
     debug_checkpoint: str | None = None  # failed attempt's database, for inspection only (never a parent)
     resumed: bool = False  # recorded by an earlier run of this flow, not run again
     retry_of: str | None = None  # the attempt whose RetryWith started this one
+    retry_reason: str | None = None  # why that attempt asked for it (RetryWith.reason)
     retry: dict | None = field(default=None, repr=False)  # params a RetryWith asked for (not recorded)
+    retry_why: str | None = field(default=None, repr=False)  # its reason, handed to the retry
 
     def to_json(self):
         return {
@@ -142,6 +144,7 @@ class Attempt:
             "started_at": self.started_at, "finished_at": self.finished_at, "process": self.process,
             "timing": self.timing, "transcript_tail": self.transcript_tail,
             "debug_checkpoint": self.debug_checkpoint, "resumed": self.resumed, "retry_of": self.retry_of,
+            "retry_reason": self.retry_reason,
         }
 
 
@@ -239,7 +242,7 @@ class Flow:
                         seconds=j.get("seconds") or 0.0, started_at=j.get("started_at"),
                         finished_at=j.get("finished_at"), process=j.get("process"), timing=j.get("timing") or {},
                         transcript_tail=j.get("transcript_tail") or [], debug_checkpoint=j.get("debug_checkpoint"),
-                        resumed=True, retry_of=j.get("retry_of"))
+                        resumed=True, retry_of=j.get("retry_of"), retry_reason=j.get("retry_reason"))
             if j["parent"] and a.parent is None:
                 raise ValueError(f"{path}: attempt {a.id} names unknown parent {j['parent']}")
             if a.status in ("running", "pending"):
@@ -346,7 +349,7 @@ class Flow:
         nxt = max(a.index for a in attempts) + 1
         for a in [a for a in todo if a.status == "failed" and a.retry]:
             r = self._new_attempt(name, nxt, {**a.params, **a.retry}, parent, kind=a.kind)
-            r.retry_of, nxt = a.id, nxt + 1
+            r.retry_of, r.retry_reason, nxt = a.id, a.retry_why, nxt + 1
             log.info("attempt %s: retry of %s with %s", r.id, a.id, a.retry)
             self._run_attempt(r, fn, 1)
             attempts.append(r)
@@ -496,7 +499,7 @@ class Flow:
             a.status = "cancelled" if self.cancelled else "failed"
             a.error = f"{type(e).__name__}: {e}"
             if isinstance(e, RetryWith) and a.retry_of is None:  # one retry, never a retry of a retry
-                a.retry = e.params
+                a.retry, a.retry_why = e.params, e.reason
             log.warning("attempt %s: %s: %s", a.id, a.status, str(e).splitlines()[0] if str(e) else type(e).__name__)
             try:
                 os.makedirs(a.dir, exist_ok=True)

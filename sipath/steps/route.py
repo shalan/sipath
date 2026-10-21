@@ -95,6 +95,8 @@ def route_repair(ctx):
     from ..eco import post_route_repair
     ctx.outputs["post_route_repair"] = post_route_repair(ctx, p.get("rounds", 2), p.get("max_patch_nets"),
                                                          p.get("drv_sizing", False))
+    if ctx.attempt.retry_reason and p.get("rounds", 2) == 0:  # a retry without repair says why
+        ctx.outputs["post_route_repair"]["skipped_because"] = f"{ctx.attempt.retry_of}: {ctx.attempt.retry_reason}"
     _check_unrouted(ctx)
     ctx.metrics["antenna_violations"] = check_antennas(ctx)
     d = ctx.design

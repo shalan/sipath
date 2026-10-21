@@ -348,9 +348,21 @@ def post_route_repair(ctx, max_iter: int = 2, max_patch: int | None = None, drv_
     drivers one drive strength up (``drv_upsize``) in the same round. Stops
     when timing is met (and no driver was sized), nothing changes, after
     ``max_iter`` rounds, or after one re-route (this OpenROAD build's global
-    router cannot route twice in one process)."""
+    router cannot route twice in one process).
+
+    On a routed design repair_timing re-estimates the nets it changes with
+    the incremental global router, rebuilt from the routes; this build can fail
+    there when a resized cell's pin leaves its net's guides (aes with the
+    typical-corner netlist: GRT-0304, then GRT-0229 with usage 65534), and no
+    parasitics source (placement, detailed_routing, guides cleared) keeps the
+    resizer from it. The attempt then ends with RetryWith and a fresh one runs
+    without post-route timing repair (``rounds: 0``): the step completes and
+    signoff judges the timing."""
     s, d, pdk = ctx.session, ctx.design, ctx.pdk
     history = []
+    if max_iter < 1:
+        wns, whs = _slacks(s)
+        return {"rounds": [{"wns": wns, "whs": whs, "note": "post-route timing repair off (rounds 0)"}]}
     rerouted = False
     max_patch = patch_limit(s, max_patch)
     for it in range(1, max_iter + 1):
@@ -380,10 +392,17 @@ def post_route_repair(ctx, max_iter: int = 2, max_patch: int | None = None, drv_
         if not timing_met:
             # setup: sizing only (post-route setup buffering crashes this OpenROAD build,
             # and perturbs routes most); hold: buffering allowed (hold needs delay cells)
-            s.run("repair_timing -setup -repair_tns 100 -skip_pin_swap -skip_gate_cloning -skip_buffer_removal "
-                  "-skip_buffering" + tcl.margins(pdk))
-            s.run("repair_timing -hold -skip_pin_swap -skip_gate_cloning -skip_buffer_removal"
-                  + tcl.margins(pdk, "hold_route"))
+            try:
+                s.run("repair_timing -setup -repair_tns 100 -skip_pin_swap -skip_gate_cloning -skip_buffer_removal "
+                      "-skip_buffering" + tcl.margins(pdk))
+                s.run("repair_timing -hold -skip_pin_swap -skip_gate_cloning -skip_buffer_removal"
+                      + tcl.margins(pdk, "hold_route"))
+            except TclError as e:
+                if "GRT-" in str(e):  # the resizer's incremental global router failed
+                    from .scheduler import RetryWith
+                    raise RetryWith({"rounds": 0}, "post-route timing repair failed in the incremental global "
+                                    f"router: {str(e).splitlines()[0]}") from e
+                raise
         steps.reabut_all(ctx)
         s.run("detailed_placement")
         fences = [g.name for g in d.groups if g.kind == "fence"]

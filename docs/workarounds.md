@@ -57,3 +57,12 @@ Found by running it:
   that have no global-route guides and cannot route them back (four nets lost
   on gcd), and a second global route in the process fails: post-route repair
   ends that attempt with `RetryWith` and a fresh attempt routes fully.
+- On a routed design `repair_timing` re-estimates the nets it changes with the
+  incremental global router, whatever the parasitics source
+  (`::est::set_parasitics_src placement` or `detailed_routing`, or the
+  database guides cleared); when a resized cell's pin leaves its net's
+  guides, that router fails (aes with the typical-corner netlist: GRT-0304,
+  then GRT-0229 with usage 65534). `route_repair` ends that attempt with
+  `RetryWith` and a fresh attempt runs without post-route timing repair
+  (`rounds: 0`); its outputs say why (`skipped_because`, the attempt's
+  `retry_reason`) and signoff judges the timing.
