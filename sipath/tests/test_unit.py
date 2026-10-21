@@ -1037,6 +1037,25 @@ class Layers(unittest.TestCase):
                      if self.layer(d) not in allowed[self.layer(m)] or (m, d) in self.FORBIDDEN)
         self.assertEqual(bad, [])
 
+    def test_steps_talk_to_openroad_only_through_its_operations(self):
+        """Phase 2: the step modules keep the stage logic; every Tcl command is in sipath.tools.openroad.ops."""
+        import ast
+        bad = []
+        sdir = os.path.join(self.ROOT, "steps")
+        for f in sorted(os.listdir(sdir)):
+            if not f.endswith(".py"):
+                continue
+            with open(os.path.join(sdir, f)) as fh:
+                tree = ast.parse(fh.read())
+            for n in ast.walk(tree):
+                if not (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr in ("run", "value")):
+                    continue
+                recv = n.func.value  # a session: s, session, or <anything>.session
+                if (isinstance(recv, ast.Name) and recv.id in ("s", "session")) or \
+                        (isinstance(recv, ast.Attribute) and recv.attr == "session"):
+                    bad.append(f"{f}:{n.lineno}: .{n.func.attr}(...)")
+        self.assertEqual(bad, [])
+
     def test_the_rules_catch_a_violation(self):
         g = self.graph()
         self.assertNotIn("eco", g["scheduler"])  # what this phase removed

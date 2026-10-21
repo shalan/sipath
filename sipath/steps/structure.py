@@ -3,7 +3,7 @@ every sizing step runs."""
 from __future__ import annotations
 
 from .. import datapath
-from ..tools.openroad.tcl import q, qlist
+from ..tools.openroad.ops import place as place_ops, structure as structure_ops
 
 
 def _snap_box(session, box_um):
@@ -23,28 +23,7 @@ def _snap_box(session, box_um):
     return sx0, sy0, sx1, sy1
 
 def fence_violations(session, names) -> list[str]:
-    tcl_ = f"""
-set bad {{}}
-set block [ord::get_db_block]
-foreach rn {qlist(names)} {{
-  set r [$block findRegion $rn]
-  set bs [$r getBoundaries]
-  foreach inst [$r getRegionInsts] {{
-    set ib [$inst getBBox]; set inside 0
-    foreach b $bs {{ if {{[$ib xMin] >= [$b xMin] && [$ib xMax] <= [$b xMax] && [$ib yMin] >= [$b yMin] && [$ib yMax] <= [$b yMax]}} {{ set inside 1 }} }}
-    if {{!$inside}} {{ lappend bad "[$inst getName] outside $rn" }}
-  }}
-  foreach inst [$block getInsts] {{
-    if {{[$inst getRegion] ne "NULL"}} continue
-    if {{[[$inst getMaster] getType] ne "CORE"}} continue
-    set ib [$inst getBBox]
-    foreach b $bs {{ if {{[$ib xMin] < [$b xMax] && [$ib xMax] > [$b xMin] && [$ib yMin] < [$b yMax] && [$ib yMax] > [$b yMin]}} {{ lappend bad "[$inst getName] intrudes $rn" }} }}
-  }}
-}}
-join $bad \\n
-"""
-    out = session.value(tcl_)
-    return [line for line in out.splitlines() if line.strip()]
+    return structure_ops.fence_violations(session, names)
 
 def enforce_fences(session, names, rounds: int = 4) -> dict:
     """Keep fence regions (dbRegion EXCLUSIVE) exclusive.
@@ -57,63 +36,17 @@ def enforce_fences(session, names, rounds: int = 4) -> dict:
     if not names:
         return stats
     for rnd in range(rounds):
-        res = session.value(f"""
-set round {rnd}
-set adopted 0; set moved 0
-set block [ord::get_db_block]
-set core [$block getCoreArea]
-foreach rn {qlist(names)} {{
-  set r [$block findRegion $rn]
-  set grp [lindex [$r getGroups] 0]
-  foreach b [$r getBoundaries] {{
-    foreach inst [$block getInsts] {{
-      if {{[$inst getRegion] ne "NULL" || [[$inst getMaster] getType] ne "CORE" || [$inst isFixed]}} continue
-      set ib [$inst getBBox]
-      if {{!([$ib xMin] < [$b xMax] && [$ib xMax] > [$b xMin] && [$ib yMin] < [$b yMax] && [$ib yMax] > [$b yMin])}} continue
-      set serves 0
-      foreach it [$inst getITerms] {{
-        if {{![$it isOutputSignal]}} continue
-        set net [$it getNet]; if {{$net eq "NULL"}} continue
-        foreach ld [$net getITerms] {{ if {{[[$ld getInst] getRegion] eq $r}} {{ set serves 1 }} }}
-      }}
-      if {{$serves}} {{
-        $r addInst $inst; if {{$grp ne ""}} {{ $grp addInst $inst }}; incr adopted; continue
-      }}
-      set w [$ib getDX]; set h [$ib getDY]
-      set dl [expr {{[$ib xMax] - [$b xMin]}}]; set dr [expr {{[$b xMax] - [$ib xMin]}}]
-      set left [expr {{[$b xMin] - $w >= [$core xMin]}}]; set right [expr {{[$b xMax] + $w <= [$core xMax]}}]
-      set nx [$ib xMin]; set ny [$ib yMin]
-      if {{$round == 0}} {{
-        if {{($dl <= $dr && $left) || !$right}} {{ set nx [expr {{[$b xMin] - $w}}] }} else {{ set nx [$b xMax] }}
-      }} elseif {{$round == 1}} {{
-        if {{($dl > $dr && $left) || !$right}} {{ set nx [expr {{[$b xMin] - $w}}] }} else {{ set nx [$b xMax] }}
-      }} elseif {{[$b yMin] - $h >= [$core yMin]}} {{
-        set ny [expr {{[$b yMin] - $h}}]
-      }} else {{ set ny [$b yMax] }}
-      $inst setLocation $nx $ny
-      incr moved
-    }}
-  }}
-}}
-list $adopted $moved""").split()
+        res = structure_ops.enforce_fences_round(session, rnd, names)
         stats["adopted"] += int(res[0])
         stats["evicted"] += int(res[1])
         if res == ["0", "0"]:
             break
-        session.run("detailed_placement")
+        place_ops.detailed_placement(session)
     return stats
 
 def compact_cluster(session, g, avoid=()):
     """Pull a cluster's cells into a packed block at their centroid."""
-    flat = session.value(f"""
-set out {{}}
-foreach inst [[ord::get_db_block] getInsts] {{
-  if {{[string first {q(g.prefix)} [$inst getName]] == 0}} {{
-    set l [$inst getLocation]; set m [$inst getMaster]
-    lappend out [$inst getName] [lindex $l 0] [lindex $l 1] [$m getWidth] [$m getHeight]
-  }}
-}}
-set out""").split()
+    flat = structure_ops.cluster_cells(session, g.prefix)
     cells, sizes, cx, cy = [], {}, 0, 0
     for i in range(0, len(flat), 5):
         n, x, y, w, h = flat[i], *map(int, flat[i + 1:i + 5])
@@ -134,14 +67,7 @@ set out""").split()
 
 def cluster_spread(session, g) -> float:
     """Bounding-box half perimeter (microns) of a cluster's cells."""
-    v = session.value(f"""
-set xs {{}}; set ys {{}}
-foreach inst [[ord::get_db_block] getInsts] {{
-  if {{[string first {q(g.prefix)} [$inst getName]] == 0}} {{ set b [$inst getBBox]; lappend xs [$b xMin] [$b xMax]; lappend ys [$b yMin] [$b yMax] }}
-}}
-set xs [lsort -integer $xs]; set ys [lsort -integer $ys]
-expr {{double([lindex $xs end] - [lindex $xs 0] + [lindex $ys end] - [lindex $ys 0]) / [[ord::get_db_block] getDbUnitsPerMicron]}}""")
-    return float(v)
+    return structure_ops.cluster_spread(session, g.prefix)
 
 def _dp_tap(ctx):
     """(well-tap master, tap distance um) for datapath tap slots, or None."""

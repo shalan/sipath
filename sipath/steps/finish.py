@@ -9,7 +9,7 @@ import re
 from .. import analog, params
 from ..tools.openroad import heatmap as heatmaps
 from ..tools.openroad import tcl
-from ..tools.openroad.tcl import q, tcl_parse, tcl_words
+from ..tools.openroad.ops import finish as finish_ops
 from .common import _timing_gate, grid_nets, power_checks, ppa_summary, reports, run_rcx
 from .analog_route import analog_coupling
 
@@ -43,9 +43,8 @@ def fill(ctx):
         with open(rules, "w") as f:
             json.dump(data, f, indent=1)
     area = f" -area {{{' '.join(f'{v:g}' for v in p['area'])}}}" if p.get("area") else ""
-    s.run(f"density_fill -rules {q(rules)}{area}")
-    per = tcl_parse(s.value("set c [dict create]; foreach f [[ord::get_db_block] getFills] "
-                            "{ dict incr c [[$f getTechLayer] getName] }; set c"))
+    finish_ops.density_fill(s, rules, area)
+    per = finish_ops.fill_counts(s)
     counts = {per[i]: int(per[i + 1]) for i in range(0, len(per), 2)}
     ctx.outputs["fill"] = counts
     ctx.metrics["fill_shapes"] = sum(counts.values())
@@ -70,9 +69,9 @@ def views(ctx):
     os.makedirs(out, exist_ok=True)
     top = d.top
     lef = os.path.join(out, f"{top}.lef")
-    s.run(f"write_abstract_lef{' -bloat_occupied_layers' if p.get('bloat_occupied_layers', True) else ''} {q(lef)}")
+    finish_ops.write_abstract_lef(s, lef, p.get("bloat_occupied_layers", True))
     v, pv = os.path.join(out, f"{top}.v"), os.path.join(out, f"{top}.pwr.v")
-    s.run(f"write_verilog {q(v)}\nwrite_verilog -include_pwr_gnd {q(pv)}")
+    finish_ops.write_netlists(s, v, pv)
     spefs = ctx.ancestor_output("spef_corners") or {}
     names = [c.name for c in ctx.pdk.analysis_corners()]
     corners = list(p.get("corners") or names)
@@ -85,10 +84,9 @@ def views(ctx):
     libs = {}
     multi = len(names) > 1
     for c in corners:
-        s.run(f"read_spef{f' -corner {c}' if multi else ''} {q(spefs[c])}")
+        finish_ops.read_spef(s, spefs[c], c if multi else None)
         libs[c] = os.path.join(out, f"{top}__{c}.lib")
-        s.run(f"write_timing_model{f' -scene {c}' if multi else ''} -library_name {q(top + '__' + c)} "
-              f"-cell_name {q(top)} {q(libs[c])}")
+        finish_ops.write_timing_model(s, libs[c], top + "__" + c, top, c if multi else None)
     gds = os.path.join(out, f"{top}.gds")
     shutil.copyfile(so["gds"], gds)
     spef_out = {}
@@ -106,8 +104,7 @@ def views(ctx):
             with open(cdl, "w") as f:
                 f.write(m.group(0) + "\n")
     # checks: every signal port in the LEF and in each Liberty; supply pins in the LEF
-    ports = set(tcl_words(s.value("set o {}; foreach b [[ord::get_db_block] getBTerms] "
-                                  "{ if {![[$b getNet] isSpecial]} { lappend o [$b getName] } }; set o")))
+    ports = finish_ops.signal_ports(s)
     with open(lef) as f:
         lef_text = f.read()
     lef_pins = set(re.findall(r"^\s*PIN\s+(\S+)", lef_text, re.M))
@@ -292,10 +289,10 @@ def ppa(ctx):
     typ = ctx.pdk.typical().name
     if spefs.get(typ):
         multi = len(ctx.pdk.analysis_corners()) > 1
-        ctx.session.run(f"read_spef {'-corner ' + typ + ' ' if multi else ''}{q(spefs[typ])}\nset ::flow_spef_loaded 1")
+        finish_ops.load_extracted_parasitics(ctx.session, spefs[typ], typ if multi else None)
         ppa_summary(ctx, "extracted")
     else:
-        ctx.session.run("::flow_timing_prep")
+        finish_ops.timing_prep(ctx.session)
         ppa_summary(ctx, "placement-estimate")
 
 def extract(ctx):

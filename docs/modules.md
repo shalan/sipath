@@ -28,8 +28,14 @@ on any import that crosses these rules.
 - **Model:** the design and PDK descriptions, Verilog netlists, LEF macros
   and heatmap CSVs, read without a tool.
 - **Tools:** how a tool runs and what it is told.
-- **Steps:** stage logic. In this phase the steps still write OpenROAD Tcl
-  inline.
+- **Steps:** stage logic: which operations run, in what order, with which
+  parameters, and what their results decide. The step modules (`steps/`)
+  send no Tcl themselves: every OpenROAD command they need is a named
+  operation in `tools/openroad/ops/`, and a second test
+  (`test_steps_talk_to_openroad_only_through_its_operations`) fails on any
+  `.run(...)` or `.value(...)` on a session inside `steps/`. The libraries
+  the steps use (`eco`, `macroplace`, `chip`, `analog`, `shield` and the
+  others below) still write their Tcl inline.
 - **Flows:** design files, the default chain, the CLI and the MCP server.
 - **Compatibility aliases.** `sipath.session`, `sipath.tcl`,
   `sipath.tclquote` and `sipath.nativetools` are the moved modules themselves
@@ -63,6 +69,7 @@ on any import that crosses these rules.
 | `openroad/session.py` | `OpenRoadSession`: one process per attempt; Tcl in over stdin, result/errorInfo back through files; a Tcl error raises `TclError`. Docker and native runners. `FakeSession` for graph tests |
 | `openroad/tcl.py`, `openroad/tclquote.py` | Tcl generators and helpers; quoting (no substitution possible) and Tcl-list parsing |
 | `openroad/checkpoint.py` | the checkpoint store: process setup (threads, helpers), loading a parent, the metrics every attempt records, `write_db` |
+| `openroad/ops/` | the operations the steps call, one module per area: `db` (database queries, metrics), `floorplan`, `place` (placement, repair, pin channels, blockages, CTS), `structure` (fences, clusters), `route`, `analog` (NDRs, supply parking, row blockages), `power` (grid checks, IR drop), `finish` (fill, views, parasitics), `report` (reports to files, PPA values) |
 | `openroad/heatmap.py` | heatmaps dumped after an attempt's checkpoint is saved (`Ctx.after_save`), with the instances or nets in each hotspot |
 | `run.py` | `run_tool` (a tool next to OpenROAD, its output in a log) and the runner lookup; `ToolFailed` |
 | `yosys.py`, `klayout.py`, `magic.py`, `netgen.py` | per-tool commands and version probes (Netgen: probe only; it runs in the precheck image) |

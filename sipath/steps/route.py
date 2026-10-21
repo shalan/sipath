@@ -6,8 +6,7 @@ import re
 
 from .. import analog
 from ..tools.openroad import heatmap as heatmaps
-from ..tools.openroad import tcl
-from ..tools.openroad.tcl import q
+from ..tools.openroad.ops import place as place_ops, route as route_ops
 from .common import _check_unrouted, _drt_numbers, _global_route, _timing_gate, antenna_loop, check_antennas, check_placement, min_area_repair, ppa_summary, reconnect_supplies, reports, run_rcx
 from .structure import datapath_check, enforce_fences, fence_violations, reabut_all
 
@@ -25,18 +24,16 @@ def route_digital(ctx):
     d, s, p = ctx.design, ctx.session, ctx.params
     frozen = list(d.analog_nets) + list(d.analog_supplies)
     before = analog.signature(s, frozen) if frozen else ""
-    s.run(tcl.routing_layers(d, ctx.pdk))
+    route_ops.set_routing_layers(s, d, ctx.pdk)
     if p.get("pin_access", True):  # as ORFS: pin access points for the global router (and reused by DRT);
-        s.run("pin_access")         # the layers come from set_routing_layers (its own options are deprecated)
-    _global_route(ctx, tcl.global_route_digital(ctx.path("congestion.rpt")), "congestion.rpt")
+        route_ops.pin_access(s)     # the layers come from set_routing_layers (its own options are deprecated)
+    _global_route(ctx, route_ops.global_route_digital(ctx.path("congestion.rpt")), "congestion.rpt")
     if p.get("repair_after_grt", True):
         # 1.1: repair with global-route parasitics, legalize, then let the global
         # router re-route only what changed (incremental mode)
-        s.run("global_route -start_incremental\nestimate_parasitics -global_routing\n"
-              f"repair_design{tcl.design_margins(ctx.pdk)}\n"
-              "repair_timing -setup -hold -repair_tns 100" + tcl.margins(ctx.pdk, "hold_route"))
+        route_ops.repair_on_global_routes(s, ctx.pdk)
         ctx.outputs["reabut_grt"] = reabut_all(ctx)
-        s.run("detailed_placement")
+        place_ops.detailed_placement(s)
         fences = [g.name for g in d.groups if g.kind == "fence"]
         ctx.outputs["fence_evicted_grt"] = enforce_fences(s, fences)
         check_placement(ctx)
@@ -44,21 +41,20 @@ def route_digital(ctx):
         if bad:
             raise RuntimeError("fence violations after post-global-route repair:\n" + "\n".join(bad[:20]))
         datapath_check(ctx, "after post-global-route repair")
-        _global_route(ctx, f"global_route -end_incremental -congestion_report_file {q(ctx.path('congestion.rpt'))}",
-                      "congestion.rpt")
+        _global_route(ctx, route_ops.end_incremental_global_route(ctx.path("congestion.rpt")), "congestion.rpt")
     if not p.get("detailed", True):  # explore: PPA on global-route parasitics, no detailed route
-        s.run("estimate_parasitics -global_routing\nset ::flow_grt_parasitics 1")
+        route_ops.global_route_parasitics(s)
         ctx.metrics["routed"] = "global"
         ppa_summary(ctx, "global routing")
         reports(ctx, "route")
         return
     if ctx.pdk.diode_cell:  # 1.4: antenna repair on the global routes
-        r = s.run(f"repair_antennas {q(ctx.pdk.diode_cell)} -iterations 3")
+        r = route_ops.repair_antennas(s, ctx.pdk.diode_cell, 3)
         m = re.findall(r"Inserted (\d+) diodes", r.output)
         ctx.metrics["antenna_diodes"] = int(m[-1]) if m else 0
-        s.run("detailed_placement")
+        place_ops.detailed_placement(s)
         check_placement(ctx)
-    r = s.run(tcl.detailed_route_only(ctx.path("drc.rpt"), p.get("iters", 64)))
+    r = route_ops.detailed_route(s, ctx.path("drc.rpt"), p.get("iters", 64))
     after = analog.signature(s, frozen) if frozen else ""
     if before != after:
         raise RuntimeError("digital routing modified frozen analog nets")
@@ -93,7 +89,7 @@ def route_repair(ctx):
     for k in ("drc", "wirelength_um", "vias"):  # unchanged unless a patch route runs
         if k in (ctx.parent.metrics if ctx.parent else {}):
             ctx.metrics[k] = ctx.parent.metrics[k]
-    s.run(tcl.routing_layers(ctx.design, ctx.pdk))
+    route_ops.set_routing_layers(s, ctx.design, ctx.pdk)
     run_rcx(ctx, ctx.path("route_rcx.spef"), tag="repair_rcx")
     from ..eco import post_route_repair
     ctx.outputs["post_route_repair"] = post_route_repair(ctx, p.get("rounds", 2), p.get("max_patch_nets"),
@@ -111,7 +107,7 @@ def route_repair(ctx):
     if ctx.metrics["antenna_violations"] > p.get("max_antenna", 0):
         raise RuntimeError(f"{ctx.metrics['antenna_violations']} antenna violations after post-route repair")
     min_area_repair(ctx, "repair")
-    s.run(tcl.filler(ctx.pdk, p.get("fillers")))
+    route_ops.insert_fillers(s, ctx.pdk, p.get("fillers"))
     check_placement(ctx)
     _timing_gate(ctx)
     reports(ctx, "repair")

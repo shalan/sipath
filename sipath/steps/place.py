@@ -1,67 +1,12 @@
 """Steps ``place`` (global and detailed placement with repair) and ``cts``."""
 from __future__ import annotations
 
-from ..tools.openroad import heatmap as heatmaps
-from ..tools.openroad import tcl
 from ..harness import CHANNEL_ROW
-from ..tools.openroad.tcl import q, qlist, tcl_words
+from ..tools.openroad import heatmap as heatmaps
+from ..tools.openroad.ops import db, place as place_ops
+from ..tools.openroad.tcl import tcl_words
 from .common import check_placement, clock_nets, reconnect_supplies, reports, routability_check, tie_max_fanout
 from .structure import cluster_spread, compact_cluster, datapath_check, enforce_fences, fence_violations, reabut_all
-
-
-# pin channels out of global placement: their rows blocked, the core area the region's rows (what gpl
-# sees without channels; the core is restored after it)
-_CHANNEL_BLOCKAGES = f"""set ::flow_pinch_blk {{}}; set __r {{}}
-foreach r [[ord::get_db_block] getRows] {{
-  set b [$r getBBox]
-  if {{![string match {CHANNEL_ROW}_* [$r getName]]}} {{
-    lappend __r [$b xMin] [$b yMin] [$b xMax] [$b yMax]
-    continue
-  }}
-  lappend ::flow_pinch_blk [odb::dbBlockage_create [ord::get_db_block] [$b xMin] [$b yMin] [$b xMax] [$b yMax]]
-}}
-set ::flow_core [[ord::get_db_block] getCoreArea]
-set ::flow_core [list [$::flow_core xMin] [$::flow_core yMin] [$::flow_core xMax] [$::flow_core yMax]]
-if {{[llength $::flow_pinch_blk]}} {{
-  lassign [lrange $__r 0 3] x0 y0 x1 y1
-  foreach {{a b c d}} $__r {{ set x0 [expr {{min($x0, $a)}}]; set y0 [expr {{min($y0, $b)}}]
-                            set x1 [expr {{max($x1, $c)}}]; set y1 [expr {{max($y1, $d)}}] }}
-  [ord::get_db_block] setCoreArea [odb::new_Rect $x0 $y0 $x1 $y1]
-}}
-llength $::flow_pinch_blk"""
-_CHANNEL_RESTORE = ("foreach b $::flow_pinch_blk { odb::dbBlockage_destroy $b }\nunset ::flow_pinch_blk\n"
-                    "[ord::get_db_block] setCoreArea [odb::new_Rect {*}$::flow_core]")
-
-
-# per signal pin with cells on its net: {pin x y {buffer chain from the pin} last_x last_y}; the chain:
-# single-load nets whose load is a buffer (master *buf*), at least two; last: the last buffer's centre
-_PIN_CHAINS = r"""set __o {}
-foreach __t [[ord::get_db_block] getBTerms] {
-  set __n [$__t getNet]
-  if {$__n eq "NULL" || [$__n isSpecial] || ![llength [$__n getITerms]] || ![llength [$__t getBPins]]} continue
-  set __b [[lindex [$__t getBPins] 0] getBBox]
-  set __chain {}
-  while 1 {
-    set __loads {}
-    foreach __i [$__n getITerms] { if {![$__i isOutputSignal]} { lappend __loads $__i } }
-    if {[llength $__loads] != 1} break
-    set __inst [[lindex $__loads 0] getInst]
-    if {![string match *buf* [[$__inst getMaster] getName]] || [lsearch -exact $__chain [$__inst getName]] >= 0} break
-    set __out "NULL"
-    foreach __i [$__inst getITerms] { if {[$__i isOutputSignal]} { set __out [$__i getNet] } }
-    if {$__out eq "NULL"} break
-    lappend __chain [$__inst getName]
-    set __n $__out
-  }
-  if {[llength $__chain] < 2} continue
-  set __lb [[::flow_inst [lindex $__chain end]] getBBox]
-  lappend __o [list [$__t getName] [expr {([$__b xMin] + [$__b xMax]) / 2}] [expr {([$__b yMin] + [$__b yMax]) / 2}] \
-    $__chain [expr {([$__lb xMin] + [$__lb xMax]) / 2}] [expr {([$__lb yMin] + [$__lb yMax]) / 2}]]
-}
-set __o"""
-
-_ROW_BOXES = ("set __o {}; foreach r [[ord::get_db_block] getRows] { set b [$r getBBox]; "
-              "lappend __o [list [$r getName] [$b xMin] [$b yMin] [$b xMax] [$b yMax]] }; set __o")
 
 
 def _along(path: list[tuple[int, int]], dist: float) -> tuple[int, int]:
@@ -85,7 +30,7 @@ def space_pin_repeaters(ctx) -> list[dict]:
     legalization moves them to the nearest rows, some millimetres apart. Then
     legalization. Returns one record per chain moved."""
     s = ctx.session
-    rows = [(w[0], *map(int, w[1:])) for w in map(tcl_words, tcl_words(s.value(_ROW_BOXES)))]
+    rows = place_ops.row_boxes(s)
     region = [r for r in rows if not r[0].startswith(CHANNEL_ROW + "_")]
     chans = [r for r in rows if r[0].startswith(CHANNEL_ROW + "_")]
     if not chans or not region:
@@ -93,7 +38,7 @@ def space_pin_repeaters(ctx) -> list[dict]:
     rx0, ry0 = min(r[1] for r in region), min(r[2] for r in region)
     rx1, ry1 = max(r[3] for r in region), max(r[4] for r in region)
     out = []
-    for w in map(tcl_words, tcl_words(s.value(_PIN_CHAINS))):
+    for w in place_ops.pin_chains(s):
         name, px, py, chain, lx, ly = w[0], int(w[1]), int(w[2]), tcl_words(w[3]), int(w[4]), int(w[5])
         if rx0 <= px <= rx1 and ry0 <= py <= ry1:
             continue
@@ -110,53 +55,13 @@ def space_pin_repeaters(ctx) -> list[dict]:
         first = abs(xa - px) + abs(yb - py)
         moved = chain[:-1]
         pts = [_along(path, first + (total - first) * i / len(moved)) for i in range(len(moved))]
-        s.run("\n".join(f"set __i [::flow_inst {q(b)}]; set __m [$__i getMaster]\n"
-                        f"$__i setLocation [expr {{{x} - [$__m getWidth] / 2}}] [expr {{{y} - [$__m getHeight] / 2}}]\n"
-                        "$__i setPlacementStatus PLACED" for b, (x, y) in zip(moved, pts)))
-        dbu = int(s.value("[ord::get_db_block] getDbUnitsPerMicron"))
+        place_ops.move_centres(s, zip(moved, pts))
+        dbu = db.dbu(s)
         out.append({"pin": name, "buffers": len(chain), "path_um": round(total / dbu, 1),
                     "spacing_um": round((total - first) / len(moved) / dbu, 1)})
     if out:
-        s.run("detailed_placement")
+        place_ops.detailed_placement(s)
     return out
-
-
-# the nets from each signal port (clock ports skipped) through its buffer chain: forward from an input
-# (while a net's one load is a buffer), backward from an output (while its driver is a buffer whose
-# input net has that one load), the net past the chain included; as STA nets
-_PORT_NETS = r"""set __o {}
-foreach __t [[ord::get_db_block] getBTerms] {
-  set __n [$__t getNet]
-  if {$__n eq "NULL" || [$__n isSpecial] || ![llength [$__n getITerms]]} continue
-  if {[$__t getName] in $::flow_skip_ports} continue
-  set __seen {}
-  while {[lsearch -exact $__seen $__n] < 0} {
-    lappend __seen $__n
-    set __next "NULL"
-    if {[$__t getIoType] eq "OUTPUT"} {
-      foreach __i [$__n getITerms] {
-        if {![$__i isOutputSignal] || ![string match *buf* [[[$__i getInst] getMaster] getName]]} continue
-        foreach __j [[$__i getInst] getITerms] { if {[$__j isInputSignal]} { set __next [$__j getNet] } }
-      }
-    } else {
-      set __loads {}
-      foreach __i [$__n getITerms] { if {![$__i isOutputSignal]} { lappend __loads $__i } }
-      if {[llength $__loads] == 1 && [string match *buf* [[[[lindex $__loads 0] getInst] getMaster] getName]]} {
-        foreach __j [[[lindex $__loads 0] getInst] getITerms] {
-          if {[$__j isOutputSignal]} { set __next [$__j getNet] }
-        }
-      }
-    }
-    if {$__next eq "NULL"} break
-    set __loads 0
-    foreach __i [$__next getITerms] { if {![$__i isOutputSignal]} { incr __loads } }
-    set __n $__next
-    if {$__loads != 1} { lappend __seen $__n; break }
-  }
-  foreach __n $__seen { if {[lsearch -exact $__o $__n] < 0} { lappend __o $__n } }
-}
-set ::flow_port_nets [lmap __n $__o { sta::db_net_to_sta $__n }]
-llength $::flow_port_nets"""
 
 
 def repair_port_nets(ctx) -> dict:
@@ -171,12 +76,10 @@ def repair_port_nets(ctx) -> dict:
     if not wire:
         return {}
     m = getattr(ctx.pdk, "repair_margins", None) or {}
-    count = "llength [[ord::get_db_block] getInsts]"
-    n0 = int(s.value(count))
-    nets = int(s.value(f"set ::flow_skip_ports {qlist(sorted(ctx.design.clock_ports))}\n" + _PORT_NETS))
-    s.run(f"estimate_parasitics -placement\nforeach __n $::flow_port_nets {{ rsz::repair_net_cmd $__n "
-          f"[sta::distance_ui_sta {wire:g}] {m.get('slew', 0)} {m.get('cap', 0)} }}\ndetailed_placement")
-    return {"nets": nets, "buffers": int(s.value(count)) - n0}
+    n0 = place_ops.inst_count(s)
+    nets = place_ops.collect_port_nets(s, sorted(ctx.design.clock_ports))
+    place_ops.repair_port_nets(s, wire, m.get("slew", 0), m.get("cap", 0))
+    return {"nets": nets, "buffers": place_ops.inst_count(s) - n0}
 
 
 def repair_legalized(ctx, rounds: int = 4) -> int:
@@ -185,11 +88,10 @@ def repair_legalized(ctx, rounds: int = 4) -> int:
     inserted some."""
     s, p = ctx.session, ctx.params
     util = f" -max_utilization {p['max_util']}" if p.get("max_util") else ""
-    count = "llength [[ord::get_db_block] getInsts]"
     for k in range(rounds):
-        n = int(s.value(count))
-        s.run(f"estimate_parasitics -placement\nrepair_design{util}{tcl.design_margins(ctx.pdk)}\ndetailed_placement")
-        if int(s.value(count)) == n:
+        n = place_ops.inst_count(s)
+        place_ops.repair_design_legalized(s, util, ctx.pdk)
+        if place_ops.inst_count(s) == n:
             return k
     return rounds
 
@@ -198,7 +100,7 @@ def placement_blockages(s, blockages) -> int:
     """``create_blockage -region -max_density`` for each {box: [x0, y0, x1, y1] um, max_density: %}, for global
     placement only: ``remove_placement_blockages`` destroys exactly these before legalization (fixed taps in a
     partial blockage fail check_placement) so the checkpoint carries none of them."""
-    s.run("set ::flow_place_blockages {}\nset ::flow_blockages_before [[ord::get_db_block] getBlockages]")
+    place_ops.begin_blockages(s)
     for b in blockages or []:
         box = b.get("box")
         md = b.get("max_density", 50)
@@ -207,16 +109,13 @@ def placement_blockages(s, blockages) -> int:
             raise ValueError(f"place.blockages: box must be [x0, y0, x1, y1] um with x0 < x1, y0 < y1, not {box!r}")
         if not isinstance(md, (int, float)) or not 0 <= md < 100:
             raise ValueError(f"place.blockages: max_density must be a percentage in [0, 100), not {md!r}")
-        s.run(f"create_blockage -region {{{box[0]} {box[1]} {box[2]} {box[3]}}} -max_density {md}")
-    s.run("foreach __b [[ord::get_db_block] getBlockages] {\n"
-          "  if {$__b ni $::flow_blockages_before} { lappend ::flow_place_blockages $__b }\n}")
+        place_ops.create_blockage(s, box, md)
+    place_ops.record_blockages(s)
     return len(blockages or [])
 
 
 def remove_placement_blockages(s) -> None:
-    s.run("if {[info exists ::flow_place_blockages]} {\n"
-          "  foreach __b $::flow_place_blockages { odb::dbBlockage_destroy $__b }\n"
-          "  set ::flow_place_blockages {}\n}")
+    place_ops.remove_recorded_blockages(s)
 
 
 def place(ctx):
@@ -225,9 +124,9 @@ def place(ctx):
     heatmaps.schedule(ctx, p.get("heatmaps"))  # collected after the checkpoint is saved
     if p.get("repair_tie_fanout", True):  # one tie cell per load, placed by gpl next to it
         for master, port in ctx.pdk.tie_cells():
-            s.run(f"repair_tie_fanout -separation 5 {q(master + '/' + port)}")
+            place_ops.repair_tie_fanout(s, master + "/" + port)
     if p.get("remove_buffers"):
-        s.run("remove_buffers")
+        place_ops.remove_buffers(s)
     ctx.metrics["tie_max_fanout"] = tie_max_fanout(ctx)
     blockages = placement_blockages(s, p.get("blockages"))
     if blockages:  # partial placement blockages: regions gpl and legalization fill to at most max_density
@@ -238,14 +137,14 @@ def place(ctx):
     # (repair_design / repair_timing still run right after placement)
     if d.mode == "macro" and not d.floorplan_def:
         # pins placed by the flow: a placement ignoring them, pins by the cells, then the real one
-        s.run(tcl.global_place(p.get("density", 0.55), p.get("seed"), timing_driven=False) + " -skip_io")
-        s.run(tcl.place_pins(ctx.pdk))
+        place_ops.global_place_skip_io(s, p.get("density", 0.55), p.get("seed"))
+        place_ops.place_pins(s, ctx.pdk)
     if d.harness:  # its pin channels are for repair's buffers, not for the logic gpl pulls to the far pins
-        ctx.metrics["pin_channel_rows_blocked"] = int(s.value(_CHANNEL_BLOCKAGES))
-    s.run(tcl.global_place(p.get("density", 0.55), p.get("seed"), timing_driven=p.get("timing_driven", True),
-                           keep_resize=not fence_groups, routability_driven=p.get("routability_driven", False)))
+        ctx.metrics["pin_channel_rows_blocked"] = place_ops.block_pin_channels(s, CHANNEL_ROW)
+    place_ops.global_place(s, p.get("density", 0.55), p.get("seed"), p.get("timing_driven", True),
+                           not fence_groups, p.get("routability_driven", False))
     if d.harness:
-        s.run(_CHANNEL_RESTORE)
+        place_ops.restore_pin_channels(s)
     clusters = [g for g in d.groups if g.kind == "cluster"]
     for g in clusters:
         # spread right after gpl (cells still overlap) vs after packing + legalization
@@ -253,18 +152,18 @@ def place(ctx):
         fences = [tuple(ctx.parent_outputs("physical")["groups"][f.name]["box_dbu"]) for f in d.groups
                   if f.kind == "fence"]
         ctx.outputs["clusters"][g.name].update(compact_cluster(s, g, fences))
-    s.run(tcl.repair_after_place(p.get("max_util"), ctx.pdk))
+    place_ops.repair_after_place(s, p.get("max_util"), ctx.pdk)
     ctx.outputs["reabut"] = reabut_all(ctx)  # sizing may have grown FIRM datapath cells
     if blockages:
         remove_placement_blockages(s)
-    s.run("detailed_placement")
+    place_ops.detailed_placement(s)
     if d.harness:  # long pin nets across a mostly empty wrapper: buffers along the rows, then repair again
         ctx.outputs["pin_repeaters"] = space_pin_repeaters(ctx)
         ctx.outputs["port_nets"] = repair_port_nets(ctx)
         ctx.metrics["repair_legalized_rounds"] = repair_legalized(ctx)
     if p.get("improve_placement", True) and not fence_groups:
         # ORFS's placement cleanup: shorter wires, less congestion for the router
-        s.run('improve_placement -max_displacement "5 1"\noptimize_mirroring')
+        place_ops.improve_placement(s)
     ctx.outputs["fence_evicted"] = enforce_fences(s, [g.name for g in d.groups if g.kind == "fence"])
     check_placement(ctx)
     for g in clusters:
@@ -282,10 +181,7 @@ def place(ctx):
 def _analog_terms(ctx) -> dict[str, list[str]]:
     out = {}
     for n in ctx.design.analog_nets:
-        v = ctx.session.value(f"set o {{}}; set net [::flow_net {q(n)}]; "
-                              "foreach t [$net getITerms] { lappend o \"[[$t getInst] getName]/[[$t getMTerm] getName]\" }; "
-                              "foreach t [$net getBTerms] { lappend o [$t getName] }; lsort $o")
-        out[n] = tcl_words(v)
+        out[n] = place_ops.net_terminals(ctx.session, n)
     return out
 
 def cts(ctx):
@@ -293,9 +189,9 @@ def cts(ctx):
     heatmaps.schedule(ctx, ctx.params.get("heatmaps"))
     nets = clock_nets(ctx)
     analog_before = _analog_terms(ctx)
-    s.run(tcl.cts(ctx.pdk, nets))
+    place_ops.clock_tree(s, ctx.pdk, nets)
     ctx.outputs["reabut"] = reabut_all(ctx)
-    s.run("detailed_placement")
+    place_ops.detailed_placement(s)
     ctx.outputs["fence_evicted"] = enforce_fences(s, [g.name for g in ctx.design.groups if g.kind == "fence"])
     check_placement(ctx)
     bad = fence_violations(s, [g.name for g in ctx.design.groups if g.kind == "fence"])
