@@ -1192,3 +1192,39 @@ class LiveBudget(unittest.TestCase):
         self.assertIn("extract", f2.steps)
         for s in done:  # what finished before the budget is reused
             self.assertTrue(f2.steps[s].selected.resumed, s)
+
+
+@LIVE
+class LiveFork(unittest.TestCase):
+    """B2.3: fork dp8 from the placement its score rejected and route it; the original run's graph is
+    byte-identical afterwards."""
+
+    def test_route_a_rejected_placement(self):
+        import hashlib
+        from sipath import designfile, steps
+        from sipath.examples import dp8
+        wd = _workdir("fork")
+        if not KEEP:
+            self.addCleanup(_rmtree, wd)
+        orig = os.path.join(wd, "orig")
+        f = designfile.run(dp8.make_design(), orig, RUNNER, flow_steps=[
+            {"step": "floorplan"}, {"step": "physical"},
+            {"step": "place", "variants": [{"density": 0.45}, {"density": 0.7}], "parallel": 2,
+             "score": "routability_then_wns"}])
+        rejected = next(a for a in f.steps["place"].attempts if a.status == "rejected")
+        with open(os.path.join(orig, "graph.json"), "rb") as fh:
+            before = hashlib.sha256(fh.read()).hexdigest()
+        g = f.fork(rejected, os.path.join(wd, "fork"))
+        parent = g.steps["place"].selected
+        for name in ("cts", "route_analog", "route_digital"):
+            parent = g.step(name, steps.STEPS[name], parent=parent).selected
+        self.assertGreater(parent.metrics.get("wirelength_um") or parent.metrics.get("hpwl_um") or 0, 0)
+        self.assertTrue(parent.dir.startswith(os.path.join(wd, "fork")))
+        chain, a = [], parent
+        while a is not None:
+            chain.append(a.id)
+            a = a.parent
+        self.assertIn(rejected.id, chain)
+        with open(os.path.join(orig, "graph.json"), "rb") as fh:
+            self.assertEqual(hashlib.sha256(fh.read()).hexdigest(), before)
+        self.assertEqual(_read_json(os.path.join(wd, "fork", "graph.json"))["verification"]["execution"], "completed")

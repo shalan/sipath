@@ -202,6 +202,7 @@ class Attempt:
     fingerprint: str | None = None  # the run's inputs, its step, params, declared defaults and parent (fingerprint)
     stale_reason: str | None = None  # why a resume did not reuse it (status "stale")
     capabilities: list | None = None  # what its chain has after it (CAPABILITIES); None: unknown (an old graph)
+    forked_from: str | None = None  # "<original run's workdir>:<attempt id>" when a fork took it over (Flow.fork)
     retry: dict | None = field(default=None, repr=False)  # params a RetryWith asked for (not recorded)
     retry_why: str | None = field(default=None, repr=False)  # its reason, handed to the retry
 
@@ -218,7 +219,7 @@ class Attempt:
             "debug_checkpoint": self.debug_checkpoint, "resumed": self.resumed, "retry_of": self.retry_of,
             "retry_reason": self.retry_reason, "adapted_from": self.adapted_from, "adapt_reason": self.adapt_reason,
             "fingerprint": self.fingerprint, **({"stale_reason": self.stale_reason} if self.stale_reason else {}),
-            "capabilities": self.capabilities,
+            "capabilities": self.capabilities, **({"forked_from": self.forked_from} if self.forked_from else {}),
         }
 
 
@@ -375,7 +376,7 @@ class Flow:
                         resumed=True, retry_of=j.get("retry_of"), retry_reason=j.get("retry_reason"),
                         adapted_from=j.get("adapted_from"), adapt_reason=j.get("adapt_reason"),
                         fingerprint=j.get("fingerprint"), stale_reason=j.get("stale_reason"),
-                        capabilities=j.get("capabilities"))
+                        capabilities=j.get("capabilities"), forked_from=j.get("forked_from"))
             if j["parent"] and a.parent is None:
                 raise ValueError(f"{path}: attempt {a.id} names unknown parent {j['parent']}")
             if a.status in ("running", "pending"):
@@ -712,6 +713,48 @@ class Flow:
         run.rounds = run.rounds + [{"from": run.selected.id if run.selected else None, "stopped": reason}]
         self.save_graph()
         return run
+
+    def fork(self, attempt, workdir: str) -> "Flow":
+        """A new run in ``workdir`` that continues from ``attempt`` (an id or an Attempt): any finished attempt of
+        this run, a rejected one included. The new run's graph starts with that attempt and its ancestors, each
+        selected there and pointing at this run's checkpoints (read, never written; ``forked_from`` names the
+        original); this run's graph is not touched. The fork resumes like any run."""
+        a = attempt if isinstance(attempt, Attempt) else next((x for x in self.attempts if x.id == attempt), None)
+        if a is None:
+            raise ValueError(f"no attempt {attempt!r} in {self.workdir}")
+        if a.status not in ("ok", "selected", "rejected") or not (a.checkpoint and os.path.isfile(a.checkpoint)):
+            raise ValueError(f"fork: {a.id} is {a.status} with no checkpoint; fork from a finished attempt")
+        workdir = os.path.abspath(workdir)
+        if workdir == self.workdir or workdir.startswith(self.workdir + os.sep):
+            raise ValueError("fork: the new run needs its own directory, outside this run's")
+        if os.path.isfile(os.path.join(workdir, "graph.json")):
+            raise ValueError(f"fork: {workdir} already holds a run")
+        if self.runner is not None and hasattr(self.runner, "mount"):
+            self.runner.mount(self.workdir)  # the new run's processes read this run's checkpoints
+        f = Flow(self.design, self.pdk, workdir, self.session_factory, validate_inputs=False, config=self.config,
+                 provenance=dict(self.provenance, forked_from={"run": self.workdir, "attempt": a.id}),
+                 runner=self.runner, checkpoints=self.checkpoints)
+        if self.runner is not None and hasattr(self.runner, "mount"):
+            self.runner.mount(workdir)  # it exists now (Flow made it): the new attempts write there
+        chain, x = [], a
+        while x is not None:
+            chain.append(x)
+            x = x.parent
+        copies: dict[str, Attempt] = {}
+        for x in reversed(chain):
+            c = Attempt(id=x.id, step=x.step, index=x.index, params=dict(x.params),
+                        parent=copies.get(x.parent.id) if x.parent else None, dir=x.dir, kind=x.kind,
+                        status="selected", checkpoint=x.checkpoint, metrics=dict(x.metrics), outputs=dict(x.outputs),
+                        score=x.score, seconds=x.seconds, started_at=x.started_at, finished_at=x.finished_at,
+                        process=x.process, timing=x.timing, resumed=True, fingerprint=x.fingerprint,
+                        capabilities=x.capabilities, forked_from=f"{self.workdir}:{x.id}")
+            copies[x.id] = c
+            f.attempts.append(c)
+            f.steps[x.step] = StepRun(x.step, [c], "fork", c, x.parent.id if x.parent else None, [dict(x.params)],
+                                      fingerprint=None, reused=True)
+        f.save_graph()
+        log.info("forked %s from %s:%s (%d attempts in its chain)", workdir, self.workdir, a.id, len(chain))
+        return f
 
     def _name_taken(self, name: str) -> bool:
         return name in self.steps or any(a.step == name and a.status != "stale" for a in self.attempts)

@@ -295,6 +295,15 @@ capabilities in `graph.json`.
 - `variants=[...]`, `parallel=N`, `score="<name>"` (default `auto`: setup slack
   when constrained, else wirelength); rejected attempts stay in `graph.json`.
   `fail_on_violation` makes a timing violation fail the attempt.
+- **Forks.** The next step continues from the selected attempt; to carry on
+  from another one, fork: `flow.fork(attempt, workdir)` (MCP `fork_run`)
+  starts a new run in its own directory from any finished attempt, a rejected
+  one included. The new graph holds that attempt and its ancestors, selected
+  there and pointing at the original run's checkpoints (read, never written;
+  each records `forked_from`), and continues with any step; the original run
+  is not touched, and the fork resumes like any run. Measured on dp8: the
+  placement its score rejected, forked and routed, while the original
+  `graph.json` stayed byte-identical.
 - ECOs `resize` (`replace_cell`) and `buffer` (`insert_buffer`): refused unless
   the parent is the selected head of its chain; structural equivalence before
   routing; rejected if setup or hold slack drops by more than

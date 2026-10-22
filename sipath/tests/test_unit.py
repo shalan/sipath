@@ -2738,6 +2738,49 @@ class Budgets(unittest.TestCase):
         self.assertIn("at once", designfile.plan_text(p))
 
 
+class Fork(unittest.TestCase):
+    """B2.3: a new run from any finished attempt, rejected ones included; the original run is never written."""
+
+    def test_fork_from_a_rejected_attempt(self):
+        import hashlib
+        from sipath import mcp_server
+        with tempfile.TemporaryDirectory() as td:
+            orig = os.path.join(td, "orig")
+            f = Flow(Design("fake", "fake", "x.v", "x.sdc", "macro", floorplan_def="x.def"), sky130hd("/p"), orig,
+                     demo.fake_factory(), validate_inputs=False)
+            a = f.step("a", demo.fake_step(), score="setup_wns")
+            p = f.step("p", demo.fake_step(), parent=a.selected, variants=[{"k": 0}, {"k": 1}], score="setup_wns")
+            rejected = next(x for x in p.attempts if x.status == "rejected")
+
+            def digest():
+                with open(os.path.join(orig, "graph.json"), "rb") as fh:
+                    return hashlib.sha256(fh.read()).hexdigest()
+            before = digest()
+            g = f.fork(rejected.id, os.path.join(td, "fork"))
+            head = g.steps["p"].selected
+            self.assertEqual((head.id, head.status, head.forked_from), (rejected.id, "selected", f"{orig}:{rejected.id}"))
+            self.assertEqual(head.checkpoint, rejected.checkpoint)  # read from the original, not copied
+            r = g.step("c", demo.fake_step(), parent=head, score="setup_wns")
+            self.assertTrue(r.selected.dir.startswith(os.path.join(td, "fork")))
+            self.assertEqual(digest(), before)  # the original graph is byte-identical
+            self.assertEqual(rejected.status, "rejected")
+            fg = _read_json(os.path.join(td, "fork", "graph.json"))
+            self.assertEqual(fg["provenance"]["forked_from"], {"run": orig, "attempt": rejected.id})
+            g2 = Flow(f.design, f.pdk, os.path.join(td, "fork"), demo.fake_factory(), validate_inputs=False,
+                      resume=True)  # the fork resumes like any run
+            self.assertEqual(g2.steps["c"].selected.parent.id, rejected.id)
+            for bad, msg in (("nope.0", "no attempt"), (rejected.id, "already holds a run")):
+                with self.assertRaisesRegex(ValueError, msg):
+                    f.fork(bad, os.path.join(td, "fork"))
+            with self.assertRaisesRegex(ValueError, "its own directory"):
+                f.fork(rejected.id, os.path.join(orig, "inside"))
+            s = mcp_server.Server(emit=lambda m: None)
+            s.runs["r1"] = {"flow": f, "design": "fake", "job": None}
+            out = s.fork_run("r1", rejected.id, os.path.join(td, "fork2"))
+            self.assertEqual(out["recorded_steps"]["p"], rejected.id)
+            self.assertIn(out["run_id"], s.runs)
+
+
 class Adaptive(unittest.TestCase):
     """Adaptive rounds: Flow.extend, designfile.adapt, the place adapter and its blockages."""
 
@@ -3688,7 +3731,7 @@ class McpProtocol(unittest.TestCase):
         names = {t["name"] for t in c.rpc("tools/list")["result"]["tools"]}
         self.assertEqual(names, {"list_designs", "list_scores", "describe_step", "open_run", "run_step", "run_eco", "list_attempts",
                                  "get_outputs", "query_checkpoint", "query_heatmap", "adapt_step", "draw_checkpoint", "render_checkpoint",
-                                 "job_status", "cancel_job", "list_jobs"})
+                                 "job_status", "cancel_job", "list_jobs", "fork_run"})
         self.assertIn("resources", init["result"]["capabilities"])
         self.assertEqual(c.rpc("resources/list")["result"], {"resources": []})
         err, out, _ = c.call("list_designs")

@@ -75,7 +75,7 @@ it.
 ## The tools
 
 `python3 -m sipath mcp` serves `open_run` (an example name or any design file;
-`resume` picks up a workdir), `run_step`, `run_eco`, `job_status`,
+`resume` picks up a workdir), `fork_run` (a new run from any finished attempt), `run_step`, `run_eco`, `job_status`,
 `cancel_job`, `list_jobs`, `list_attempts`, `get_outputs`, `describe_step`,
 `query_checkpoint`, `query_heatmap`, `adapt_step`, `draw_checkpoint` and `render_checkpoint` (plus
 `list_designs`, `list_scores`).

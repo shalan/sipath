@@ -84,6 +84,14 @@ TOOLS = [
                           "workdir": {"type": "string", "description": "absolute directory for checkpoints/logs"},
                           "resume": {"type": "boolean"}, "explore": {"type": "boolean"}},
                          ["design"])},
+    {"name": "fork_run", "description": "Start a new run from any finished attempt of a run, a rejected one "
+     "included: the new run's graph holds that attempt and its ancestors (selected there, reading the original "
+     "run's checkpoints, never writing them) and continues with run_step(parent=<that attempt>). The original run "
+     "is not changed. Returns the new run id.",
+     "inputSchema": _obj({"run_id": {"type": "string"}, "attempt": {"type": "string", "description": "e.g. place.1"},
+                          "workdir": {"type": "string", "description": "absolute directory for the new run "
+                                                                       "(default: runs/mcp/<new run id>)"}},
+                         ["run_id", "attempt"])},
     {"name": "run_step", "description": "Run one step as one or more attempts. Each variant is a params dict "
      "(describe_step lists each step's parameters with types and defaults; values are checked before anything "
      "runs). Attempts run concurrently up to "
@@ -278,6 +286,19 @@ class Server:
         return {"run_id": run_id, "workdir": workdir, "openroad": f"{runner.kind} {runner.version()}",
                 "pdk": flow.pdk.name, "steps": [s for s in STEPS if d.macros or s != "macros"],
                 "recorded_steps": {k: v.selected.id for k, v in flow.steps.items() if v.selected}}
+
+    def fork_run(self, run_id, attempt, workdir=None):
+        r = self._run(run_id)
+        flow = r["flow"]
+        new_id = f"{r['design']}-{uuid.uuid4().hex[:6]}"
+        workdir = os.path.abspath(workdir or os.path.join(os.getcwd(), "runs", "mcp", new_id))
+        try:
+            f = flow.fork(attempt, workdir)
+        except ValueError as e:
+            raise ToolError(str(e)) from e
+        self.runs[new_id] = {"flow": f, "design": r["design"], "job": None}
+        return {"run_id": new_id, "workdir": workdir, "forked_from": {"run_id": run_id, "attempt": attempt},
+                "head": attempt, "recorded_steps": {k: v.selected.id for k, v in f.steps.items() if v.selected}}
 
     def run_step(self, run_id, step, parent=None, variants=None, score=None, parallel=1, background=False):
         flow = self._run(run_id)["flow"]
