@@ -26,7 +26,10 @@ mounted into the container.
   `sky130_sram_macros` (a design names one with `sram:`).
 - **Corners.** Nine signoff corners, tt/ss/ff (tt_025C_1v80, ss_100C_1v60,
   ff_n40C_1v95) × nom/min/max interconnect, each with its own Liberty and RCX
-  rules. Estimation RC is the calibrated nominal table scaled per layer and
+  rules. The RCX rules follow the PDK's own `libs.tech/openlane/config.tcl`
+  (as OpenLane and LibreLane read it): the Calibre-derived set on sky130A, the
+  `spef_extractor` set on sky130B, which the release ships no Calibre rules
+  for (variable `${rcx_source}`). Estimation RC is the calibrated nominal table scaled per layer and
   via by each corner's tech LEF. Extraction runs once per RCX rule file (3
   SPEFs), each read into the 3 corners that share it. Placement, CTS and
   routing repair on `optimize_corners` (tt_nom, ss_max, ff_min): on aes, nine

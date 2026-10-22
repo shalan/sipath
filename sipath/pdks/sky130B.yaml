@@ -1,6 +1,11 @@
 # Sky130 (sky130B: the ReRAM-capable metal stack variant) from an open_pdks
 # tree; everything as sky130A.yaml with the sky130B views.
+# RCX: the release ships no Calibre-derived rules for sky130B, only
+# rules.openrcx.sky130B.<rc>.{spef_extractor,magic}; the PDK's
+# libs.tech/openlane/config.tcl (read by OpenLane and LibreLane) then falls
+# back to the spef_extractor set, and so does this description.
 extends: sky130A
 name: sky130B
 vars:
   variant: {default: sky130B, must_exist: false}
+  rcx_source: {default: spef_extractor, must_exist: false}
