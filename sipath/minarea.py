@@ -30,7 +30,8 @@ from .tools.openroad.tcl import q
 def tech_rules(tech_lef: str) -> dict:
     """Routing-layer width/spacing/min-area/direction and fixed via
     geometry (per layer rects) from a tech LEF, in microns."""
-    text = open(tech_lef).read()
+    with open(tech_lef) as fh:
+        text = fh.read()
     layers, vias = {}, {}
     for m in re.finditer(r"^LAYER\s+(\S+)\s*\n(.*?)^END\s+\1", text, re.S | re.M):
         name, body = m.group(1), m.group(2)

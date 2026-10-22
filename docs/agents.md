@@ -83,7 +83,9 @@ it.
   `notifications/progress` as attempts start and end (with a
   `progressToken`); with `background: true` they return a job id at once.
 - `cancel_job`, or `notifications/cancelled`, kills the job's OpenROAD
-  processes; its attempts end `cancelled` with no checkpoint.
+  processes and its tool processes (Yosys, KLayout, Magic, the precheck, the
+  macro placer), with their whole process trees and containers; its attempts
+  end `cancelled` with no checkpoint.
 - Arguments are checked before anything runs (step, score, parallel,
   parameter names per step, ECO ops): a bad one is a tool error.
 - Resources: each run's `graph.json` and every attempt's DEF, SPEF (per

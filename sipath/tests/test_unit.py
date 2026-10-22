@@ -2569,6 +2569,87 @@ class Doctor(unittest.TestCase):
         self.assertIn("install-pdk sky130", out)
 
 
+class Processes(unittest.TestCase):
+    """B2.1: every tool process under one manager: the whole tree dies on a timeout or a cancel, one log format."""
+
+    def alive(self, pid) -> bool:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        return True
+
+    def test_timeout_kills_the_whole_tree_and_logs_it(self):
+        import time
+        from sipath.tools import process
+        with tempfile.TemporaryDirectory() as td:
+            pidfile, log = os.path.join(td, "child.pid"), os.path.join(td, "t.log")
+            # a shell that starts a grandchild and waits: killing the shell alone would leave the sleep running
+            r = process.run(["sh", "-c", f"sleep 60 & echo $! > {pidfile}; echo started; wait"], log, timeout=1.5)
+            self.assertTrue(r.timed_out)
+            with open(pidfile) as fh:
+                grandchild = int(fh.read())
+            time.sleep(0.2)
+            self.assertFalse(self.alive(grandchild), "the grandchild survived the timeout")
+            with open(log) as fh:
+                head = fh.read().splitlines()
+            self.assertTrue(head[0].startswith("# sh -c sleep 60"))
+            self.assertIn("timed out after 1.5s", head[1])
+            self.assertIn("started", head)
+
+    def test_exit_code_output_and_peak_memory(self):
+        from sipath.tools import process
+        with tempfile.TemporaryDirectory() as td:
+            log = os.path.join(td, "ok.log")
+            r = process.run([sys.executable, "-c", "x = bytearray(60 * 2**20); print('done'); raise SystemExit(3)"],
+                            log, label=["mytool", "--flag"])
+            self.assertEqual((r.rc, r.timed_out, r.cancelled), (3, False, False))
+            self.assertIn("done", r.output)
+            self.assertGreater(r.peak_mb, 50)  # the 60 MB it held
+            with open(log) as fh:
+                head = fh.read().splitlines()
+            self.assertEqual(head[0], "# mytool --flag")
+            self.assertRegex(head[1], r"# exit 3 after [0-9.]+s, peak memory [0-9.]+ MB")
+
+    def test_a_cancel_reaches_a_running_tool(self):
+        import threading
+        import time
+        from sipath.tools import process
+        from sipath.scheduler import _Processes
+        with tempfile.TemporaryDirectory() as td:
+            f = Flow(Design("fake", "fake", "x.v", "x.sdc", "macro", floorplan_def="x.def"), sky130hd("/p"), td,
+                     demo.fake_factory(), validate_inputs=False)
+            tracker = _Processes(f, "a.0")
+            threading.Timer(0.5, f.cancel).start()
+            t0 = time.time()
+            with self.assertRaises(process.ProcessCancelled):
+                process.run(["sleep", "30"], os.path.join(td, "c.log"), tracker=tracker)
+            self.assertLess(time.time() - t0, 10)
+            self.assertEqual(f._procs.get("a.0"), set())
+            with self.assertRaisesRegex(process.ProcessCancelled, "before it started"):  # still cancelled
+                process.run(["true"], None, tracker=tracker)
+
+    def test_a_container_is_stopped_by_name(self):
+        from unittest import mock
+        from sipath.tools import process
+        killed = []
+        real = process.subprocess.run
+
+        def spy(cmd, *a, **k):
+            if cmd[:2] == ["docker", "kill"]:
+                killed.append(cmd[2])
+                return process.subprocess.CompletedProcess(cmd, 0)
+            return real(cmd, *a, **k)
+        with mock.patch.object(process.subprocess, "run", spy):
+            r = process.run(["sleep", "30"], None, timeout=0.5, container="sipath-tool-abc")
+        self.assertTrue(r.timed_out)
+        self.assertEqual(killed, ["sipath-tool-abc"])
+        self.assertIsNone(r.peak_mb)  # a container's memory is not the docker client's
+        from sipath.session import DockerRunner
+        cmd = DockerRunner("img@sha256:" + "0" * 64).tool_command("/tmp", ["klayout", "-v"], name="sipath-tool-x")
+        self.assertEqual(cmd[cmd.index("--name") + 1], "sipath-tool-x")
+
+
 class Adaptive(unittest.TestCase):
     """Adaptive rounds: Flow.extend, designfile.adapt, the place adapter and its blockages."""
 

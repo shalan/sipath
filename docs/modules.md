@@ -73,7 +73,8 @@ on any import that crosses these rules.
 | `openroad/checkpoint.py` | the checkpoint store: process setup (threads, helpers), loading a parent, the metrics every attempt records, `write_db` |
 | `openroad/ops/` | the operations the steps call, one module per area: `db` (database queries, metrics), `floorplan`, `place` (placement, repair, pin channels, blockages, CTS), `structure` (fences, clusters), `route`, `analog` (NDRs, supply parking, row blockages), `power` (grid checks, IR drop), `finish` (fill, views, parasitics), `report` (reports to files, PPA values) |
 | `openroad/heatmap.py` | heatmaps dumped after an attempt's checkpoint is saved (`Ctx.after_save`), with the instances or nets in each hotspot |
-| `run.py` | `run_tool` (a tool next to OpenROAD, its output in a log) and the runner lookup; `ToolFailed` |
+| `process.py` | every tool process under one manager: its own process group (a kill takes the tree), a named container (`docker kill` on a cancel or a timeout), registered with its attempt so `Flow.cancel` reaches it, one log format with exit, duration and peak memory |
+| `run.py` | `run_tool` (a tool next to OpenROAD through `process.py`, its output in a log) and the runner lookup; `ToolFailed` |
 | `yosys.py`, `klayout.py`, `magic.py`, `netgen.py` | per-tool commands and version probes (Netgen: probe only; it runs in the precheck image) |
 | `doctor.py` | `sipath doctor`: the runtime a run would use, images, native tools, the PDK release and views, optional tools, each with its fix |
 | `toolchain.py`, `native.py` | probing the locked images' tools (`toolchain --check`); the locked ORFS image's tools without Docker (`install-tools`) |

@@ -420,11 +420,9 @@ def verilator_lint(ctx) -> dict:
         args = [*binary, "--lint-only", "-Wall", "-Wno-fatal", "-Wwarn-BADVLTPRAGMA", "--top-module", d.top,
                 *defs, *incs, *extra, *d.rtl]
         if host:
-            p = subprocess.run(args, capture_output=True, text=True, timeout=600, cwd=ctx.dir)
-            out = p.stdout + p.stderr
-            with open(log, "w") as f:
-                f.write(f"# {' '.join(args)}\n# exit {p.returncode}\n{out}")
-            rc = p.returncode
+            from .tools import process
+            r = process.run(args, log, cwd=ctx.dir, timeout=600, tracker=getattr(ctx, "processes", None))
+            out, rc = r.output, (r.rc if not r.timed_out else 1)
         else:
             try:
                 out, rc = run_tool(ctx, args, log), 0

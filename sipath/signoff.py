@@ -659,7 +659,8 @@ def lvs_full(ctx, gds: str) -> dict:
         fh.write(text)
     cfg = getattr(ctx, "config", None)
     res = lf.run(_runner(ctx), gds, d.top, sch, ctx.dir, so["lvs_full_deck"], int(so.get("lvs_threads", 4)),
-                 so.get("lvs_full_options"), timeout=getattr(cfg, "tool_timeout", None))
+                 so.get("lvs_full_options"), timeout=getattr(cfg, "tool_timeout", None),
+                 tracker=getattr(ctx, "processes", None))
     return {**res, "schematic": sch, **info}
 
 

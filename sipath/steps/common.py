@@ -193,7 +193,8 @@ def power_metrics(report: str) -> dict:
     first's) internal, switching, leakage and total in W, and every corner's total. {} when there is none."""
     import re
     try:
-        text = open(report, errors="replace").read()
+        with open(report, errors="replace") as fh:
+            text = fh.read()
     except OSError:
         return {}
     parts = re.split(r"^== corner (\S+)\s*$", text, flags=re.M)

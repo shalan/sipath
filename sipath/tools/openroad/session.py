@@ -68,7 +68,7 @@ class NativeRunner:
             out["tools"] = self.bindir
         return out
 
-    def gui_command(self, workdir: str, script: str) -> tuple[list[str], dict]:
+    def gui_command(self, workdir: str, script: str, name: str | None = None) -> tuple[list[str], dict]:
         """Headless GUI run of a script (for save_image)."""
         return [self.binary, "-gui", "-no_splash", "-no_init", script], {"QT_QPA_PLATFORM": "offscreen"}
 
@@ -76,9 +76,10 @@ class NativeRunner:
         pass
 
     def tool_command(self, workdir: str, args: list[str], image: str | None = None,
-                     env: dict | None = None) -> list[str]:
+                     env: dict | None = None, name: str | None = None) -> list[str]:
         """Command line running another tool of the installation (e.g. klayout,
-        magic: on PATH here, so ``image`` does not apply; the tools tree's own wrapper when it has one)."""
+        magic: on PATH here, so ``image`` and ``name`` do not apply; the tools tree's own wrapper when it has
+        one)."""
         args = list(args)
         if self.bindir and args and os.sep not in args[0] and os.path.isfile(os.path.join(self.bindir, args[0])):
             args[0] = os.path.join(self.bindir, args[0])
@@ -157,10 +158,11 @@ class DockerRunner:
                 str(self.threads)]
         return cmd
 
-    def gui_command(self, workdir: str, script: str) -> tuple[list[str], dict]:
-        """Headless GUI run of a script (for save_image), Qt offscreen in the container."""
-        cmd = ["docker", "run", "--rm", "--platform", self.platform, *self.limits(), *self.identity(),
-               "-e", "QT_QPA_PLATFORM=offscreen"]
+    def gui_command(self, workdir: str, script: str, name: str | None = None) -> tuple[list[str], dict]:
+        """Headless GUI run of a script (for save_image), Qt offscreen in the container (``name``: the
+        container's, so a kill can stop it)."""
+        cmd = ["docker", "run", "--rm", *(["--name", name] if name else []), "--platform", self.platform,
+               *self.limits(), *self.identity(), "-e", "QT_QPA_PLATFORM=offscreen"]
         for m in sorted({os.path.abspath(workdir), *map(os.path.abspath, self.mounts)}):
             if os.path.isdir(m):
                 cmd += ["-v", f"{m}:{m}"]
@@ -171,15 +173,17 @@ class DockerRunner:
         subprocess.run(["docker", "kill", name], capture_output=True)
 
     def tool_command(self, workdir: str, args: list[str], image: str | None = None,
-                     env: dict | None = None) -> list[str]:
+                     env: dict | None = None, name: str | None = None) -> list[str]:
         """Command line running another tool of the image (e.g. klayout) with
         the same mounts as an OpenROAD session; ``image``: another image (e.g.
-        one with Magic), ``env``: environment variables in the container. A
+        one with Magic), ``env``: environment variables in the container,
+        ``name``: the container's (so a cancel or a timeout can stop it). A
         tool in ``native_tools`` runs on the host instead (no image)."""
         if args and args[0] in self.native_tools:
             return (["env", *[f"{k}={v}" for k, v in env.items()]] if env else []) + \
                 [self.native_tools[args[0]], *args[1:]]
-        cmd = ["docker", "run", "--rm", "--platform", self.platform, *self.limits(), *self.identity()]
+        cmd = ["docker", "run", "--rm", *(["--name", name] if name else []), "--platform", self.platform,
+               *self.limits(), *self.identity()]
         for k, v in (env or {}).items():
             cmd += ["-e", f"{k}={v}"]
         for m in sorted({os.path.abspath(workdir), *map(os.path.abspath, self.mounts)}):

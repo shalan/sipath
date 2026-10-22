@@ -1072,3 +1072,84 @@ class LiveOpenFrame(unittest.TestCase):
         self.assertTrue(chk["seal_centred"])
         self.assertEqual(chk["seal_touches_frame"], {})
         self.assertTrue(os.path.getsize(it.outputs["chip_gds"]) > 1_000_000)
+
+
+@LIVE
+class LiveCancel(unittest.TestCase):
+    """B2.1: a cancel reaches every tool process, not only OpenROAD: synthesis (Yosys), signoff's KLayout DRC
+    and the CD-LNS macro placer each stop with their whole tree, no container is left, and the attempt ends
+    cancelled."""
+
+    def cancel_during(self, design, steps, target, wd, want=lambda p: True, wait_s=900):
+        import subprocess
+        import threading
+        import time as _t
+        from sipath import designfile
+        d, _ = designfile.load(design) if isinstance(design, str) else (design, None)
+        flow = designfile.build(d, wd, RUNNER)
+        items = designfile.resolve_steps(steps)
+        errors = []
+
+        def go():
+            parent = None
+            try:
+                for name, _, fn, item in items:
+                    parent = flow.step(name, fn, parent=parent, variants=item.get("variants"), score=item.get("score"),
+                                       parallel=item.get("parallel", 1)).selected
+            except Exception as e:  # noqa: BLE001 (the cancel ends the run with an error)
+                errors.append(e)
+        th = threading.Thread(target=go, daemon=True)
+        th.start()
+        procs, end = [], _t.time() + wait_s
+        while _t.time() < end and th.is_alive() and not procs:
+            with flow._lock:
+                procs = [p for aid, ps in flow._procs.items() if aid.startswith(target + ".") for p in ps if want(p)]
+            _t.sleep(0.2)
+        self.assertTrue(procs, f"no {target} tool process to cancel (errors: {errors})")
+        _t.sleep(2)  # let it get going
+        flow.cancel()
+        th.join(180)
+        self.assertFalse(th.is_alive(), "the run did not stop after the cancel")
+        a = [x for x in flow.attempts if x.step == target][-1]
+        self.assertEqual(a.status, "cancelled", a.error)
+        for p in procs:
+            self.assertFalse(p.alive(), f"{p.name} still running")
+            if p.container:
+                left = subprocess.run(["docker", "ps", "-q", "--filter", f"name={p.container}"], capture_output=True,
+                                      text=True).stdout.strip()
+                self.assertEqual(left, "", f"container {p.container} still running")
+        return flow, procs
+
+    def test_synthesis(self):
+        wd = _workdir("cancel_synth")
+        if not KEEP:
+            self.addCleanup(_rmtree, wd)
+        ex = os.path.join(os.path.dirname(__file__), "..", "examples")
+        _, procs = self.cancel_during(os.path.join(ex, "gcd8.yaml"), [{"step": "synth"}], "synth", wd)
+        self.assertTrue(any("yosys" in " ".join(map(str, p.cmd)) for p in procs))
+
+    def test_signoff_drc(self):
+        wd = _workdir("cancel_drc")
+        if not KEEP:
+            self.addCleanup(_rmtree, wd)
+        ex = os.path.join(os.path.dirname(__file__), "..", "examples")
+        steps = [{"step": s} for s in ("floorplan", "physical", "place", "cts", "route_analog", "route_digital",
+                                       "route_repair", "extract", "signoff")]
+        self.cancel_during(os.path.join(ex, "dp8.yaml"), steps, "signoff", wd,
+                           want=lambda p: "klayout" in " ".join(map(str, p.cmd)))
+
+    def test_cdlns_placer(self):
+        from sipath.config import Config
+        from sipath.macroplace import placer_python
+        try:
+            placer_python(types.SimpleNamespace(config=Config()))
+        except RuntimeError as e:
+            self.skipTest(str(e))
+        wd = _workdir("cancel_cdlns")
+        if not KEEP:
+            self.addCleanup(_rmtree, wd)
+        ex = os.path.join(os.path.dirname(__file__), "..", "examples")
+        steps = [{"step": "synth"}, {"step": "floorplan"},
+                 {"step": "macros", "variants": [{"method": "cdlns", "placer_seconds": 120}]}]
+        self.cancel_during(os.path.join(ex, "sram8.yaml"), steps, "macros", wd,
+                           want=lambda p: "run_cdlns.py" in " ".join(map(str, p.cmd)))

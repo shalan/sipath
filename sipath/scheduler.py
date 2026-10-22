@@ -249,6 +249,8 @@ class Ctx:
     # fn(ctx) run after the checkpoint is saved, in the same process: observations of the saved state
     # (heatmaps) that may disturb the process but never the checkpoint or the metrics read before it
     after_save: list = field(default_factory=list)
+    # the attempt's other processes (tools): add(p) / discard(p) / cancelled; Flow.cancel kills them (p.kill())
+    processes: object = None
 
     def path(self, name: str) -> str:
         return os.path.join(self.dir, name)
@@ -274,6 +276,28 @@ class Ctx:
         raise KeyError(f"no ancestor attempt of step {step}")
 
 
+class _Processes:
+    """The tool processes an attempt has running (sipath.tools.process registers them): what Flow.cancel kills
+    besides the attempt's OpenROAD session."""
+
+    def __init__(self, flow: "Flow", attempt_id: str):
+        self.flow, self.id = flow, attempt_id
+
+    def add(self, p):
+        with self.flow._lock:
+            self.flow._procs.setdefault(self.id, set()).add(p)
+        if self.flow.cancelled:  # cancelled while it was starting
+            p.kill()
+
+    def discard(self, p):
+        with self.flow._lock:
+            self.flow._procs.get(self.id, set()).discard(p)
+
+    @property
+    def cancelled(self) -> bool:
+        return self.flow.cancelled
+
+
 class Flow:
     def __init__(self, design, pdk, workdir: str, session_factory: Callable, validate_inputs: bool = True,
                  runner_prefixes: tuple[str, ...] = (), config: Config | None = None, resume: bool = False,
@@ -293,6 +317,7 @@ class Flow:
         self._session_count = 0
         self._cancel = threading.Event()
         self._live: dict[str, object] = {}  # attempt id -> its open session
+        self._procs: dict[str, set] = {}  # attempt id -> its running tool processes (_Processes)
         self.progress: Callable | None = None  # called with (event, attempt) as attempts start and end
         if validate_inputs:
             design.validate(pdk, runner_prefixes=runner_prefixes)
@@ -452,11 +477,11 @@ class Flow:
 
     # ---------------------------------------------------------------- cancel
     def cancel(self):
-        """Stop running attempts (their OpenROAD processes are killed) and keep
+        """Stop running attempts (their OpenROAD processes and their tool processes are killed) and keep
         new ones from starting, until ``reset_cancel``."""
         self._cancel.set()
         with self._lock:
-            live = list(self._live.items())
+            live = list(self._live.items()) + [(aid, p) for aid, ps in self._procs.items() for p in list(ps)]
         for aid, s in live:
             log.warning("cancel: killing %s (%s)", aid, getattr(s, "name", s))
             kill = getattr(s, "kill", None)
@@ -712,7 +737,7 @@ class Flow:
             # the step sees every declared parameter (variant, then design and PDK
             # step_defaults, then the declared default); the attempt records the variant
             ctx = Ctx(session, self.design, self.pdk, params, a.dir, a.parent, a, config=self.config,
-                      threads=threads)
+                      threads=threads, processes=_Processes(self, a.id))
             fn(ctx)
             t1 = mark("step", t1)
             metrics = self.checkpoints.metrics(session)
@@ -750,6 +775,11 @@ class Flow:
         finally:
             with self._lock:
                 self._live.pop(a.id, None)
+                leftover = list(self._procs.pop(a.id, ()))
+            for p in leftover:  # a tool process its step left running dies with the attempt
+                if getattr(p, "alive", lambda: False)():
+                    log.warning("attempt %s: killing %s, still running after its step", a.id, getattr(p, "name", p))
+                    p.kill()
             if session is not None:
                 try:
                     session.close()
@@ -769,7 +799,7 @@ class Flow:
         a.process = "tool"
         decl = getattr(fn, "__name__", a.step)
         ctx = Ctx(None, self.design, self.pdk, params_mod.resolve(decl, a.params, self.pdk, self.design),
-                  a.dir, a.parent, a, runner=self.runner, config=self.config)
+                  a.dir, a.parent, a, runner=self.runner, config=self.config, processes=_Processes(self, a.id))
         fn(ctx)
         mark("step", t0)
         out = ctx.outputs.get("checkpoint")

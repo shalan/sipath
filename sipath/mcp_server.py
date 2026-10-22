@@ -12,7 +12,7 @@ Long calls: ``run_step`` / ``run_eco`` are jobs. In the foreground they send
 ``notifications/progress`` (when the request carries ``_meta.progressToken``)
 as attempts start and end; with ``background: true`` they return a job id at
 once, to poll with ``job_status``. ``cancel_job`` (or ``notifications/cancelled``
-for the request) kills the job's OpenROAD processes; its attempts end
+for the request) kills the job's OpenROAD and tool processes; its attempts end
 ``cancelled`` and write no checkpoint.
 
 Resources: every run's graph and each attempt's DEF, SPEF (per corner),
@@ -120,7 +120,7 @@ TOOLS = [
     {"name": "job_status", "description": "State of a run_step/run_eco job: running, done, failed or cancelled; "
      "the attempt start/end events so far; the result when done.",
      "inputSchema": _obj({"job_id": {"type": "string"}}, ["job_id"]), "annotations": {"readOnlyHint": True}},
-    {"name": "cancel_job", "description": "Cancel a running job: its OpenROAD processes are killed, its attempts "
+    {"name": "cancel_job", "description": "Cancel a running job: its OpenROAD and tool processes (Yosys, KLayout, Magic, ...) are killed, its attempts "
      "end 'cancelled' with no checkpoint, attempts not started yet do not start.",
      "inputSchema": _obj({"job_id": {"type": "string"}}, ["job_id"])},
     {"name": "list_jobs", "description": "Jobs of a run (or of every run).",

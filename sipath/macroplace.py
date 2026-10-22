@@ -677,12 +677,15 @@ def _cdlns(ctx, autos, placed, keepouts, rules, analog, dbu, mbox, core, grid) -
     with open(spec_path, "w") as f:
         json.dump(spec, f)
     runner = os.path.join(os.path.dirname(os.path.abspath(__file__)), "third_party", "run_cdlns.py")
-    with open(ctx.path("cdlns.log"), "w") as log:
-        r = subprocess.run([py, runner, spec_path, out_path], stdout=log, stderr=subprocess.STDOUT,
-                           timeout=float(p.get("placer_seconds", 120)) * 6 + 600)
-    if r.returncode != 0 or not os.path.isfile(out_path):
+    from .tools import process
+    limit = float(p.get("placer_seconds", 120)) * 6 + 600
+    r = process.run([py, runner, spec_path, out_path], ctx.path("cdlns.log"), timeout=limit,
+                    tracker=getattr(ctx, "processes", None))
+    if r.timed_out:
+        raise RuntimeError(f"cdlns placer ran past {limit:.0f} s and was stopped (log {ctx.path('cdlns.log')})")
+    if r.rc != 0 or not os.path.isfile(out_path):
         tail = open(ctx.path("cdlns.log"), errors="replace").read().strip().splitlines()[-8:]
-        raise RuntimeError(f"cdlns placer failed (exit {r.returncode}, log {ctx.path('cdlns.log')}):\n" +
+        raise RuntimeError(f"cdlns placer failed (exit {r.rc}, log {ctx.path('cdlns.log')}):\n" +
                            "\n".join(tail))
     with open(out_path) as f:
         pos = json.load(f)["positions"]

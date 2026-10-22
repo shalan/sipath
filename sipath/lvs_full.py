@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import os
 import re
-import subprocess
 import time
 
 # switches as open_pdks' run_lvs.py passes them by default
@@ -130,9 +129,10 @@ def prepare(texts: list[str], aliases: dict | None = None, device_prefix: str = 
 
 
 def run(runner, gds: str, top: str, schematic: str, workdir: str, deck: str, threads: int = 8,
-        options: dict | None = None, timeout: float | None = None) -> dict:
+        options: dict | None = None, timeout: float | None = None, tracker=None) -> dict:
     """The PDK deck on ``gds`` (cell ``top``) against ``schematic``. A run that
-    does not end with the deck's verdict is reported as not matching."""
+    does not end with the deck's verdict is reported as not matching. ``tracker``: the
+    attempt's processes (a cancel stops the deck; sipath.tools.process)."""
     os.makedirs(workdir, exist_ok=True)
     report = os.path.join(workdir, f"{top}.full.lvsdb")
     extracted = os.path.join(workdir, f"{top}.full.extracted.cir")
@@ -144,19 +144,21 @@ def run(runner, gds: str, top: str, schematic: str, workdir: str, deck: str, thr
     if hasattr(runner, "mount"):
         runner.mount(workdir, os.path.dirname(os.path.abspath(gds)), os.path.dirname(os.path.abspath(deck)),
                      os.path.dirname(os.path.abspath(schematic)))
+    from .tools import process
+    from .tools.run import command
     t0 = time.time()
-    with open(log, "w") as f:
-        p = subprocess.run(runner.tool_command(workdir, args), stdout=f, stderr=subprocess.STDOUT, timeout=timeout,
-                           cwd=workdir)
-    with open(log, errors="replace") as f:
-        out = f.read()
+    name = process.container_name() if getattr(runner, "kind", "") == "docker" else None
+    cmd = command(runner, workdir, args, name=name)
+    p = process.run(cmd, log, cwd=workdir, timeout=timeout, tracker=tracker,
+                    container=name if cmd[:1] == ["docker"] else None, label=args)
+    out = p.output
     match = "Netlists match" in out and "don't match" not in out
     verdict = "Netlists match" in out or "don't match" in out
     errors = []
     if os.path.isfile(report):
         with open(report, errors="replace") as fh:
             errors = [m.group(1) for m in re.finditer(r"M\(E B\('([^']*)'\)\)", fh.read())]
-    res = {"match": match, "report": report, "extracted": extracted, "log": log, "exit": p.returncode,
+    res = {"match": match, "report": report, "extracted": extracted, "log": log, "exit": p.rc, **({"timed_out": True} if p.timed_out else {}),
            "seconds": round(time.time() - t0, 1), "errors": len(errors), "first_errors": errors[:8]}
     if not verdict:
         tail = [ln for ln in out.strip().splitlines() if ln.strip()][-3:]

@@ -176,7 +176,6 @@ def render(odb: str, out: str, runner=None, area: tuple | None = None, resolutio
     ``area`` is in microns (default: the die); ``resolution`` is microns per pixel
     (default: about 1600 pixels across)."""
     import os
-    import subprocess
 
     from .tools.openroad.session import find_openroad
     runner = runner or find_openroad()
@@ -197,11 +196,17 @@ def render(odb: str, out: str, runner=None, area: tuple | None = None, resolutio
         # save_image without -area fails in this build, so the area is always given
         f.write(f"read_db {{{odb}}}\n{area_tcl}{res}"
                 f"if {{[catch {{save_image -resolution $r -area $a {{{out}}}}} e]}} {{ puts stderr $e; exit 1 }}\nexit\n")
-    cmd, env = runner.gui_command(work, script)
-    p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env={**os.environ, **env})
-    if p.returncode != 0 or not os.path.isfile(out) or os.path.getsize(out) == 0 or "GUI-0078" in p.stdout:
-        tail = "\n".join((p.stdout + p.stderr).strip().splitlines()[-10:])
-        raise RuntimeError(f"save_image did not write {out}\n{tail}")
+    from .tools import process
+    name = process.container_name("sipath-render") if getattr(runner, "kind", "") == "docker" else None
+    try:
+        cmd, env = runner.gui_command(work, script, name=name)
+    except TypeError:  # a runner without container names
+        cmd, env, name = (*runner.gui_command(work, script), None)
+    p = process.run(cmd, os.path.join(work, "render.log"), env=env, timeout=timeout, container=name)
+    if p.timed_out or p.rc != 0 or not os.path.isfile(out) or os.path.getsize(out) == 0 or "GUI-0078" in p.output:
+        tail = "\n".join(p.output.strip().splitlines()[-10:])
+        raise RuntimeError(f"save_image did not write {out}" + (f" (stopped after {timeout} s)" if p.timed_out
+                                                                 else "") + f"\n{tail}")
     with open(out, "rb") as f:
         head = f.read(24)
     import struct
