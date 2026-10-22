@@ -333,6 +333,13 @@ Results:
 Found on the way:
 - Applying the PDK driving cell to a die's ports put an inv_2 on the bond
   pads (25 ns transitions, WNS −9.5 ns); boundary defaults are macro-only.
+- (2026-10-22, found by `sipath doctor`) sky130B named Calibre RCX rules the
+  locked release does not ship, so extraction on sky130B failed. It now reads
+  `rules.openrcx.sky130B.<rc>.spef_extractor`, as the PDK's own
+  `libs.tech/openlane/config.tcl` does (and LibreLane, which reads it);
+  sky130A keeps the Calibre rules, its resolved views unchanged. doctor:
+  sky130B every view present; gcd8 on sky130B through extract: 3 SPEFs
+  (nom/min/max), 221 nets each.
 
 Not in scope yet: hs/ms/ls/hdll/hvl libraries, pad Liberty timing (the
 pads use a black-box Liberty), GDS + Magic/KLayout DRC + Netgen LVS,
