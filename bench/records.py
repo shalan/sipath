@@ -127,8 +127,10 @@ def _failure(g) -> str | None:
 
 
 def _selected(g, step: str) -> dict:
-    s = (g.get("steps") or {}).get(step) or {}
-    return next((a for a in g["attempts"] if a["id"] == s.get("selected")), {}) if s.get("selected") else {}
+    """The run's result chain's attempt of ``step`` (a branch's too): every metric comes from the winner's
+    ancestry (sipath.scheduler.run_chain), never from another branch's selection."""
+    from sipath.scheduler import in_chain, run_chain
+    return in_chain(run_chain(g), step)
 
 
 def run_metrics(run_dir: str) -> dict:
@@ -168,24 +170,22 @@ def from_design_run(run_dir: str, kind: str, design: str, flow: str, backfilled:
 
 
 def _router_drc(g) -> int | None:
-    """The detailed router's violations on the selected chain's last routing attempt."""
+    """The detailed router's violations on the result chain's last routing attempt."""
     for name in ("route_repair", "route_digital"):
-        s = (g.get("steps") or {}).get(name)
-        a = next((x for x in g["attempts"] if s and x["id"] == s.get("selected")), None)
+        a = _selected(g, name)
         if a and isinstance((a.get("metrics") or {}).get("drc"), (int, float)):
             return int(a["metrics"]["drc"])
     return None
 
 
 def _worst_setup(g) -> float | None:
-    """The worst setup slack over every signoff corner (signoff.json), or None without a signoff."""
-    for a in reversed(g["attempts"]):
-        p = (a.get("outputs") or {}).get("signoff")
-        if a.get("status") == "selected" and p and os.path.isfile(p):
-            with open(p) as f:
-                corners = ((json.load(f).get("timing") or {}).get("corners") or {})
-            ws = [c["wns"] for c in corners.values() if c.get("wns") is not None]
-            return round(min(ws), 3) if ws else None
+    """The worst setup slack over every signoff corner of the result chain's signoff (signoff.json), or None."""
+    p = (_selected(g, "signoff").get("outputs") or {}).get("signoff")
+    if p and os.path.isfile(p):
+        with open(p) as f:
+            corners = ((json.load(f).get("timing") or {}).get("corners") or {})
+        ws = [c["wns"] for c in corners.values() if c.get("wns") is not None]
+        return round(min(ws), 3) if ws else None
     return None
 
 

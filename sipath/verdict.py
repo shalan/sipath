@@ -61,12 +61,8 @@ def _chain(g: dict) -> tuple[list[dict], str, list[str]]:
     if execution == "completed" and loose & {"cancelled", "budget", "failed", "interrupted", "running", "pending"}:
         execution = ("cancelled" if "cancelled" in loose else "budget" if "budget" in loose and
                      not loose & {"failed", "interrupted"} else "failed")
-    head = next((by_id.get(steps[n]["selected"]) for n in reversed(names) if steps[n].get("selected")), None)
-    chain = []
-    while head is not None:
-        chain.append(head)
-        head = by_id.get(head.get("parent")) if head.get("parent") else None
-    return list(reversed(chain)), execution, notes
+    from .scheduler import run_chain
+    return run_chain(g), execution, notes  # the run's head (graph.json "head") and its ancestry
 
 
 def _equivalence(a: dict, checks: dict, notes: list, omitted: list):

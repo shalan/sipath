@@ -2208,11 +2208,13 @@ class Metrics2(unittest.TestCase):
         from sipath import report
         g = {"design": "d", "steps": {"synth": {"selected": "synth.0"}, "cts": {"selected": "cts.0"},
                                       "signoff": {"selected": "signoff.0"}},
-             "attempts": [{"id": "synth.0", "seconds": 3.0, "metrics": {"synth_area_um2": 100.0, "synth_wns_ns": -1.0}},
-                          {"id": "cts.0", "seconds": 5.0, "metrics": {"wns": 0.5, "wns_ss_max": 0.2, "mem_peak_mb": 250.0,
-                                                                     "heatmap_rudy_hot_share": 0.1, "parasitics": "placement"}},
-                          {"id": "signoff.0", "seconds": 9.0, "metrics": {"wns": 0.4, "lvs_match": True,
-                                                                           "power_total_w": 1e-3, "drc_signoff": 0}}]}
+             "attempts": [{"id": "synth.0", "step": "synth", "parent": None, "seconds": 3.0,
+                           "metrics": {"synth_area_um2": 100.0, "synth_wns_ns": -1.0}},
+                          {"id": "cts.0", "step": "cts", "parent": "synth.0", "seconds": 5.0,
+                           "metrics": {"wns": 0.5, "wns_ss_max": 0.2, "mem_peak_mb": 250.0,
+                                       "heatmap_rudy_hot_share": 0.1, "parasitics": "placement"}},
+                          {"id": "signoff.0", "step": "signoff", "parent": "cts.0", "seconds": 9.0,
+                           "metrics": {"wns": 0.4, "lvs_match": True, "power_total_w": 1e-3, "drc_signoff": 0}}]}
         m = report.metrics2(g)
         self.assertEqual((m["synth__design__instance__area"], m["cts__timing__setup__ws"],
                           m["cts__timing__setup__ws__corner:ss_max"], m["cts__mem__peak"]), (100.0, 0.5, 0.2, 250.0))
@@ -2969,6 +2971,130 @@ class BoundedSearch(unittest.TestCase):
             with tempfile.TemporaryDirectory() as td:
                 with self.assertRaisesRegex(ValueError, msg):
                     designfile.run_items(self.flow(td), self.items(**opts))
+
+
+class RunHead(unittest.TestCase):
+    """Review of 04ee8af, 1 and 2: one authoritative result (the run's head) that every consumer reads through its
+    ancestry; global termination is not a lost branch; search state survives a resume."""
+
+    @staticmethod
+    def place(ctx):
+        ctx.metrics["wns"] = float(ctx.params.get("d", 0))
+
+    @staticmethod
+    def route(ctx):
+        a = ctx.parent
+        while not a.step.startswith("place"):
+            a = a.parent
+        d = a.params.get("d", 0)
+        if d in ctx.params.get("fail", []):
+            raise RuntimeError("router gave up")
+        ctx.metrics["wns"] = float(ctx.params.get("sign", -1)) * d  # sign -1: the baseline wins; +1: the best
+
+    def items(self, route_variant=None, then_sign=False):
+        from sipath import demo
+        it = [("place", "place", self.place, {"step": "place", "variants": [{}, {"d": 1}, {"d": 2}, {"d": 3}],
+                                               "score": "setup_wns", "keep": 2, "decide_at": "route"}),
+              ("route", "route", self.route, {"step": "route", "score": "setup_wns",
+                                              **({"variants": [route_variant]} if route_variant else {})})]
+        if then_sign:
+            it.append(("sign", "sign", demo.fake_step(), {"step": "sign", "score": "setup_wns"}))
+        return it
+
+    def flow(self, td, resume=False, **cfg):
+        from sipath.config import Config
+        return Flow(Design("fake", "fake", "x.v", "x.sdc", "macro", floorplan_def="x.def"), sky130hd("/p"), td,
+                    demo.fake_factory(), validate_inputs=False, config=Config(**cfg), resume=resume)
+
+    def consumers(self, f, td):
+        """What every consumer says the result is."""
+        from sipath import report, verdict
+        g = _read_json(os.path.join(td, "graph.json"))
+        r = report.collect(td)
+        return {"flow": f.head.id, "result()": f.result().id, "graph": g["head"],
+                "verdict": verdict.verify(g)["head"], "report": r["head"],
+                "metrics2_wns": report.metrics2(g).get("route__timing__setup__ws")}
+
+    def test_every_consumer_agrees_where_the_run_ends(self):
+        from sipath import designfile
+        for variant, then_sign, want in ((None, False, "route@place.0.0"),  # ends at decide_at; a kept branch wins
+                                         ({"sign": 1}, False, "route.0"),  # the selected branch wins
+                                         ({"fail": [0]}, False, "route@place.2.0"),  # the baseline's branch failed
+                                         (None, True, "sign.0")):  # a step after the decision: on the winner
+            with tempfile.TemporaryDirectory() as td:
+                f = self.flow(td)
+                designfile.run_items(f, self.items(variant, then_sign))
+                c = self.consumers(f, td)
+                ids = {k: v for k, v in c.items() if k != "metrics2_wns"}
+                self.assertEqual(set(ids.values()), {want}, c)
+                win = f.decisions[-1]["winner"]
+                self.assertEqual(c["metrics2_wns"], next(a for a in f.attempts if a.id == win).metrics["wns"])
+                if variant and variant.get("fail"):
+                    self.assertEqual(f.decisions[-1]["failed_branches"][0]["branch"], "place.0")
+                if then_sign:
+                    self.assertEqual(f.result("route").id, win)
+
+    def test_budget_and_cancel_stop_the_search_and_resume_finishes_it(self):
+        from sipath import designfile
+        from sipath.scheduler import BudgetExceeded, StepCancelled
+        with tempfile.TemporaryDirectory() as td:
+            f = self.flow(td, max_attempts=5)  # four placements, one route: the other branches never run
+            with self.assertRaises(BudgetExceeded):
+                designfile.run_items(f, self.items())
+            self.assertEqual(f.decisions, [])  # no comparison was made, so none is recorded
+            self.assertEqual(f.verification()["execution"], "budget")
+            f2 = self.flow(td, resume=True)
+            designfile.run_items(f2, self.items())
+            self.assertEqual(f2.decisions[-1]["winner"], "route@place.0.0")
+            self.assertTrue(f2.decisions[-1]["complete"])
+        with tempfile.TemporaryDirectory() as td:
+            f = self.flow(td)
+            calls = []
+
+            def route_then_cancel(ctx):
+                calls.append(ctx.attempt.id)
+                if len(calls) == 2:
+                    f.cancel()
+                    raise RuntimeError("killed")
+                self.route(ctx)
+            it = self.items()
+            it[1] = ("route", "route", route_then_cancel, it[1][3])
+            with self.assertRaises(StepCancelled):
+                designfile.run_items(f, it)
+            self.assertEqual(f.decisions, [])
+
+    def test_resume_reuses_the_decision_and_finds_the_baseline_by_its_parameters(self):
+        from sipath import designfile
+        with tempfile.TemporaryDirectory() as td:
+            f = self.flow(td)
+            designfile.run_items(f, self.items(then_sign=True))
+            n, head = len(f.attempts), f.head.id
+            f2 = self.flow(td, resume=True)
+            self.assertEqual((len(f2.decisions), f2.head.id), (1, head))  # restored from graph.json
+            designfile.run_items(f2, self.items(then_sign=True))
+            self.assertEqual((len(f2.attempts), len(f2.decisions), f2.head.id), (n, 1, head))  # nothing new
+            f3 = self.flow(td, resume=True)
+            f3._make_stale("place", "test: inputs changed")  # the placements renumber after the stale ones
+            designfile.run_items(f3, self.items(then_sign=True))
+            kept = f3.steps["place"].kept
+            base = next(a for a in f3.attempts if a.step == "place" and a.status != "stale" and a.params == {})
+            self.assertIn(base.id, kept)  # the baseline, found by its parameters
+            self.assertNotEqual(base.id, "place.0")
+
+    def test_selector_scores_rank_by_applying_the_rule_again(self):
+        from sipath import scores as score_mod
+
+        def pick_lowest_d(atts):
+            best = min(atts, key=lambda a: a.params.get("d", 0))
+            return best, "lowest d"
+        pick_lowest_d.selector = True
+        score_mod.SCORES["_lowest_d"] = pick_lowest_d
+        self.addCleanup(score_mod.SCORES.pop, "_lowest_d")
+        with tempfile.TemporaryDirectory() as td:
+            f = self.flow(td)
+            f.step("place", self.place, variants=[{"d": 3}, {"d": 1}, {"d": 2}], score="_lowest_d")
+            kept = f.keep("place", 2)
+            self.assertEqual([a.params["d"] for a in kept], [1, 2])  # the rule's choice, then its next choice
 
 
 class Adaptive(unittest.TestCase):

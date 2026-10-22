@@ -48,15 +48,19 @@ def collect(workdir: str) -> dict:
     by_step: dict[str, list] = {}
     for a in attempts:
         by_step.setdefault(a["step"], []).append(a)
+    from .scheduler import run_chain
+    chain = run_chain(g)  # the run's result: its head and ancestry (a branch's selection is not the result)
+    on_chain = {a["id"] for a in chain}
     steps = []
     for name, info in (g.get("steps") or {}).items():
         atts = [a for a in by_step.get(name, []) if a.get("status") != "stale"]  # stale: listed apart
         sel = next((a for a in atts if a["id"] == info.get("selected")), None)
-        steps.append({"name": name, "selected": info.get("selected"), "attempts": atts, "sel": sel})
+        steps.append({"name": name, "selected": info.get("selected"), "attempts": atts, "sel": sel,
+                      "on_chain": bool(sel and sel["id"] in on_chain)})
     signoff = None
-    for s in reversed(steps):
-        if s["sel"] and s["sel"].get("outputs", {}).get("signoff"):
-            p = s["sel"]["outputs"]["signoff"]
+    for a in reversed(chain):
+        p = (a.get("outputs") or {}).get("signoff")
+        if p:
             if os.path.isfile(p):
                 with open(p) as f:
                     signoff = {"path": p, "summary": json.load(f)}
@@ -82,10 +86,10 @@ def collect(workdir: str) -> dict:
                 with open(svg, "w") as f:
                     f.write(heatmap.svg(name, unit, bins))
             heatmaps.append({"step": s["name"], "attempt": s["selected"], "map": name, "svg": svg, **e})
-    ppa = None  # the last step's PPA first cut (explore mode, or a ppa step)
-    for s in reversed(steps):
-        if s["sel"] and isinstance(s["sel"].get("outputs", {}).get("ppa"), dict):
-            ppa = {"step": s["name"], **s["sel"]["outputs"]["ppa"]}
+    ppa = None  # the result's latest PPA first cut (explore mode, or a ppa step)
+    for a in reversed(chain):
+        if isinstance((a.get("outputs") or {}).get("ppa"), dict):
+            ppa = {"step": a["step"], **a["outputs"]["ppa"]}
             break
     pictures = sorted(glob.glob(os.path.join(workdir, "*.png")) + glob.glob(os.path.join(workdir, "*", "*", "*.png")))
     order = [a["id"] for a in g.get("attempts", [])]  # sipath render: _pictures/<attempt>.png, in flow order
@@ -93,7 +97,8 @@ def collect(workdir: str) -> dict:
         order.index(os.path.basename(p)[:-4]) if os.path.basename(p)[:-4] in order else len(order), p))
     return {"design": g.get("design", {}), "pdk": g.get("pdk"), "provenance": g.get("provenance", {}),
             "steps": steps, "signoff": signoff, "ppa": ppa, "files": files, "pictures": pictures,
-            "heatmaps": heatmaps, "stale": g.get("stale") or [], "verification": g.get("verification")}
+            "heatmaps": heatmaps, "stale": g.get("stale") or [], "verification": g.get("verification"),
+            "head": chain[-1]["id"] if chain else None, "decisions": g.get("decisions") or []}
 
 
 def markdown(workdir: str, r: dict) -> str:
@@ -115,13 +120,18 @@ def markdown(workdir: str, r: dict) -> str:
             out += ["Not checked: " + "; ".join(v["omitted"]) + ".", ""]
         if v["notes"]:
             out += ["Limits of what was checked:", ""] + [f"- {n}" for n in v["notes"]] + [""]
+    if r.get("head"):
+        out += [f"Result: `{r['head']}` and its ancestry"
+                + "".join(f"; bounded search decided at {d['at']} by {d['score']}: {d['winner']} of "
+                          f"{len(d['candidates'])}" for d in r.get("decisions") or []) + ".", ""]
     out += ["## Steps", "", "| step | attempts | selected | seconds | key metrics |", "|---|---|---|---|---|"]
     for s in r["steps"]:
         sel = s["sel"]
         ok = sum(1 for a in s["attempts"] if a.get("status") in ("selected", "ok", "rejected"))
         mets = sel.get("metrics", {}) if sel else {}
         key = ", ".join(f"{k} {_fmt(mets[k])}" for k in KEY_METRICS if k in mets)
-        out.append(f"| {s['name']} | {ok}/{len(s['attempts'])} | {s['selected'] or 'none'} | "
+        mark = "" if not s["selected"] or s["on_chain"] else " (branch)"
+        out.append(f"| {s['name']} | {ok}/{len(s['attempts'])} | {s['selected'] or 'none'}{mark} | "
                    f"{_fmt(sel.get('seconds')) if sel else '-'} | {key or '-'} |")
     if r.get("stale"):
         out += ["", "## Ran again on resume", "", "Recorded results not reused; their attempts are kept as `stale`.", ""]
@@ -272,12 +282,10 @@ def metrics2(g: dict) -> dict:
     (ORFS's stages; a later step of the same stage wins), then the last value of each without the stage prefix
     (LibreLane's final metrics; synthesis's estimates only with their prefix). Per-corner setup slack as ``timing__setup__ws__corner:<corner>``, runtime as
     ``runtime__total`` (seconds), LVS as ``design__lvs_error__count``, heatmaps as ``heatmap__<map>__<stat>``."""
-    by_id = {a["id"]: a for a in g.get("attempts", [])}
+    from .scheduler import run_chain
     out, final = {"flow__name": "sipath", "design__name": g.get("design")}, {}
-    for name, s in (g.get("steps") or {}).items():
-        a = by_id.get(s.get("selected"))
-        if a is None:
-            continue
+    for a in run_chain(g):  # the result's chain: a branch's selections are not the run's metrics
+        name = a["step"].split("@")[0]
         stage = STAGES.get(name, name)
         vals = {}
         for k, v in (a.get("metrics") or {}).items():

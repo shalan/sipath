@@ -24,7 +24,7 @@ from . import steps as steps_mod
 from .design import Datapath, Design, Group, Macro, Pad, PdnSpec, Strap
 from .padplan import PadRules
 from .pdk import load as load_pdk, read_file
-from .scheduler import StepFailed, chain_problems
+from .scheduler import BudgetExceeded, StepCancelled, StepFailed, chain_problems
 
 log = logging.getLogger("sipath")
 
@@ -346,9 +346,10 @@ def run_items(flow, items, cfg=None):
             if int(item.get("keep") or 1) > 1:  # a bounded search starts here
                 variants = item.get("variants") or [{}]
                 base = variants.index({}) if {} in variants else 0
-                baseline = next((a for a in r.attempts if a.index == base), None)
+                # the baseline by its parameters, not its index (a resume after stale attempts renumbers)
+                baseline = next((a for a in r.attempts if a.params == variants[base]), None)
                 kept = flow.keep(name, int(item["keep"]), baseline)
-                branches = [("" if a is r.selected else a.id, a) for a in kept]
+                branches, failed = [("" if a is r.selected else a.id, a) for a in kept], []
                 decide = (item["decide_at"], item.get("decide_score"))
             continue
         alive = []
@@ -357,16 +358,19 @@ def run_items(flow, items, cfg=None):
             try:
                 br = flow.step(bname, fn, parent=p, variants=item.get("variants"), score=score,
                                parallel=item.get("parallel", 1))
+            except (StepCancelled, BudgetExceeded):
+                raise  # the run stops (resumable): not a branch that lost, and no comparison is recorded
             except StepFailed as e:
                 log.warning("bounded search: branch %s ended at %s: %s", suffix or "selected", name,
                             str(e).splitlines()[0])
+                failed.append({"branch": suffix or "selected", "at": name, "reason": str(e).splitlines()[0][:200]})
                 continue
             alive.append((suffix, br.selected))
         if not alive:
             raise StepFailed(f"bounded search: every branch failed at {name}")
         branches = alive
         if name == decide[0]:
-            parent = flow.decide(name, [a for _, a in branches], decide[1] or score or "auto")
+            parent = flow.decide(name, [a for _, a in branches], decide[1] or score or "auto", failed=failed)
             branches, decide = None, None
     return flow
 
@@ -599,7 +603,7 @@ def harden(path: str, outdir: str, workdir: str | None = None, runner=None, conf
     wd = workdir or os.path.join(os.getcwd(), "runs", d.name + "_harden")
     cfg = config or Config.load(**file_config(path))
     flow = run(d, wd, runner=runner, flow_steps=spec, config=cfg, resume=resume)
-    views = flow.steps["views"].selected.outputs["views"]
+    views = flow.result("views").outputs["views"]
     os.makedirs(outdir, exist_ok=True)
     for f in os.listdir(views["dir"]):
         shutil.copy2(os.path.join(views["dir"], f), os.path.join(outdir, f))

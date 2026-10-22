@@ -135,6 +135,27 @@ GIVEN_BY = {"netlist": "synth", "floorplan": "floorplan", "macros_placed": "macr
             "powered_netlist": "signoff", "views": "views", "chip_gds": "integrate"}
 
 
+def run_chain(g: dict) -> list[dict]:
+    """The run's result as a chain of attempt records (graph.json), first step first, ending at the run's head.
+    Every consumer of "the result" (verdict, report, CLI, benchmark export) reads it here. A graph from before
+    heads were recorded: the latest step that selected an attempt, its ancestry."""
+    by_id = {a["id"]: a for a in g.get("attempts") or []}
+    head = by_id.get(g.get("head")) if g.get("head") else None
+    if head is None and "head" not in g:
+        steps = g.get("steps") or {}
+        head = next((by_id.get(s["selected"]) for s in reversed(list(steps.values())) if s.get("selected")), None)
+    chain = []
+    while head is not None:
+        chain.append(head)
+        head = by_id.get(head.get("parent")) if head.get("parent") else None
+    return list(reversed(chain))
+
+
+def in_chain(chain: list[dict], step: str) -> dict:
+    """The chain's latest attempt of ``step`` (a branch's ``step@...`` too), or {}."""
+    return next((a for a in reversed(chain) if a["step"] == step or a["step"].startswith(step + "@")), {})
+
+
 def needs(fn, params: dict) -> set | None:
     """What ``fn`` requires of its parent chain for ``params``; None when it declares nothing."""
     req = getattr(fn, "requires", None)
@@ -331,6 +352,9 @@ class Flow:
         self._run_timer = None
         self.allocation: dict[str, dict] = {}  # step -> how many attempts ran at once, with how many threads, why
         self.decisions: list[dict] = []  # bounded search: where branches were compared and which one won
+        # the run's result: the latest selection on the main chain, a search's winner, an accepted ECO. Every
+        # consumer (verdict, report, CLI, benchmark export) reads the result through this head's ancestry.
+        self.head: Attempt | None = None
         self.progress: Callable | None = None  # called with (event, attempt) as attempts start and end
         if validate_inputs:
             design.validate(pdk, runner_prefixes=runner_prefixes)
@@ -387,6 +411,8 @@ class Flow:
                 a.status, a.error = "interrupted", f"checkpoint {a.checkpoint} missing on resume"
             by_id[a.id] = a
             self.attempts.append(a)
+        self.decisions = list(g.get("decisions") or [])
+        self.head = by_id.get(g.get("head")) if g.get("head") else None
         for name, s in (g.get("steps") or {}).items():
             atts = [a for a in self.attempts if a.step == name]
             sel = by_id.get(s.get("selected")) if s.get("selected") else None
@@ -425,9 +451,11 @@ class Flow:
                 raise ValueError(f"step {name} already ran with other parent/variants/score; use another name "
                                  "or a fresh workdir")
             run.reused = True
+            self._advance_head(run.selected, name)
             return run
         if same_call and run.fingerprint == self._step_fp(name, variants, score, parent):
             run.reused = True
+            self._advance_head(run.selected, name)
             return run
         if run.parent != pid:
             why = f"its parent changed ({run.parent} -> {pid}): an earlier step ran again"
@@ -465,6 +493,14 @@ class Flow:
             return None
         return sorted(set(have) | set(getattr(fn, "provides", ()) or ()))
 
+    def _advance_head(self, best, name):
+        """The run's head moves to ``best`` when it continues the head's chain, re-selects the head's step, or
+        starts a chain (a root step); a branch's selection leaves it where it is."""
+        h = self.head
+        if best is not None and (h is None or best.parent is None or best.parent is h
+                                 or (h.step == name and h.parent is best.parent)):
+            self.head = best
+
     def _make_stale(self, name, why):
         """The recorded attempts of ``name`` are kept, marked stale with ``why``, and never reused."""
         with self._lock:
@@ -472,6 +508,8 @@ class Flow:
                 if a.step == name and a.status != "stale":
                     a.status, a.stale_reason = "stale", why
             self.steps.pop(name, None)
+        if self.head is not None and self.head.status == "stale":
+            self.head = None  # the next selection starts the result's chain again
         self.stale.append({"step": name, "reason": why})
         log.warning("step %s: recorded result not reused: %s", name, why)
 
@@ -717,13 +755,32 @@ class Flow:
         self.save_graph()
         return run
 
+    def result(self, step: str | None = None) -> "Attempt | None":
+        """The run's head, or its ancestor of ``step`` (a branch's ``step@...`` too): what the run produced."""
+        a = self.head
+        while a is not None and step is not None and not (a.step == step or a.step.startswith(step + "@")):
+            a = a.parent
+        return a
+
     def keep(self, name: str, k: int, baseline: "Attempt | None" = None) -> list["Attempt"]:
-        """Bounded search: the step's best ``k`` finished attempts by its score (the selected one first), plus
-        ``baseline`` when it finished and is not among them, to be continued as branches. The others than the
-        selected one get status "kept" (a parent like a selected attempt); the list is recorded in the step."""
+        """Bounded search: the step's best ``k`` finished attempts (the selected one first), plus ``baseline``
+        when it finished and is not among them, to be continued as branches. Ranking: a value score orders the
+        attempts by value; a selector score (a rule over the attempts, e.g. synth_select) is applied again to
+        what remains, so the second is the one the rule would pick without the first, and so on. The others
+        than the selected one get status "kept" (a parent like a selected attempt); the list is recorded."""
         run = self.steps[name]
-        done = [a for a in run.attempts if a.status in ("selected", "rejected", "kept") and a.score is not None]
-        ranked = sorted(done, key=lambda a: a.score, reverse=True)
+        done = [a for a in run.attempts if a.status in ("selected", "rejected", "kept")]
+        fn = score_mod.get(run.score_name)
+        if getattr(fn, "selector", False):
+            ranked, rest = [], list(done)
+            while rest:
+                nxt, _ = fn(rest)
+                if nxt is None:
+                    break
+                ranked.append(nxt)
+                rest.remove(nxt)
+        else:
+            ranked = sorted((a for a in done if a.score is not None), key=lambda a: a.score, reverse=True)
         chosen = ([run.selected] if run.selected in done else []) + [a for a in ranked if a is not run.selected]
         chosen = chosen[:max(1, int(k))]
         if baseline is not None and baseline in done and baseline not in chosen:
@@ -735,8 +792,17 @@ class Flow:
         self.save_graph()
         return chosen
 
-    def decide(self, at: str, candidates: list["Attempt"], score: str) -> "Attempt":
-        """Bounded search: compare the branches' attempts at step ``at`` by ``score`` and record which won."""
+    def decide(self, at: str, candidates: list["Attempt"], score: str, failed: list[dict] | None = None) -> "Attempt":
+        """Bounded search: compare the branches' attempts at step ``at`` by ``score``, record which won (and the
+        branches that failed before ``at``: ``failed``), and make the winner the run's head. A resume that
+        reaches the same comparison reuses the recorded decision."""
+        ids = sorted(a.id for a in candidates)
+        rec = next((d for d in self.decisions if d["at"] == at and sorted(c["attempt"] for c in d["candidates"]) == ids
+                    and d.get("complete")), None)
+        if rec is not None:
+            best = next(a for a in candidates if a.id == rec["winner"])
+            self.head = best
+            return best
         fn = score_mod.get(score)
         if getattr(fn, "selector", False):  # a rule over attempts, not a value per attempt: rank by auto
             score, fn = "auto", score_mod.get("auto")
@@ -745,9 +811,11 @@ class Flow:
         if not ok:
             raise StepFailed(f"decide at {at}: no branch has a {score} score")
         best = max(ok, key=lambda x: x[0])[1]
-        self.decisions.append({"at": at, "score": score, "winner": best.id,
+        self.decisions.append({"at": at, "score": score, "winner": best.id, "complete": True,
                                "candidates": [{"attempt": a.id, "score": s if isinstance(s, (int, float, type(None)))
-                                               else list(s)} for s, a in scored]})
+                                               else list(s)} for s, a in scored],
+                               **({"failed_branches": failed} if failed else {})})
+        self.head = best
         self.save_graph()
         log.info("decide at %s by %s: %s", at, score, best.id)
         return best
@@ -1058,6 +1126,7 @@ class Flow:
                       rounds=list(rounds if rounds is not None else getattr(self.steps.get(name), "rounds", [])),
                       fingerprint=fingerprint, reused=True)
         self.steps[name] = run
+        self._advance_head(best, name)
         self.save_graph()
         log.info("step %s: selected %s", name, best.id if best else None)
         if best is None:
@@ -1071,6 +1140,7 @@ class Flow:
                 "provenance": self.provenance, "config": self.config.to_dict(), "inputs": self.inputs,
                 **({"allocation": self.allocation} if self.allocation else {}),
                 **({"decisions": self.decisions} if self.decisions else {}),
+                "head": self.head.id if self.head is not None else None,
                 **({"stale": self.stale} if self.stale else {}),
                 "attempts": [a.to_json() for a in self.attempts],
                 "steps": {k: {"score": v.score_name, "selected": v.selected.id if v.selected else None,

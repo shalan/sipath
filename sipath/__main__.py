@@ -211,7 +211,7 @@ def main(argv) -> int:
             print(designfile.plan_text(p))
             return 1 if p["problems"] else 0
         flow = designfile.run(path, wd, config=run_cfg, resume=resume, explore=explore)
-        last = list(flow.steps.values())[-1].selected
+        last = flow.result()  # the run's head: after a bounded search, the winner's chain
         ppa_md = (last.outputs.get("reports") or {}).get("ppa")
         if ppa_md and os.path.isfile(ppa_md):
             with open(ppa_md) as f:
