@@ -279,7 +279,8 @@ def sipath_identity() -> dict:
         if head.returncode == 0:
             diff = git("diff", "HEAD", "--binary").stdout
             untracked = [p for p in git("ls-files", "--others", "--exclude-standard", "sipath", "bench").stdout.split()
-                         if p.endswith((".py", ".tcl", ".json", ".yaml"))]
+                         if p.endswith((".py", ".tcl", ".json", ".yaml"))
+                         and not p.startswith("bench/results/")]  # benchmark results are data, not source
             out["commit"] = head.stdout.strip() + ("-dirty" if diff else "")
             if diff:
                 out["diff_sha256"] = hashlib.sha256(diff.encode()).hexdigest()[:16]
