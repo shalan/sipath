@@ -3097,6 +3097,87 @@ class RunHead(unittest.TestCase):
             self.assertEqual([a.params["d"] for a in kept], [1, 2])  # the rule's choice, then its next choice
 
 
+class ResolvedParameters(unittest.TestCase):
+    """Review of 04ee8af, 3 and the earlier items: each attempt records the threads it ran with; admission,
+    prerequisites and fingerprints use the parameters execution resolves (step_defaults too); retries stay inside the
+    step's time box; a resume after SiPath's code changed does not reuse."""
+
+    def flow(self, td, step_defaults=None, factory=None, resume=False, **cfg):
+        from sipath.config import Config
+        d = Design("fake", "fake", "x.v", "x.sdc", "macro", floorplan_def="x.def")
+        d.step_defaults = dict(step_defaults or {})
+        return Flow(d, sky130hd("/p"), td, factory or demo.fake_factory(), validate_inputs=False,
+                    config=Config(**cfg), resume=resume)
+
+    def test_each_attempt_records_its_threads_and_retries_get_their_own(self):
+        from sipath.scheduler import RetryWith
+        with tempfile.TemporaryDirectory() as td:
+            f = self.flow(td, threads=12)
+
+            def step(ctx):
+                if ctx.params.get("k") == 1 and not ctx.params.get("again"):
+                    raise RetryWith({"again": True}, "try again")
+                ctx.metrics["wns"] = 1.0
+            r = f.step("s", step, variants=[{"k": 0}, {"k": 1}], parallel=2, score="setup_wns")
+            got = {a.id: a.threads for a in r.attempts}
+            self.assertEqual(got, {"s.0": 6, "s.1": 6, "s.2": 12})  # two at once, then the retry alone
+            g = _read_json(os.path.join(td, "graph.json"))
+            self.assertEqual({a["id"]: a["threads"] for a in g["attempts"]}, got)
+            sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "bench"))
+            import strategy_compare
+            for a in g["attempts"]:
+                a["seconds"] = 10.0
+            p = os.path.join(td, "graph.json")
+            _write_json(p, g)
+            self.assertEqual(strategy_compare.core_seconds(td), 240.0)  # 6*10 + 6*10 + 12*10, not 180
+
+    def test_admission_and_prerequisites_see_step_defaults(self):
+        from sipath import steps
+        with tempfile.TemporaryDirectory() as td:
+            f = self.flow(td, step_defaults={"place": {"threads": 8}}, threads=8)
+
+            def place(ctx):
+                ctx.metrics["wns"] = 1.0
+            place.__name__ = "place"  # declared as the place step: its step_defaults apply
+            f.step("p", place, variants=[{}, {"density": 0.6}, {"density": 0.7}], parallel=3, score="setup_wns")
+            self.assertEqual(f.allocation["p"]["at_once"], 1)  # 8 threads each (inherited) in 8 cores
+        with tempfile.TemporaryDirectory() as td:
+            f = self.flow(td, step_defaults={"signoff": {"checks": ["drc", "lvs"]}})
+            routed = Attempt("route_repair.0", "route_repair", 0, {}, None, td, status="selected",
+                             capabilities=["netlist", "floorplan", "power_grid", "placed", "routed"])
+            f.attempts.append(routed)
+            f.check_prerequisites("signoff", steps.STEPS["signoff"], routed)  # no timing check: no SPEF needed
+
+    def test_a_retry_stays_inside_the_step_time_box(self):
+        import time
+        from sipath.scheduler import RetryWith
+        with tempfile.TemporaryDirectory() as td:
+            f = self.flow(td, factory=KillableSession, step_budget_s=1.0)
+
+            def step(ctx):
+                if not ctx.params.get("again"):
+                    raise RetryWith({"again": True}, "try again")
+                ctx.session.run("block")  # the retry would run until killed
+            t0 = time.time()
+            with self.assertRaises(StepFailed):
+                f.step("s", step, score="setup_wns")
+            self.assertLess(time.time() - t0, 15)
+            self.assertEqual([a.status for a in f.attempts], ["failed", "budget"])
+
+    def test_a_code_change_is_not_reused(self):
+        from sipath import fingerprint
+        with tempfile.TemporaryDirectory() as td:
+            f = self.flow(td)
+            f.step("a", demo.fake_step(), score="setup_wns")
+            saved = dict(fingerprint._CODE)
+            fingerprint._CODE.update(digest="0" * 16)  # as if SiPath's sources changed
+            self.addCleanup(lambda: (fingerprint._CODE.clear(), fingerprint._CODE.update(saved)))
+            f2 = self.flow(td, resume=True)
+            self.assertTrue(any("SiPath's code changed" in c for c in f2.input_changes))
+            f2.step("a", demo.fake_step(), score="setup_wns")
+            self.assertEqual(f2.stale[0]["step"], "a")
+
+
 class Adaptive(unittest.TestCase):
     """Adaptive rounds: Flow.extend, designfile.adapt, the place adapter and its blockages."""
 

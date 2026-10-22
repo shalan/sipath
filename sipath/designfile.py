@@ -319,7 +319,8 @@ def run(path_or_design, workdir: str, runner=None, overrides: dict | None = None
         spec = explore_flow(spec)
     flow.progress = progress
     items = resolve_steps(spec, overrides)
-    problems = chain_problems(flow.root_capabilities, [(name, fn, item.get("variants")) for name, _, fn, item in items])
+    problems = chain_problems(flow.root_capabilities, [(name, fn, item.get("variants")) for name, _, fn, item in items],
+                              resolve=flow._resolve)  # the parameters each step will run with
     if problems:  # before any step runs
         from .scheduler import MissingPrerequisite
         raise MissingPrerequisite("the flow cannot run as listed:\n  " + "\n  ".join(problems))

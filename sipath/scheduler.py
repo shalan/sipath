@@ -171,14 +171,15 @@ def missing_text(name: str, missing, have) -> str:
             f"(it has: {', '.join(sorted(have)) or 'nothing'})")
 
 
-def chain_problems(root: set, chain) -> list[str]:
+def chain_problems(root: set, chain, resolve=None) -> list[str]:
     """Check a whole flow before it runs: ``chain`` is [(name, fn, variants)], each continuing from the one
-    before; the problems (a step whose chain lacks what it needs), in order."""
+    before; the problems (a step whose chain lacks what it needs), in order. ``resolve(fn, name, variant)``:
+    the parameters the step will run with (step_defaults too), as Flow._resolve gives them."""
     have, out = set(root), []
     for name, fn, variants in chain:
         miss = set()
         for v in variants or [{}]:
-            n = needs(fn, v)
+            n = needs(fn, resolve(fn, name, v) if resolve else v)
             if n is not None:
                 miss |= n - have
         if miss:
@@ -224,6 +225,7 @@ class Attempt:
     stale_reason: str | None = None  # why a resume did not reuse it (status "stale")
     capabilities: list | None = None  # what its chain has after it (CAPABILITIES); None: unknown (an old graph)
     forked_from: str | None = None  # "<original run's workdir>:<attempt id>" when a fork took it over (Flow.fork)
+    threads: int | None = None  # OpenROAD threads the scheduler gave it (None: a tool step, no OpenROAD process)
     retry: dict | None = field(default=None, repr=False)  # params a RetryWith asked for (not recorded)
     retry_why: str | None = field(default=None, repr=False)  # its reason, handed to the retry
 
@@ -241,6 +243,7 @@ class Attempt:
             "retry_reason": self.retry_reason, "adapted_from": self.adapted_from, "adapt_reason": self.adapt_reason,
             "fingerprint": self.fingerprint, **({"stale_reason": self.stale_reason} if self.stale_reason else {}),
             "capabilities": self.capabilities, **({"forked_from": self.forked_from} if self.forked_from else {}),
+            "threads": self.threads,
         }
 
 
@@ -402,7 +405,8 @@ class Flow:
                         resumed=True, retry_of=j.get("retry_of"), retry_reason=j.get("retry_reason"),
                         adapted_from=j.get("adapted_from"), adapt_reason=j.get("adapt_reason"),
                         fingerprint=j.get("fingerprint"), stale_reason=j.get("stale_reason"),
-                        capabilities=j.get("capabilities"), forked_from=j.get("forked_from"))
+                        capabilities=j.get("capabilities"), forked_from=j.get("forked_from"),
+                        threads=j.get("threads"))
             if j["parent"] and a.parent is None:
                 raise ValueError(f"{path}: attempt {a.id} names unknown parent {j['parent']}")
             if a.status in ("running", "pending"):
@@ -425,19 +429,29 @@ class Flow:
                                        fingerprint=s.get("fingerprint"), kept=list(s.get("kept") or []))
         log.info("resumed %s: %d attempts, %d completed steps", path, len(self.attempts), len(self.steps))
 
+    def _resolve(self, fn, name, params) -> dict:
+        """The parameters an attempt of ``fn`` runs with: the variant, then the design's and the PDK's
+        step_defaults, then the declared defaults (what execution, prerequisites, admission and fingerprints
+        all use)."""
+        decl = getattr(fn, "__name__", name) if fn is not None else name
+        try:
+            return params_mod.resolve(decl, params or {}, self.pdk, self.design)
+        except Exception:  # noqa: BLE001  (an undeclared step: its variant as given)
+            return dict(params or {})
+
     def _defaults(self, name):
         d = params_mod.DECLARED.get(name)
         return {k: p.default for k, p in sorted(d.items())} if d else None
 
-    def _attempt_fp(self, name, params, parent) -> str:
-        return fp_mod.attempt(self.inputs["digest"], name, params, parent.fingerprint if parent else None,
-                              self._defaults(name))
+    def _attempt_fp(self, name, params, parent, fn=None) -> str:
+        return fp_mod.attempt(self.inputs["digest"], name, self._resolve(fn, name, params),
+                              parent.fingerprint if parent else None, None)
 
-    def _step_fp(self, name, variants, score, parent) -> str:
-        return fp_mod.step(self.inputs["digest"], name, variants, score, parent.fingerprint if parent else None,
-                           self._defaults(name))
+    def _step_fp(self, name, variants, score, parent, fn=None) -> str:
+        return fp_mod.step(self.inputs["digest"], name, [self._resolve(fn, name, v) for v in variants], score,
+                           parent.fingerprint if parent else None, None)
 
-    def _recorded(self, name, parent, variants, score) -> StepRun | None:
+    def _recorded(self, name, parent, variants, score, fn=None) -> StepRun | None:
         """The recorded result of an identical step, if this flow was resumed. A recorded step whose fingerprint
         differs (the run's inputs, its parent, variants, score or declared defaults changed) is made stale and
         runs again: None. Asked again in this session with other variants: an error, as for any step."""
@@ -453,7 +467,7 @@ class Flow:
             run.reused = True
             self._advance_head(run.selected, name)
             return run
-        if same_call and run.fingerprint == self._step_fp(name, variants, score, parent):
+        if same_call and run.fingerprint == self._step_fp(name, variants, score, parent, fn):
             run.reused = True
             self._advance_head(run.selected, name)
             return run
@@ -473,7 +487,7 @@ class Flow:
             None if parent is not None else set(self.root_capabilities))
         miss, declared = set(), False
         for v in variants or [{}]:
-            n = needs(fn, v)
+            n = needs(fn, self._resolve(fn, name, v))  # the parameters execution will see (step_defaults too)
             if n is None:
                 continue
             declared = True
@@ -577,12 +591,13 @@ class Flow:
         anyp = mine or peaks(self.attempts)
         return max(anyp) if anyp else None
 
-    def _admit(self, name: str, todo: list, parallel: int) -> int:
+    def _admit(self, name: str, todo: list, parallel: int, fn=None) -> int:
         """Attempts of ``name`` that may run at once: the step's parallel (and parallel_cap), fewer when the attempts'
         explicit threads or the memory budget would not fit; recorded in ``allocation``."""
         k, why = self.config.cap(parallel), []
         cores = max(1, int(getattr(self.config, "threads", 1) or 1))
-        explicit = [int(a.params["threads"]) for a in todo if a.params.get("threads")]
+        asked = [self._resolve(fn, name, a.params).get("threads") for a in todo]  # step_defaults too
+        explicit = [int(x) for x in asked if x]
         if explicit and k * max(explicit) > cores:
             k = max(1, cores // max(explicit))
             why.append(f"{max(explicit)} threads each in {cores} cores")
@@ -636,7 +651,7 @@ class Flow:
                              "kept) checkpoint")
         self.check_prerequisites(name, fn, parent, variants)
         self._start_run_clock()
-        rec = self._recorded(name, parent, variants, score)
+        rec = self._recorded(name, parent, variants, score, fn)
         if rec is not None:
             log.info("step %s: recorded result reused (selected %s)", name, rec.selected.id)
             return rec
@@ -650,7 +665,7 @@ class Flow:
             raise ValueError(f"step {name} already ran")
         base = self._base_index(name)
         kept = {a.index - base: a for a in live}  # finished before an interruption
-        fps = [self._attempt_fp(name, v, parent) for v in variants]
+        fps = [self._attempt_fp(name, v, parent, fn) for v in variants]
         if any(not (_same(a.params, variants[k]) and a.parent is parent and a.fingerprint in (None, fps[k]))
                for k, a in kept.items() if k < len(variants)):
             self._make_stale(name, "; ".join(self.input_changes)
@@ -667,13 +682,13 @@ class Flow:
                 attempts.append(a)
         self._run_batch(name, attempts, fn, parallel, parent)
         return self._select(name, attempts, score, score_fn, parent=parent, variants=variants,
-                            fingerprint=self._step_fp(name, variants, score, parent))
+                            fingerprint=self._step_fp(name, variants, score, parent, fn))
 
     def _run_batch(self, name, attempts, fn, parallel, parent):
         """Run the attempts not finished yet (at most ``parallel`` at once), then one retry for each that asked for
         it (RetryWith), appended to ``attempts``; StepCancelled when any was cancelled."""
         todo = [a for a in attempts if a.status != "ok"]
-        k = self._admit(name, todo, parallel)
+        k = self._admit(name, todo, parallel, fn)
         log.info("step %s: %d attempts (%d to run, %d recorded), %d at once", name, len(attempts), len(todo),
                  len(attempts) - len(todo), k)
         together = max(1, min(len(todo), k))  # attempts alive at once share the threads
@@ -687,20 +702,21 @@ class Flow:
         try:
             with ThreadPoolExecutor(max_workers=k) as ex:
                 list(ex.map(lambda a: self._run_attempt(a, fn, together), todo))
+            # a failed attempt that asked for it (RetryWith) gets one fresh attempt with the merged params, inside
+            # the same time box (the deadline and its timer hold until the retries are done)
+            nxt = max(a.index for a in self.attempts if a.step == name) + 1
+            for a in [a for a in todo if a.status == "failed" and a.retry]:
+                r = self._new_attempt(name, nxt, {**a.params, **a.retry}, parent, kind=a.kind, fn=fn)
+                r.fingerprint = self._attempt_fp(name, r.params, parent, fn)
+                r.retry_of, r.retry_reason, nxt = a.id, a.retry_why, nxt + 1
+                r.adapted_from, r.adapt_reason = a.adapted_from, a.adapt_reason
+                log.info("attempt %s: retry of %s with %s", r.id, a.id, a.retry)
+                self._run_attempt(r, fn, 1)
+                attempts.append(r)
         finally:
             if timer is not None:
                 timer.cancel()
             self._step_deadline.pop(name, None)
-        # a failed attempt that asked for it (RetryWith) gets one fresh attempt with the merged params
-        nxt = max(a.index for a in self.attempts if a.step == name) + 1
-        for a in [a for a in todo if a.status == "failed" and a.retry]:
-            r = self._new_attempt(name, nxt, {**a.params, **a.retry}, parent, kind=a.kind, fn=fn)
-            r.fingerprint = self._attempt_fp(name, r.params, parent)
-            r.retry_of, r.retry_reason, nxt = a.id, a.retry_why, nxt + 1
-            r.adapted_from, r.adapt_reason = a.adapted_from, a.adapt_reason
-            log.info("attempt %s: retry of %s with %s", r.id, a.id, a.retry)
-            self._run_attempt(r, fn, 1)
-            attempts.append(r)
         if any(a.status == "cancelled" for a in attempts):
             self.save_graph()
             raise StepCancelled(f"step {name} cancelled: " + ", ".join(f"{a.id} {a.status}" for a in attempts))
@@ -731,7 +747,7 @@ class Flow:
             if old is not None:
                 continue  # already tried (by an earlier round, or recorded before a resume)
             a = self._new_attempt(name, nxt, v, parent, kind="tool" if getattr(fn, "tool", False) else "step", fn=fn)
-            a.fingerprint = self._attempt_fp(name, v, parent)
+            a.fingerprint = self._attempt_fp(name, v, parent, fn)
             a.adapted_from, a.adapt_reason, nxt = o.get("from"), o.get("reason"), nxt + 1
             new.append(a)
         before = run.selected.id if run.selected else None
@@ -872,7 +888,8 @@ class Flow:
         parent (None disables the check)."""
         score = score or "drc_then_slack"
         params = {"ops": ops, "max_patch_nets": max_patch_nets}
-        efp = self._attempt_fp(name, params, parent)
+        efp = fp_mod.attempt(self.inputs["digest"], name, self._resolve(None, "eco", params),  # eco's declarations
+                             parent.fingerprint, None)
         run = self.steps.get(name)
         if run is not None and run.resumed and not run.reused:
             if _same(run.variants, [params]) and run.parent == parent.id and run.fingerprint in (None, efp):
@@ -999,6 +1016,7 @@ class Flow:
             decl = "eco" if a.kind == "eco" else getattr(fn, "__name__", a.step)
             params = params_mod.resolve(decl, a.params, self.pdk, self.design)
             threads = self._threads(params, together)
+            a.threads = threads  # what this attempt got: priced from here, not from the step's latest allocation
             started = getattr(getattr(session, "runner", None), "threads", getattr(self.config, "threads", None))
             self.checkpoints.prepare(session, threads, started)
             self.checkpoints.load(session, self.pdk, self.design, a.parent)

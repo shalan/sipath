@@ -84,12 +84,25 @@ def strategy_flow(steps: list[str], strategy: str, densities: list[float]) -> li
 
 
 def core_seconds(run_dir: str) -> float | None:
-    """Σ attempt seconds × the threads the scheduler gave its step (graph.json allocation)."""
+    """Allocated core-seconds of the OpenROAD attempts: Σ each attempt's seconds × the threads it was given (its
+    own record; graphs from before attempts recorded threads: the step's allocation, else the run's threads).
+    Tool attempts (synthesis: no OpenROAD process) are left out: tool_seconds. Allocation, not measured CPU."""
     with open(os.path.join(run_dir, "graph.json")) as f:
         g = json.load(f)
     alloc, threads = g.get("allocation") or {}, (g.get("config") or {}).get("threads") or 1
-    return round(sum((a.get("seconds") or 0) * (alloc.get(a["step"], {}).get("threads_each") or threads)
-                     for a in g["attempts"]), 1)
+    total = 0.0
+    for a in g["attempts"]:
+        if a.get("kind") == "tool":
+            continue
+        n = a.get("threads") or alloc.get(a["step"], {}).get("threads_each") or threads
+        total += (a.get("seconds") or 0) * n
+    return round(total, 1)
+
+
+def tool_seconds(run_dir: str) -> float:
+    with open(os.path.join(run_dir, "graph.json")) as f:
+        g = json.load(f)
+    return round(sum(a.get("seconds") or 0 for a in g["attempts"] if a.get("kind") == "tool"), 1)
 
 
 def run(name: str, strategy: str, repeat: int) -> dict:

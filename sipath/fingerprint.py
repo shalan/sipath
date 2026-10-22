@@ -70,6 +70,28 @@ def _include_files(dirs) -> list[str]:
     return sorted(out)
 
 
+_CODE: dict = {}
+
+
+def code_identity() -> dict:
+    """SiPath's own implementation: its version and the content digest of its Python sources (tests left out),
+    so a resume after the code changed does not reuse what the old code produced."""
+    if not _CODE:
+        from . import __version__
+        import hashlib
+        root = os.path.dirname(os.path.abspath(__file__))
+        h = hashlib.sha256()
+        for d, dirs, names in sorted(os.walk(root)):
+            dirs[:] = sorted(x for x in dirs if x not in ("tests", "__pycache__"))
+            for n in sorted(names):
+                if n.endswith((".py", ".tcl", ".json", ".yaml")):
+                    p = os.path.join(d, n)
+                    h.update(os.path.relpath(p, root).encode())
+                    h.update((file_hash(p) or "").encode())
+        _CODE.update(version=__version__, digest=h.hexdigest()[:16])
+    return dict(_CODE)
+
+
 def inputs(design, pdk, config=None, provenance: dict | None = None) -> dict:
     """The run's description: {design, files, pdk, tools, config, digest}."""
     files = [f for f in (*design.input_files(), *_include_files(getattr(design, "rtl_includes", ()))) if f]
@@ -90,6 +112,7 @@ def inputs(design, pdk, config=None, provenance: dict | None = None) -> dict:
         "tools": digest({k: v for k, v in prov.items() if k != "pdk_release"}),
         "plugin_code": plugins,
         "config": {k: cfg.get(k) for k in RESULT_CONFIG if k in cfg},
+        "code": code_identity(),
     }
     out["digest"] = digest({k: v for k, v in out.items() if k != "digest"})
     return out
@@ -117,6 +140,10 @@ def changes(old: dict | None, new: dict) -> list[str]:
         out.append("the PDK description changed")
     if old.get("tools") != new.get("tools"):
         out.append("the tools changed (image, binary or native tool versions)")
+    if old.get("code") != new.get("code"):
+        oc, nc = old.get("code") or {}, new.get("code") or {}
+        out.append(f"SiPath's code changed ({oc.get('version')} {oc.get('digest')} -> "
+                   f"{nc.get('version')} {nc.get('digest')})")
     if old.get("plugin_code") != new.get("plugin_code"):
         out.append("plugin code changed")
     if old.get("config") != new.get("config"):
