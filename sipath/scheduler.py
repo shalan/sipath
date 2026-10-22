@@ -156,6 +156,17 @@ def in_chain(chain: list[dict], step: str) -> dict:
     return next((a for a in reversed(chain) if a["step"] == step or a["step"].startswith(step + "@")), {})
 
 
+def resolve_step_params(fn, name: str, params, pdk=None, design=None) -> dict:
+    """The parameters a step runs with: the variant, then the design's and the PDK's step_defaults, then the
+    declared defaults, by the step function's declared name (an alias, ``step: x`` with ``fn: place``, resolves
+    as place). The one resolution execution, prerequisites, admission, fingerprints and the plan all use."""
+    decl = getattr(fn, "__name__", name) if fn is not None else name
+    try:
+        return params_mod.resolve(decl, params or {}, pdk, design)
+    except Exception:  # noqa: BLE001  (an undeclared step: its variant as given)
+        return dict(params or {})
+
+
 def needs(fn, params: dict) -> set | None:
     """What ``fn`` requires of its parent chain for ``params``; None when it declares nothing."""
     req = getattr(fn, "requires", None)
@@ -430,14 +441,8 @@ class Flow:
         log.info("resumed %s: %d attempts, %d completed steps", path, len(self.attempts), len(self.steps))
 
     def _resolve(self, fn, name, params) -> dict:
-        """The parameters an attempt of ``fn`` runs with: the variant, then the design's and the PDK's
-        step_defaults, then the declared defaults (what execution, prerequisites, admission and fingerprints
-        all use)."""
-        decl = getattr(fn, "__name__", name) if fn is not None else name
-        try:
-            return params_mod.resolve(decl, params or {}, self.pdk, self.design)
-        except Exception:  # noqa: BLE001  (an undeclared step: its variant as given)
-            return dict(params or {})
+        """resolve_step_params on this run's PDK and design."""
+        return resolve_step_params(fn, name, params, self.pdk, self.design)
 
     def _defaults(self, name):
         d = params_mod.DECLARED.get(name)
@@ -465,11 +470,11 @@ class Flow:
                 raise ValueError(f"step {name} already ran with other parent/variants/score; use another name "
                                  "or a fresh workdir")
             run.reused = True
-            self._advance_head(run.selected, name)
+            self._advance_head(run.selected, name, save=True)
             return run
         if same_call and run.fingerprint == self._step_fp(name, variants, score, parent, fn):
             run.reused = True
-            self._advance_head(run.selected, name)
+            self._advance_head(run.selected, name, save=True)
             return run
         if run.parent != pid:
             why = f"its parent changed ({run.parent} -> {pid}): an earlier step ran again"
@@ -507,13 +512,18 @@ class Flow:
             return None
         return sorted(set(have) | set(getattr(fn, "provides", ()) or ()))
 
-    def _advance_head(self, best, name):
+    def _advance_head(self, best, name, save: bool = False) -> bool:
         """The run's head moves to ``best`` when it continues the head's chain, re-selects the head's step, or
-        starts a chain (a root step); a branch's selection leaves it where it is."""
+        starts a chain (a root step); a branch's selection leaves it where it is. ``save``: write graph.json
+        when it moved (a reused step: no selection saves it otherwise). Returns whether it moved."""
         h = self.head
-        if best is not None and (h is None or best.parent is None or best.parent is h
-                                 or (h.step == name and h.parent is best.parent)):
+        if best is not None and best is not h and (h is None or best.parent is None or best.parent is h
+                                                   or (h.step == name and h.parent is best.parent)):
             self.head = best
+            if save:
+                self.save_graph()
+            return True
+        return False
 
     def _make_stale(self, name, why):
         """The recorded attempts of ``name`` are kept, marked stale with ``why``, and never reused."""
@@ -812,16 +822,21 @@ class Flow:
         """Bounded search: compare the branches' attempts at step ``at`` by ``score``, record which won (and the
         branches that failed before ``at``: ``failed``), and make the winner the run's head. A resume that
         reaches the same comparison reuses the recorded decision."""
-        ids = sorted(a.id for a in candidates)
-        rec = next((d for d in self.decisions if d["at"] == at and sorted(c["attempt"] for c in d["candidates"]) == ids
-                    and d.get("complete")), None)
-        if rec is not None:
-            best = next(a for a in candidates if a.id == rec["winner"])
-            self.head = best
-            return best
         fn = score_mod.get(score)
         if getattr(fn, "selector", False):  # a rule over attempts, not a value per attempt: rank by auto
             score, fn = "auto", score_mod.get("auto")
+        ids = sorted(a.id for a in candidates)
+        # reused only for the same place, the same candidates and the same scoring policy; another policy decides
+        # again over the same (reused) candidates, and the new decision replaces the old one
+        rec = next((d for d in self.decisions if d["at"] == at and sorted(c["attempt"] for c in d["candidates"]) == ids
+                    and d.get("complete") and d.get("score") == score), None)
+        if rec is not None:
+            best = next(a for a in candidates if a.id == rec["winner"])
+            if self.head is not best:
+                self.head = best
+                self.save_graph()
+            return best
+        self.decisions = [d for d in self.decisions if d["at"] != at]
         scored = [(fn(a.metrics), a) for a in candidates]
         ok = [(s, a) for s, a in scored if s is not None]
         if not ok:
@@ -844,7 +859,7 @@ class Flow:
         a = attempt if isinstance(attempt, Attempt) else next((x for x in self.attempts if x.id == attempt), None)
         if a is None:
             raise ValueError(f"no attempt {attempt!r} in {self.workdir}")
-        if a.status not in ("ok", "selected", "rejected") or not (a.checkpoint and os.path.isfile(a.checkpoint)):
+        if a.status not in ("ok", "selected", "rejected", "kept") or not (a.checkpoint and os.path.isfile(a.checkpoint)):
             raise ValueError(f"fork: {a.id} is {a.status} with no checkpoint; fork from a finished attempt")
         workdir = os.path.abspath(workdir)
         if workdir == self.workdir or workdir.startswith(self.workdir + os.sep):
@@ -869,11 +884,14 @@ class Flow:
                         status="selected", checkpoint=x.checkpoint, metrics=dict(x.metrics), outputs=dict(x.outputs),
                         score=x.score, seconds=x.seconds, started_at=x.started_at, finished_at=x.finished_at,
                         process=x.process, timing=x.timing, resumed=True, fingerprint=x.fingerprint,
-                        capabilities=x.capabilities, forked_from=f"{self.workdir}:{x.id}")
+                        capabilities=x.capabilities, forked_from=f"{self.workdir}:{x.id}", threads=x.threads,
+                        retry_of=x.retry_of, retry_reason=x.retry_reason, adapted_from=x.adapted_from,
+                        adapt_reason=x.adapt_reason)
             copies[x.id] = c
             f.attempts.append(c)
             f.steps[x.step] = StepRun(x.step, [c], "fork", c, x.parent.id if x.parent else None, [dict(x.params)],
                                       fingerprint=None, reused=True)
+        f.head = copies[a.id]  # the fork's result, until a step continues from it
         f.save_graph()
         log.info("forked %s from %s:%s (%d attempts in its chain)", workdir, self.workdir, a.id, len(chain))
         return f
@@ -1013,8 +1031,8 @@ class Flow:
             if self.cancelled:  # cancelled while the process was starting
                 raise RuntimeError("cancelled")
             t1 = mark("start", t0)
-            decl = "eco" if a.kind == "eco" else getattr(fn, "__name__", a.step)
-            params = params_mod.resolve(decl, a.params, self.pdk, self.design)
+            params = (self._resolve(None, "eco", a.params) if a.kind == "eco"
+                      else self._resolve(fn, a.step, a.params))  # the same resolution admission and the plan used
             threads = self._threads(params, together)
             a.threads = threads  # what this attempt got: priced from here, not from the step's latest allocation
             started = getattr(getattr(session, "runner", None), "threads", getattr(self.config, "threads", None))

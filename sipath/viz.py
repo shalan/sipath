@@ -116,8 +116,8 @@ list $cells [dict size $nets] $split
 def checkpoints(workdir: str, which: str | None = None) -> list[tuple[str, str]]:
     """``(attempt id, checkpoint .odb)`` for ``which`` in a run's ``graph.json``.
 
-    ``which``: a step (its selected attempt), an attempt id, ``all`` (every
-    selected attempt with a database, in flow order) or None (the last of those).
+    ``which``: a step (its attempt on the run's result chain, else its selected one), an attempt id, ``all``
+    (every attempt with a database on the result chain, in flow order) or None (the last of those: the result).
     Raises ValueError naming what the run has when nothing matches."""
     import json
     import os
@@ -125,11 +125,14 @@ def checkpoints(workdir: str, which: str | None = None) -> list[tuple[str, str]]
     if not os.path.isfile(path):
         raise FileNotFoundError(f"{workdir}: no graph.json (not a run directory)")
     with open(path) as f:
-        attempts = json.load(f)["attempts"]
+        g = json.load(f)
+    attempts = g["attempts"]
     odb = [a for a in attempts if str(a.get("checkpoint") or "").endswith(".odb")]
     sel = [a for a in odb if a.get("status") == "selected"]
-    if which in (None, "all"):
-        hits = sel if which == "all" else sel[-1:]
+    from .scheduler import run_chain
+    result = [a for a in run_chain(g) if str(a.get("checkpoint") or "").endswith(".odb")]
+    if which in (None, "all"):  # the run's result: its head's ancestry (a losing branch is asked for by name)
+        hits = result if which == "all" else result[-1:]
     elif any(a["id"] == which for a in attempts):
         hits = [a for a in odb if a["id"] == which]
         if not hits:
@@ -137,7 +140,7 @@ def checkpoints(workdir: str, which: str | None = None) -> list[tuple[str, str]]
             raise ValueError(f"attempt {which} {st}: no checkpoint" if st in ("failed", "cancelled") else
                              f"attempt {which} has no layout database (only steps after synthesis do)")
     else:
-        hits = [a for a in sel if a["step"] == which]
+        hits = [a for a in result if a["step"] == which] or [a for a in sel if a["step"] == which]
         if not hits:
             steps = sorted({a["step"] for a in sel}, key=[a["step"] for a in sel].index)
             raise ValueError(f"no selected {which!r} checkpoint in {workdir}; steps with one: {', '.join(steps)}"

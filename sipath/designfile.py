@@ -458,6 +458,12 @@ def plan(path_or_design, workdir: str | None = None, config=None, flow_steps=Non
                     r["mem"].append(a["metrics"]["mem_peak_mb"])
                 if a.get("seconds"):
                     r["sec"].append(a["seconds"])
+    from .scheduler import resolve_step_params
+    if pdk is not None:
+        d.resolve(pdk)  # the design's unset fields and step defaults as the run will have them
+
+    def resolve(fn, name, v):  # the resolution execution uses (Flow._resolve), on this PDK and design
+        return resolve_step_params(fn, name, v, pdk, d)
     cores = max(1, int(cfg.threads))
     rows, total = [], 0
     groups = len(((getattr(pdk, "signoff", None) or {}).get("drc_groups")) or [])
@@ -466,7 +472,7 @@ def plan(path_or_design, workdir: str | None = None, config=None, flow_steps=Non
         variants = item.get("variants") or [{}]
         total += len(variants) * branches
         at_once, why = max(1, min(len(variants), cfg.cap(item.get("parallel", 1)))), []
-        explicit = [int(v["threads"]) for v in variants if v.get("threads")]
+        explicit = [int(x) for x in (resolve(fn, name, v).get("threads") for v in variants) if x]  # as admitted
         if explicit and at_once * max(explicit) > cores:
             at_once, _ = max(1, cores // max(explicit)), why.append(f"{max(explicit)} threads each")
         mem = max(recorded.get(name, {}).get("mem") or [0]) or None
@@ -482,7 +488,7 @@ def plan(path_or_design, workdir: str | None = None, config=None, flow_steps=Non
         if int(item.get("keep") or 1) > 1:  # the baseline may join the best keep: up to keep + 1 branches
             branches, until = min(len(variants), int(item["keep"]) + 1), item.get("decide_at")
         if ref == "signoff" or ref in CHECK_STEPS:  # concurrent checks share the attempt's threads
-            checks = list((variants[0] or {}).get("checks") or (CHECK_STEPS.get(ref) or SIGNOFF_CHECKS))
+            checks = list(resolve(fn, name, variants[0] or {}).get("checks") or (CHECK_STEPS.get(ref) or SIGNOFF_CHECKS))
             jobs = [j for j in ("drc", "density", "magic_drc", "xor", "lvs", "lvs_full") if j in checks]
             if {"setup", "hold", "drv", "annotation", "unconstrained"} & set(checks):
                 jobs.append("sta")
@@ -496,7 +502,7 @@ def plan(path_or_design, workdir: str | None = None, config=None, flow_steps=Non
             row["recorded_peak_mb"] = mem
         rows.append(row)
     root = {"netlist"} if (d.netlist and not d.rtl) else set()
-    problems = chain_problems(root, [(n, f, i.get("variants")) for n, _, f, i in resolve_steps(spec)])
+    problems = chain_problems(root, [(n, f, i.get("variants")) for n, _, f, i in resolve_steps(spec)], resolve=resolve)
     budget = {k: getattr(cfg, k) for k in ("threads", "parallel_cap", "budget_s", "step_budget_s", "max_attempts",
                                            "memory_gb")}
     notes = []

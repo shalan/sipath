@@ -94,7 +94,9 @@ counts), into MCP's `run_step` result, and as the CLI's last line.
   selection on the main chain, a bounded search's winner, an accepted ECO.
   The verdict, the report, `metrics.json`, the CLI and the benchmark export all
   read the result through that head's ancestry, never through another
-  branch's selection.
+  branch's selection; so do `sipath render`/`draw` without an attempt (an
+  attempt or a branch's step named explicitly shows that one) and the
+  regression limits.
 - **A check holds for the design it saw.** A check followed on the chain by a
   step that changes the design (an ECO, a re-route, fill) is `stale`, not
   passed, with what changed it; the run's verification is then `omitted` until

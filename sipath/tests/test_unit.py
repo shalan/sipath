@@ -529,10 +529,13 @@ class PictureTargets(unittest.TestCase):
     def setUp(self):
         self.wd = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.wd)
-        at = lambda i, st, k, s, ck: {"id": f"{st}.{k}", "step": st, "status": s, "checkpoint": ck}  # noqa: E731
+        at = lambda st, k, s, ck, par: {"id": f"{st}.{k}", "step": st, "status": s, "checkpoint": ck,  # noqa: E731
+                                        "parent": par}
         _write_json(os.path.join(self.wd, "graph.json"), {"attempts": [
-            at(0, "synth", 0, "selected", "s/0/top.synth.v"), at(1, "place", 0, "rejected", "p/0/place.odb"),
-            at(2, "place", 1, "selected", "p/1/place.odb"), at(3, "cts", 0, "selected", "c/0/cts.odb")]})
+            at("synth", 0, "selected", "s/0/top.synth.v", None), at("place", 0, "rejected", "p/0/place.odb", "synth.0"),
+            at("place", 1, "selected", "p/1/place.odb", "synth.0"), at("cts", 0, "selected", "c/0/cts.odb", "place.1")],
+            "steps": {"synth": {"selected": "synth.0"}, "place": {"selected": "place.1", "parent": "synth.0"},
+                      "cts": {"selected": "cts.0", "parent": "place.1"}}, "head": "cts.0"})
 
     def test_step_attempt_all_and_default(self):
         from sipath import viz
@@ -3327,6 +3330,167 @@ class BenchmarkRobustness(unittest.TestCase):
             self.assertEqual(r["sipath"]["commit"], "abc")  # the run's, from its provenance
 
 
+class RunHeadFollowUp(unittest.TestCase):
+    """Second review of the run head (6fdd7bc): persistence on resume, every consumer, the scoring policy of a
+    reused decision, forks, handled branch failures, archives, table eligibility, plan/execution parity."""
+
+    items = RunHead.items
+    place, route = staticmethod(RunHead.place), staticmethod(RunHead.route)
+
+    def flow(self, td, resume=False, **cfg):
+        return RunHead.flow(self, td, resume=resume, **cfg)
+
+    def go(self, td, items):
+        from sipath import designfile
+        f = self.flow(td)
+        designfile.run_items(f, items)
+        return f
+
+    def test_resume_persists_the_head_it_ends_with(self):
+        from sipath import designfile, report, verdict
+        with tempfile.TemporaryDirectory() as td:
+            self.go(td, self.items(then_sign=True))
+            f2 = self.flow(td, resume=True)
+            designfile.run_items(f2, self.items(then_sign=True))
+            g = _read_json(os.path.join(td, "graph.json"))  # what a later reader sees
+            self.assertEqual((g["head"], verdict.verify(g)["head"], report.collect(td)["head"]),
+                             (f2.head.id,) * 3)
+            self.assertEqual(f2.head.id, "sign.0")
+
+    def test_pictures_and_limits_read_the_winner(self):
+        from sipath import limits, viz
+        with tempfile.TemporaryDirectory() as td:  # the selected branch wins: neither the last branch nor the baseline
+            f = self.go(td, self.items({"sign": 1}))
+            win = f.decisions[-1]["winner"]
+            self.assertEqual(win, "route.0")
+            self.assertNotEqual(f.attempts[-1].id, win)
+            self.assertEqual(viz.checkpoints(td)[0][0], win)
+            self.assertEqual(limits.run_metrics(td, until="route")["wns_ns"], 3.0)
+            self.assertEqual(viz.checkpoints(td, "route@place.0.0")[0][0], "route@place.0.0")  # alternatives by name
+
+    def test_a_changed_decide_score_decides_again(self):
+        from sipath import designfile
+        with tempfile.TemporaryDirectory() as td:
+            self.go(td, self.items())  # setup_wns: the baseline's branch wins
+            f2 = self.flow(td, resume=True)
+            designfile.run_items(f2, self.items())  # unchanged policy: the recorded decision
+            self.assertEqual((f2.decisions[-1]["winner"], f2.decisions[-1]["score"]), ("route@place.0.0", "setup_wns"))
+            it = self.items()
+            it[0][3]["decide_score"] = "hpwl"
+            for a in f2.attempts:
+                if a.step.startswith("route"):
+                    a.metrics["hpwl_um"] = 100.0 - 10 * float(a.metrics["wns"] * -1)  # the best placement: least wire
+            f2.save_graph()
+            f3 = self.flow(td, resume=True)
+            n = len(f3.attempts)
+            designfile.run_items(f3, it)
+            self.assertEqual(len(f3.attempts), n)  # the candidates are reused ...
+            self.assertEqual((f3.decisions[-1]["score"], f3.decisions[-1]["winner"]), ("hpwl", "route.0"))  # ... decided again
+            self.assertEqual(len([d for d in f3.decisions if d["at"] == "route"]), 1)
+
+    def test_a_fork_starts_with_its_head(self):
+        from sipath.scheduler import Flow
+        with tempfile.TemporaryDirectory() as td:
+            f = self.go(os.path.join(td, "orig"), self.items())
+            kept = next(a for a in f.attempts if a.status == "kept")  # a branch the search carried: forkable
+            g = f.fork(kept.id, os.path.join(td, "fork"))
+            self.assertEqual((g.head.id, g.result().id), (kept.id, kept.id))
+            self.assertEqual(g.head.threads, kept.threads)
+            self.assertEqual(_read_json(os.path.join(td, "fork", "graph.json"))["head"], kept.id)
+            g2 = Flow(f.design, f.pdk, os.path.join(td, "fork"), demo.fake_factory(), validate_inputs=False, resume=True)
+            self.assertEqual((g2.head.id, g2.verification()["head"]), (kept.id, kept.id))
+
+    def test_a_handled_branch_failure_is_not_the_runs(self):
+        from sipath import designfile
+        from sipath.scheduler import StepFailed
+        with tempfile.TemporaryDirectory() as td:
+            f = self.go(td, self.items({"fail": [0]}))  # the baseline's branch fails; the search decides
+            v = f.verification()
+            self.assertEqual(v["execution"], "completed")
+            self.assertTrue(any("search branch that failed" in n for n in v["notes"]))
+        with tempfile.TemporaryDirectory() as td:  # every branch failing is the run's failure
+            f = self.flow(td)
+            with self.assertRaises(StepFailed):
+                designfile.run_items(f, self.items({"fail": [0, 2, 3]}))
+            self.assertEqual(f.verification()["execution"], "failed")
+
+
+class ArchivesAndEligibility(unittest.TestCase):
+    ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+    def setUp(self):
+        sys.path.insert(0, os.path.join(self.ROOT, "bench"))
+
+    def test_archives_are_addressed_by_their_content_and_never_rewritten(self):
+        from unittest import mock
+        import records
+        with tempfile.TemporaryDirectory() as td:
+            os.makedirs(os.path.join(td, "bench"))
+            src = os.path.join(td, "bench", "new.py")
+            idents = []
+
+            def ident():
+                from sipath.fingerprint import file_hash
+                return {"commit": "abc-dirty", "untracked": {"bench/new.py": file_hash(src)}}
+            with mock.patch.object(records, "ROOT", td), mock.patch.object(records, "RESULTS", os.path.join(td, "res")), \
+                    mock.patch("sipath.designfile.sipath_identity", ident):
+                for text in ("one\n", "two\n"):
+                    with open(src, "w") as fh:
+                        fh.write(text)
+                    idents.append(records.archive_source())
+            a, b = idents
+            self.assertNotEqual(a["archive_key"], b["archive_key"])  # untracked content is in the key
+            with open(os.path.join(td, a["archive"], "untracked", "bench", "new.py")) as fh:
+                self.assertEqual(fh.read(), "one\n")  # the first archive is intact
+
+    def test_only_completed_and_measured_runs_count(self):
+        from unittest import mock
+        import tables
+        base = {"kind": "strategy", "design": "dp8", "flow": "defaults", "verification": {"verification": "passed"}}
+        recs = [dict(base, outcome="completed", metrics={"exit": 0, "wns_tt_ns": 1.0, "wall_s": 10}),
+                dict(base, outcome="measurement_failed", metrics={"exit": 0, "wall_s": 999}),
+                dict(base, metrics={"exit": 0, "wns_tt_ns": 1.0, "wall_s": 20})]  # an older record: no outcome
+        with mock.patch.object(tables, "_by", lambda kind: recs if kind == "strategy" else []):
+            row = next(ln for ln in tables.table_strategies().splitlines() if "| dp8 | defaults |" in ln)
+        self.assertIn("2 of 3 (measurement failed)", row)
+        self.assertIn("passed 2/2", row)
+        self.assertIn("| 15 |", row)  # the median wall time of the two that count, not 999
+
+
+class PlanParity(unittest.TestCase):
+    """The plan resolves parameters as execution does: inherited threads and step aliases."""
+
+    def test_plan_and_execution_agree(self):
+        import yaml
+        from sipath import designfile
+        from sipath.config import Config
+        with tempfile.TemporaryDirectory() as td:
+            ex = os.path.join(os.path.dirname(__file__), "..", "examples")
+            with open(os.path.join(ex, "gcd8.yaml")) as fh:
+                d = yaml.safe_load(fh)
+            for k in ("sdc",):
+                d[k] = os.path.abspath(os.path.join(ex, d[k]))
+            d["rtl"] = [os.path.abspath(os.path.join(ex, r)) for r in d["rtl"]]
+            d["step_defaults"] = {"place": {"threads": 4}}
+            d["flow"] = [{"step": "synth"}, {"step": "floorplan"}, {"step": "physical"},
+                         {"step": "spread", "fn": "place", "variants": [{}, {"density": 0.6}, {"density": 0.7}],
+                          "parallel": 3}]
+            path = os.path.join(td, "d.yaml")
+            with open(path, "w") as fh:
+                yaml.safe_dump(d, fh)
+            p = designfile.plan(path, config=Config(threads=6))
+            row = next(r for r in p["steps"] if r["step"] == "spread")
+            self.assertEqual((row["at_once"], row["threads_each"]), (1, 4))  # as admission will: 4 inherited of 6
+            f = RunHead.flow(self, os.path.join(td, "run"), threads=6)
+            f.design.step_defaults = {"place": {"threads": 4}}
+
+            def place(ctx):
+                ctx.metrics["wns"] = 1.0
+            place.__name__ = "place"
+            f.step("spread", place, variants=[{}, {"density": 0.6}, {"density": 0.7}], parallel=3, score="setup_wns")
+            self.assertEqual((f.allocation["spread"]["at_once"], f.allocation["spread"]["threads_each"]), (1, 4))
+
+
 class Adaptive(unittest.TestCase):
     """Adaptive rounds: Flow.extend, designfile.adapt, the place adapter and its blockages."""
 
@@ -4319,14 +4483,15 @@ class Limits(unittest.TestCase):
         _write_json(so, {"pass": True, "drc": {"count": 0}, "lvs": {"match": True},
                          "timing": {"corners": {"tt": {"wns": wns, "whs": 0.2}, "ss": {"wns": wns - 0.5, "whs": 0.3}}}})
         atts = [{"id": "place.0", "step": "place", "status": "selected", "started_at": 100.0, "finished_at": 110.0,
-                 "metrics": {"wns": 3.0, "insts": 500, "wirelength_um": None}},
+                 "parent": None, "metrics": {"wns": 3.0, "insts": 500, "wirelength_um": None}},
                 {"id": "route.0", "step": "route", "status": "selected", "started_at": 110.0, "finished_at": 140.0,
-                 "metrics": {"wns": 2.0, "drc": 0, "wirelength_um": 3000, "insts": 520}},
-                {"id": "eco.0", "step": "eco", "status": "failed", "started_at": 200.0, "finished_at": 300.0}]
+                 "parent": "place.0", "metrics": {"wns": 2.0, "drc": 0, "wirelength_um": 3000, "insts": 520}},
+                {"id": "eco.0", "step": "eco", "status": "failed", "started_at": 200.0, "finished_at": 300.0,
+                 "parent": "signoff.0" if signoff else "route.0"}]
         steps = {"place": {"selected": "place.0"}, "route": {"selected": "route.0"}}
         if signoff:
             atts.append({"id": "signoff.0", "step": "signoff", "status": "selected", "started_at": 140.0,
-                         "finished_at": 160.0, "metrics": {}, "outputs": {"signoff": so}})
+                         "finished_at": 160.0, "parent": "route.0", "metrics": {}, "outputs": {"signoff": so}})
             steps["signoff"] = {"selected": "signoff.0"}
         steps["eco"] = {"selected": None}
         _write_json(os.path.join(td, "graph.json"), {"attempts": atts, "steps": steps})

@@ -50,7 +50,7 @@ def _repeats(design):
     """The default configuration's repeats of ``design``: (merged metrics of the completed runs, completed, all)."""
     runs = sorted((r for r in _by("repeat") if r["design"] == design and r["flow"] == _default_fallback()),
                   key=lambda r: r.get("repeat") or 0)
-    done = [r for r in runs if not r["metrics"].get("exit")]
+    done = [r for r in runs if completed(r)]
     merged = {}
     for k in {k for r in done for k in r["metrics"]}:
         vals = [r["metrics"][k] for r in done if isinstance(r["metrics"].get(k), (int, float))
@@ -60,15 +60,29 @@ def _repeats(design):
     return merged, done, runs
 
 
+def completed(r) -> bool:
+    """Eligible for a table's results: the run finished and was measured (outcome "completed"); records from
+    before outcomes were recorded: exit code 0 and a measured result (a typical-corner slack or a wirelength)."""
+    if "outcome" in r:
+        return r["outcome"] == "completed"
+    m = r["metrics"]
+    return not m.get("exit") and (m.get("wns_tt_ns") is not None or m.get("routed_wirelength_um") is not None
+                                  or r["kind"] not in ("strategy",))
+
+
 def _runs_cell(done, runs) -> str:
     if len(runs) <= 1:
         return "1"
     out = f"{len(done)} of {len(runs)}"
-    fails = [r.get("failure") for r in runs if r not in done]
+    fails = [r for r in runs if r not in done]
     if fails:
-        codes = sorted({re.search(r"[A-Z]+-\d+", f).group(0) if f and re.search(r"[A-Z]+-\d+", f) else "failed"
-                        for f in fails})
-        out += f" ({', '.join(codes)})"
+        def why(r):
+            if r.get("outcome") == "measurement_failed":
+                return "measurement failed"
+            f = r.get("failure") or ""
+            m = re.search(r"[A-Z]+-\d+", f)
+            return m.group(0) if m else "failed"
+        out += f" ({', '.join(sorted({why(r) for r in fails}))})"
     return out
 
 
@@ -169,7 +183,7 @@ def table_sipath_designs() -> str:
 def table_fallback() -> str:
     def pick(design, fb):
         if design in ("aes", "gcd"):
-            runs = [r for r in _by("repeat") if r["design"] == design and r["flow"] == fb and not r["metrics"].get("exit")]
+            runs = [r for r in _by("repeat") if r["design"] == design and r["flow"] == fb and completed(r)]
             return runs[-1] if runs else None
         return _one(_by("fallback"), design, fb)
     lines = ["| design | slack at ss_max: knee | best_slack | synthesized area (µm²) | final cell area (µm²) | "
@@ -206,7 +220,7 @@ def table_strategies() -> str:
             runs = [r for r in recs if r["design"] == design and r["flow"] == s]
             if not runs:
                 continue
-            done = [r for r in runs if not r["metrics"].get("exit")]
+            done = [r for r in runs if completed(r)]
 
             def med(k, nd=0, sign=False):
                 vals = [r["metrics"][k] for r in done if isinstance(r["metrics"].get(k), (int, float))]

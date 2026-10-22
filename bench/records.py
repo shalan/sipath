@@ -319,25 +319,40 @@ def run_inputs(g: dict) -> tuple[dict | None, str | None]:
 
 def archive_source() -> dict:
     """The working tree's identity now (before a benchmark runs); with uncommitted changes, the diff and the
-    untracked sources are archived under bench/results/sources/<diff digest> so the results stay reproducible."""
+    untracked sources are archived under bench/results/sources/<key>, the key a digest of the base commit, the
+    tracked diff and every untracked file's path and content: two different trees never share an archive, and an
+    archive once written is never rewritten (the same key is the same content)."""
+    import hashlib
     import shutil
     import subprocess
     from sipath.designfile import sipath_identity
     ident = sipath_identity()
     if not (ident.get("diff_sha256") or ident.get("untracked")):
         return ident
-    key = ident.get("diff_sha256") or "untracked"
+    h = hashlib.sha256()
+    h.update((ident.get("commit") or "").encode())
+    h.update((ident.get("diff_sha256") or "").encode())
+    for rel, digest in sorted((ident.get("untracked") or {}).items()):
+        h.update(f"{rel}\0{digest}\0".encode())
+    key = h.hexdigest()[:16]
     d = os.path.join(RESULTS, "sources", key)
-    os.makedirs(d, exist_ok=True)
-    if ident.get("diff_sha256"):
-        diff = subprocess.run(["git", "-C", ROOT, "diff", "HEAD", "--binary"], capture_output=True, text=True).stdout
-        with open(os.path.join(d, "diff.patch"), "w") as f:
-            f.write(diff)
-    for rel in ident.get("untracked") or {}:
-        dst = os.path.join(d, "untracked", rel)
-        os.makedirs(os.path.dirname(dst), exist_ok=True)
-        shutil.copyfile(os.path.join(ROOT, rel), dst)
+    if not os.path.isdir(d):  # immutable: written once
+        tmp = d + ".tmp"
+        shutil.rmtree(tmp, ignore_errors=True)
+        os.makedirs(tmp)
+        if ident.get("diff_sha256"):
+            diff = subprocess.run(["git", "-C", ROOT, "diff", "HEAD", "--binary"], capture_output=True, text=True).stdout
+            with open(os.path.join(tmp, "diff.patch"), "w") as f:
+                f.write(diff)
+        for rel in ident.get("untracked") or {}:
+            dst = os.path.join(tmp, "untracked", rel)
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.copyfile(os.path.join(ROOT, rel), dst)
+        with open(os.path.join(tmp, "identity.json"), "w") as f:
+            json.dump(ident, f, indent=1, sort_keys=True)
+        os.replace(tmp, d)
     ident["archive"] = os.path.relpath(d, ROOT)
+    ident["archive_key"] = key
     return ident
 
 

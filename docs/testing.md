@@ -34,10 +34,15 @@ Part of the [SiPath documentation](../README.md#documentation).
   record takes its input hashes from the run's own graph (as hashed when it
   ran), its SiPath identity from the run's provenance (commit, code digest,
   the digest of an uncommitted diff, which the driver archives under
-  `bench/results/sources/` before it runs), and keeps the exporter's identity
+  `bench/results/sources/<key>` before it runs, the key a digest of the base
+  commit, the diff and every untracked file: written once, never
+  overwritten), and keeps the exporter's identity
   apart; each run has an outcome (completed, execution or measurement
   failed), a run that fails before it has a graph still gets a record, and
-  `strategy_compare.py` exits 1 when a run did not complete.
+  `strategy_compare.py` exits 1 when a run did not complete. Tables count a
+  run's results only when it completed and was measured (older records: exit
+  code 0 and a measured result); measurement failures show in the runs
+  column.
 
 ## Regression limits
 

@@ -308,7 +308,9 @@ capabilities in `graph.json`.
   one included. The new graph holds that attempt and its ancestors, selected
   there and pointing at the original run's checkpoints (read, never written;
   each records `forked_from`), and continues with any step; the original run
-  is not touched, and the fork resumes like any run. Measured on dp8: the
+  is not touched, and the fork resumes like any run. The forked attempt is
+  the fork's head (its result) until a step continues from it; a branch a
+  bounded search kept can be forked too. Measured on dp8: the
   placement its score rejected, forked and routed, while the original
   `graph.json` stayed byte-identical.
 - **Bounded search.** A step's score judges what that step can measure; a
@@ -323,7 +325,11 @@ capabilities in `graph.json`.
   winner becomes the run's head and the run continues from it. A branch that
   fails ends there; the others go on. A cancel or a run budget is not a lost
   branch: the run stops, no comparison is recorded, and `--resume` finishes
-  the search (a resumed comparison reuses its recorded decision). With a
+  the search (a resumed comparison reuses its recorded decision when the
+  candidates and the scoring policy are the same; another `decide_score`
+  decides again over the same, reused candidates). A branch that failed is
+  listed in the decision and noted by the verdict; it does not make the run's
+  execution failed (every branch failing does). With a
   selector score (a rule over the attempts, such as `synth_select`), the
   branches are the rule's choice, then its choice among the rest, and so on;
   the baseline is found by its parameters. Branches run one after

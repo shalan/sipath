@@ -38,16 +38,15 @@ def run_metrics(workdir: str, until: str | None = None) -> dict:
     the last step): timing, DRC, LVS, wirelength, instances, wall time."""
     with open(os.path.join(workdir, "graph.json")) as f:
         g = json.load(f)
-    order = list((g.get("steps") or {}).keys())
-    by_id = {a["id"]: a for a in g["attempts"]}
+    from .scheduler import run_chain
+    chain = run_chain(g)  # the run's result: its head's ancestry, never a losing branch's selection
+    base = [a["step"].split("@")[0] for a in chain]
     if until is None:
-        until = "signoff" if "signoff" in order else (order[-1] if order else None)
-    if until not in order:
-        return {"error": f"step {until} did not run"}
-    steps = order[:order.index(until) + 1]
-    sel = [by_id[g["steps"][s]["selected"]] for s in steps if g["steps"][s].get("selected") in by_id]
-    if len(sel) < len(steps):
-        return {"error": f"a step up to {until} has no selected attempt"}
+        until = "signoff" if "signoff" in base else (base[-1] if base else None)
+    if until not in base:
+        return {"error": f"step {until} did not run"}  # on the run's result chain
+    sel = chain[:len(base) - base[::-1].index(until)]
+    steps = [a["step"] for a in sel]
     m = {}
     for a in sel:  # later steps override earlier ones
         m.update(a.get("metrics") or {})
