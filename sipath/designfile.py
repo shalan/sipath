@@ -17,13 +17,16 @@ Fields the file leaves out take the Design defaults, and PDK-dependent ones
 from __future__ import annotations
 
 import importlib
+import logging
 import os
 
 from . import steps as steps_mod
 from .design import Datapath, Design, Group, Macro, Pad, PdnSpec, Strap
 from .padplan import PadRules
 from .pdk import load as load_pdk, read_file
-from .scheduler import chain_problems
+from .scheduler import StepFailed, chain_problems
+
+log = logging.getLogger("sipath")
 
 PATH_FIELDS = ("netlist", "sdc", "floorplan_def")
 SIMPLE = ("name", "top", "mode", "die", "core_margin", "analog_nets", "analog_ndr", "analog_row_blocked_layers",
@@ -320,17 +323,70 @@ def run(path_or_design, workdir: str, runner=None, overrides: dict | None = None
     if problems:  # before any step runs
         from .scheduler import MissingPrerequisite
         raise MissingPrerequisite("the flow cannot run as listed:\n  " + "\n  ".join(problems))
-    parent = None
+    return run_items(flow, items, cfg)
+
+
+def run_items(flow, items, cfg=None):
+    """Run resolved flow items ([(name, ref, fn, item)]) on ``flow``, each from the previous selection; a step
+    with ``keep`` carries its best attempts as branches (steps named <step>@<attempt>) to its ``decide_at``,
+    where the winner continues (Flow.keep, Flow.decide)."""
+    snapshots = getattr(cfg, "snapshots", "off") if cfg is not None else "off"
+    check_search(items)
+    parent, branches, decide = None, None, None  # branches: [(suffix, attempt)] while a bounded search runs
     for name, ref, fn, item in items:
         score = item.get("score") or ("hotspots_then_wns" if item.get("adapt") else None)
-        r = flow.step(name, fn, parent=parent, variants=item.get("variants"), score=score,
-                      parallel=item.get("parallel", 1))
-        if item.get("adapt"):
-            r = adapt(flow, name, ref, fn, item["adapt"], item.get("parallel", 1))
-        if cfg.snapshots != "off":
-            snapshot(flow, r, cfg.snapshots)
-        parent = r.selected
+        if branches is None:
+            r = flow.step(name, fn, parent=parent, variants=item.get("variants"), score=score,
+                          parallel=item.get("parallel", 1))
+            if item.get("adapt"):
+                r = adapt(flow, name, ref, fn, item["adapt"], item.get("parallel", 1))
+            if snapshots != "off":
+                snapshot(flow, r, snapshots)
+            parent = r.selected
+            if int(item.get("keep") or 1) > 1:  # a bounded search starts here
+                variants = item.get("variants") or [{}]
+                base = variants.index({}) if {} in variants else 0
+                baseline = next((a for a in r.attempts if a.index == base), None)
+                kept = flow.keep(name, int(item["keep"]), baseline)
+                branches = [("" if a is r.selected else a.id, a) for a in kept]
+                decide = (item["decide_at"], item.get("decide_score"))
+            continue
+        alive = []
+        for suffix, p in branches:  # the same step on every branch; a branch that fails ends there
+            bname = f"{name}@{suffix}" if suffix else name
+            try:
+                br = flow.step(bname, fn, parent=p, variants=item.get("variants"), score=score,
+                               parallel=item.get("parallel", 1))
+            except StepFailed as e:
+                log.warning("bounded search: branch %s ended at %s: %s", suffix or "selected", name,
+                            str(e).splitlines()[0])
+                continue
+            alive.append((suffix, br.selected))
+        if not alive:
+            raise StepFailed(f"bounded search: every branch failed at {name}")
+        branches = alive
+        if name == decide[0]:
+            parent = flow.decide(name, [a for _, a in branches], decide[1] or score or "auto")
+            branches, decide = None, None
     return flow
+
+
+def check_search(items) -> None:
+    """keep needs a decide_at that names a later step of the same flow (and no other search open)."""
+    names = [n for n, _, _, _ in items]
+    for i, (name, _, _, item) in enumerate(items):
+        k = int(item.get("keep") or 1)
+        if k < 1:
+            raise ValueError(f"step {name}: keep must be >= 1")
+        if k > 1:
+            at = item.get("decide_at")
+            if not at or at not in names[i + 1:]:
+                raise ValueError(f"step {name}: keep {k} needs decide_at naming a later step of the flow "
+                                 f"({', '.join(names[i + 1:]) or 'none after it'})")
+            if any(int(x.get("keep") or 1) > 1 for _, _, _, x in items[i + 1:names.index(at)]):
+                raise ValueError(f"step {name}: another keep before its decide_at {at}")
+        elif item.get("decide_at") or item.get("decide_score"):
+            raise ValueError(f"step {name}: decide_at/decide_score need keep > 1")
 
 
 def resolve_steps(spec, overrides: dict | None = None) -> list[tuple]:
@@ -389,9 +445,10 @@ def plan(path_or_design, workdir: str | None = None, config=None, flow_steps=Non
     cores = max(1, int(cfg.threads))
     rows, total = [], 0
     groups = len(((getattr(pdk, "signoff", None) or {}).get("drc_groups")) or [])
+    branches, until = 1, None  # a bounded search: the steps up to its decide_at run once per branch
     for name, ref, fn, item in resolve_steps(spec):
         variants = item.get("variants") or [{}]
-        total += len(variants)
+        total += len(variants) * branches
         at_once, why = max(1, min(len(variants), cfg.cap(item.get("parallel", 1)))), []
         explicit = [int(v["threads"]) for v in variants if v.get("threads")]
         if explicit and at_once * max(explicit) > cores:
@@ -400,8 +457,14 @@ def plan(path_or_design, workdir: str | None = None, config=None, flow_steps=Non
         if cfg.memory_gb and mem and at_once > max(1, int(cfg.memory_gb * 1024 // mem)):
             at_once, _ = max(1, int(cfg.memory_gb * 1024 // mem)), why.append(f"{mem:.0f} MB each")
         each = max(explicit) if explicit else max(1, cores // at_once)
-        row = {"step": name, "attempts": len(variants), "at_once": at_once, "threads_each": each,
-               "cores": at_once * each, **({"limited_by": why} if why else {})}
+        row = {"step": name, "attempts": len(variants) * branches, "at_once": at_once, "threads_each": each,
+               "cores": at_once * each, **({"limited_by": why} if why else {}),
+               **({"branches": branches} if branches > 1 else {})}
+        if name == until:
+            row["decides"] = True
+            branches, until = 1, None
+        if int(item.get("keep") or 1) > 1:  # the baseline may join the best keep: up to keep + 1 branches
+            branches, until = min(len(variants), int(item["keep"]) + 1), item.get("decide_at")
         if ref == "signoff" or ref in CHECK_STEPS:  # concurrent checks share the attempt's threads
             checks = list((variants[0] or {}).get("checks") or (CHECK_STEPS.get(ref) or SIGNOFF_CHECKS))
             jobs = [j for j in ("drc", "density", "magic_drc", "xor", "lvs", "lvs_full") if j in checks]
@@ -439,6 +502,8 @@ def plan_text(p: dict) -> str:
             extra.append(f"{len(r['concurrent_checks'])} checks at once ({', '.join(r['concurrent_checks'])}), "
                          f"{r['threads_per_check']} threads each" + (f", DRC in {r['drc_groups']} groups"
                                                                     if r.get("drc_groups") else ""))
+        if r.get("branches"):
+            extra.append(f"on up to {r['branches']} branches" + ("; decides here" if r.get("decides") else ""))
         if r.get("limited_by"):
             extra.append("limited by " + ", ".join(r["limited_by"]))
         if r.get("recorded_seconds"):

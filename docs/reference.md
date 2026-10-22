@@ -218,6 +218,9 @@ YAML or JSON; relative paths are relative to the file. Keys not listed are error
 | `adapt` | dict |  | adaptive rounds: {rounds: N, ...the step adapter's options}; each round turns what the selected attempt measured (place: its heatmaps' hotspots) into new attempts of the same step, and the step selects again over all of them (score: hotspots_then_wns unless given) |
 | `sweep` | any |  | synth: an objective (delay, area, balanced: its five measured ABC recipes) or a list of recipes, one attempt each; selected by synth_select unless score is given |
 | `synth_opts_sweep` | list |  | synth: front-end option sets, e.g. [[], [booth], [adder=kogge-stone]]; every recipe runs with each |
+| `keep` | int |  | bounded search: carry this step's best keep attempts (by its score; the baseline, the variant with no parameters or else the first, always among them) through the following steps as branches, each step named <step>@<attempt>, to decide_at |
+| `decide_at` | str |  | with keep: the later step where the branches are compared (its score, or decide_score) and the run continues from the winner |
+| `decide_score` | str |  | with keep: the named score for that comparison (default: decide_at's score, else auto) |
 
 ## Step parameters
 

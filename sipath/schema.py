@@ -148,6 +148,12 @@ FLOW_STEP = {
                       "recipes, one attempt each; selected by synth_select unless score is given"),
     "synth_opts_sweep": F("list", "synth: front-end option sets, e.g. [[], [booth], [adder=kogge-stone]]; every "
                                   "recipe runs with each"),
+    "keep": F("int", "bounded search: carry this step's best keep attempts (by its score; the baseline, the "
+                     "variant with no parameters or else the first, always among them) through the following "
+                     "steps as branches, each step named <step>@<attempt>, to decide_at"),
+    "decide_at": F("str", "with keep: the later step where the branches are compared (its score, or decide_score) "
+                          "and the run continues from the winner"),
+    "decide_score": F("str", "with keep: the named score for that comparison (default: decide_at's score, else auto)"),
 }
 DESIGN = {
     "name": F("str", "run and report name", required=True),

@@ -235,6 +235,7 @@ class StepRun:
     rounds: list = field(default_factory=list)  # adaptive rounds (Flow.extend / Flow.stop_rounds), in order
     fingerprint: str | None = None  # fingerprint.step: what a resume compares
     reused: bool = False  # a recorded result already handed out by this session
+    kept: list = field(default_factory=list)  # attempts carried on as branches (Flow.keep), selected first
 
 
 @dataclass
@@ -329,6 +330,7 @@ class Flow:
         self._step_deadline: dict[str, float] = {}  # step -> its time box's end (step_budget_s)
         self._run_timer = None
         self.allocation: dict[str, dict] = {}  # step -> how many attempts ran at once, with how many threads, why
+        self.decisions: list[dict] = []  # bounded search: where branches were compared and which one won
         self.progress: Callable | None = None  # called with (event, attempt) as attempts start and end
         if validate_inputs:
             design.validate(pdk, runner_prefixes=runner_prefixes)
@@ -381,7 +383,7 @@ class Flow:
                 raise ValueError(f"{path}: attempt {a.id} names unknown parent {j['parent']}")
             if a.status in ("running", "pending"):
                 a.status = "interrupted"  # the process that ran it is gone
-            if a.status in ("ok", "selected", "rejected") and not (a.checkpoint and os.path.isfile(a.checkpoint)):
+            if a.status in ("ok", "selected", "rejected", "kept") and not (a.checkpoint and os.path.isfile(a.checkpoint)):
                 a.status, a.error = "interrupted", f"checkpoint {a.checkpoint} missing on resume"
             by_id[a.id] = a
             self.attempts.append(a)
@@ -394,7 +396,7 @@ class Flow:
                 continue
             self.steps[name] = StepRun(name, atts, s.get("score"), sel, s.get("parent"), s.get("variants"),
                                        resumed=True, rounds=list(s.get("rounds") or []),
-                                       fingerprint=s.get("fingerprint"))
+                                       fingerprint=s.get("fingerprint"), kept=list(s.get("kept") or []))
         log.info("resumed %s: %d attempts, %d completed steps", path, len(self.attempts), len(self.steps))
 
     def _defaults(self, name):
@@ -591,8 +593,9 @@ class Flow:
         variants = variants or [{}]
         score = score or "auto"
         score_fn = score_mod.get(score)
-        if parent is not None and parent.status != "selected":
-            raise ValueError(f"{name}: parent {parent.id} is {parent.status}; continue only from a selected checkpoint")
+        if parent is not None and parent.status not in ("selected", "kept"):
+            raise ValueError(f"{name}: parent {parent.id} is {parent.status}; continue only from a selected (or "
+                             "kept) checkpoint")
         self.check_prerequisites(name, fn, parent, variants)
         self._start_run_clock()
         rec = self._recorded(name, parent, variants, score)
@@ -713,6 +716,41 @@ class Flow:
         run.rounds = run.rounds + [{"from": run.selected.id if run.selected else None, "stopped": reason}]
         self.save_graph()
         return run
+
+    def keep(self, name: str, k: int, baseline: "Attempt | None" = None) -> list["Attempt"]:
+        """Bounded search: the step's best ``k`` finished attempts by its score (the selected one first), plus
+        ``baseline`` when it finished and is not among them, to be continued as branches. The others than the
+        selected one get status "kept" (a parent like a selected attempt); the list is recorded in the step."""
+        run = self.steps[name]
+        done = [a for a in run.attempts if a.status in ("selected", "rejected", "kept") and a.score is not None]
+        ranked = sorted(done, key=lambda a: a.score, reverse=True)
+        chosen = ([run.selected] if run.selected in done else []) + [a for a in ranked if a is not run.selected]
+        chosen = chosen[:max(1, int(k))]
+        if baseline is not None and baseline in done and baseline not in chosen:
+            chosen.append(baseline)  # the default parameters always compete to the end
+        for a in chosen:
+            if a.status == "rejected":
+                a.status = "kept"
+        run.kept = [a.id for a in chosen]
+        self.save_graph()
+        return chosen
+
+    def decide(self, at: str, candidates: list["Attempt"], score: str) -> "Attempt":
+        """Bounded search: compare the branches' attempts at step ``at`` by ``score`` and record which won."""
+        fn = score_mod.get(score)
+        if getattr(fn, "selector", False):  # a rule over attempts, not a value per attempt: rank by auto
+            score, fn = "auto", score_mod.get("auto")
+        scored = [(fn(a.metrics), a) for a in candidates]
+        ok = [(s, a) for s, a in scored if s is not None]
+        if not ok:
+            raise StepFailed(f"decide at {at}: no branch has a {score} score")
+        best = max(ok, key=lambda x: x[0])[1]
+        self.decisions.append({"at": at, "score": score, "winner": best.id,
+                               "candidates": [{"attempt": a.id, "score": s if isinstance(s, (int, float, type(None)))
+                                               else list(s)} for s, a in scored]})
+        self.save_graph()
+        log.info("decide at %s by %s: %s", at, score, best.id)
+        return best
 
     def fork(self, attempt, workdir: str) -> "Flow":
         """A new run in ``workdir`` that continues from ``attempt`` (an id or an Attempt): any finished attempt of
@@ -1032,11 +1070,12 @@ class Flow:
         return {"design": self.design.name, "pdk": getattr(self.pdk, "name", None),
                 "provenance": self.provenance, "config": self.config.to_dict(), "inputs": self.inputs,
                 **({"allocation": self.allocation} if self.allocation else {}),
+                **({"decisions": self.decisions} if self.decisions else {}),
                 **({"stale": self.stale} if self.stale else {}),
                 "attempts": [a.to_json() for a in self.attempts],
                 "steps": {k: {"score": v.score_name, "selected": v.selected.id if v.selected else None,
                               "parent": v.parent, "variants": v.variants, "fingerprint": v.fingerprint,
-                              **({"rounds": v.rounds} if v.rounds else {})}
+                              **({"rounds": v.rounds} if v.rounds else {}), **({"kept": v.kept} if v.kept else {})}
                           for k, v in self.steps.items()}}
 
     def verification(self) -> dict:

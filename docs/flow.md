@@ -304,6 +304,23 @@ capabilities in `graph.json`.
   is not touched, and the fork resumes like any run. Measured on dp8: the
   placement its score rejected, forked and routed, while the original
   `graph.json` stayed byte-identical.
+- **Bounded search.** A step's score judges what that step can measure; a
+  placement that looks best may route worse. `keep: k` with `decide_at:
+  <later step>` carries the step's best k attempts, plus the baseline (the
+  variant with no parameters, else the first) when it is not among them,
+  through the following steps as branches, each step named
+  `<step>@<attempt>` (`route_digital@place.2`) in the same graph; the kept
+  attempts get status `kept`. At `decide_at` the branches' attempts are
+  compared by that step's score (or `decide_score`), the decision is recorded
+  in `graph.json` (`decisions`), and the run continues from the winner. A
+  branch that fails ends there; the others go on. Branches run one after
+  another, each within the budgets; `--plan` shows the steps on branches.
+  Measured with `keep: 2` to `extract`: on gcd8 the selected placement
+  (density 0.75) also won after extraction (setup slack 4.364 against 4.249
+  ns for the baseline); on dp8 the two kept placements (target density 0.55
+  and 0.45, both passed to global placement) came out the same, to the HPWL
+  and the slack, for a reason not established yet, and the tie went to the
+  selected branch.
 - ECOs `resize` (`replace_cell`) and `buffer` (`insert_buffer`): refused unless
   the parent is the selected head of its chain; structural equivalence before
   routing; rejected if setup or hold slack drops by more than

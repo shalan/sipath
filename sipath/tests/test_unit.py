@@ -2909,6 +2909,66 @@ class BenchmarkRecords(unittest.TestCase):
                 self.assertTrue(r.get("failure"), r["_file"])
 
 
+class BoundedSearch(unittest.TestCase):
+    """B3.2: keep the best k attempts (and the baseline) through later steps and decide on the later result."""
+
+    @staticmethod
+    def place(ctx):
+        ctx.metrics["wns"] = float(ctx.params.get("d", 0))  # by its own score, more is better here
+
+    @staticmethod
+    def route(ctx):
+        a = ctx.parent
+        while a is not None and not a.step.startswith("place"):
+            a = a.parent
+        d = a.params.get("d", 0)
+        if d == 2 and ctx.params.get("fail_d2"):
+            raise RuntimeError("router gave up")
+        ctx.metrics["wns"] = -float(d)  # ... but the best placement routes worst: the baseline wins
+
+    def items(self, route_variants=None, **place_opts):
+        from sipath import demo
+        return [("place", "place", self.place, {"step": "place", "variants": [{}, {"d": 1}, {"d": 2}, {"d": 3}],
+                                                 "score": "setup_wns", **place_opts}),
+                ("route", "route", self.route, {"step": "route", "score": "setup_wns",
+                                                **({"variants": route_variants} if route_variants else {})}),
+                ("sign", "sign", demo.fake_step(), {"step": "sign", "score": "setup_wns"})]
+
+    def flow(self, td):
+        return Flow(Design("fake", "fake", "x.v", "x.sdc", "macro", floorplan_def="x.def"), sky130hd("/p"), td,
+                    demo.fake_factory(), validate_inputs=False)
+
+    def test_the_baseline_can_win_downstream(self):
+        from sipath import designfile
+        with tempfile.TemporaryDirectory() as td:
+            f = self.flow(td)
+            designfile.run_items(f, self.items(keep=2, decide_at="route"))
+            self.assertEqual(f.steps["place"].selected.id, "place.3")
+            self.assertEqual(f.steps["place"].kept, ["place.3", "place.2", "place.0"])  # best 2, then the baseline
+            self.assertEqual({a.id: a.status for a in f.steps["place"].attempts},
+                             {"place.0": "kept", "place.1": "rejected", "place.2": "kept", "place.3": "selected"})
+            self.assertTrue({"route", "route@place.2", "route@place.0"} <= set(f.steps))
+            d = f.decisions[-1]
+            self.assertEqual((d["at"], d["winner"]), ("route", "route@place.0.0"))
+            self.assertEqual(f.steps["sign"].selected.parent.id, "route@place.0.0")  # continues from the winner
+            g = _read_json(os.path.join(td, "graph.json"))
+            self.assertEqual(g["decisions"][-1]["winner"], "route@place.0.0")
+            self.assertEqual(g["steps"]["place"]["kept"], ["place.3", "place.2", "place.0"])
+
+    def test_a_failed_branch_drops_out_and_bad_settings_are_refused(self):
+        from sipath import designfile
+        with tempfile.TemporaryDirectory() as td:
+            f = self.flow(td)
+            designfile.run_items(f, self.items(route_variants=[{"fail_d2": True}], keep=2, decide_at="route"))
+            self.assertEqual([c["attempt"] for c in f.decisions[-1]["candidates"]],
+                             ["route.0", "route@place.0.0"])  # place.2's branch failed at route
+        for opts, msg in (({"keep": 2}, "needs decide_at"), ({"keep": 2, "decide_at": "place"}, "needs decide_at"),
+                          ({"decide_at": "route"}, "need keep > 1")):
+            with tempfile.TemporaryDirectory() as td:
+                with self.assertRaisesRegex(ValueError, msg):
+                    designfile.run_items(self.flow(td), self.items(**opts))
+
+
 class Adaptive(unittest.TestCase):
     """Adaptive rounds: Flow.extend, designfile.adapt, the place adapter and its blockages."""
 

@@ -1302,3 +1302,41 @@ class LiveDocs(unittest.TestCase):
                 self.assertEqual(out.get("selected"), fill(want), f"{tool} {args}")
         eco = out
         self.assertEqual(eco["attempt"]["status"], "selected", eco)
+
+
+@LIVE
+class LiveBoundedSearch(unittest.TestCase):
+    """B3.2: keep: 2 on placement carries the best placements and the baseline through routing; the graph shows
+    every branch and the choice is made on extracted timing (setup slack, rcx parasitics)."""
+
+    def run_search(self, design, flow, name):
+        from sipath import designfile
+        wd = _workdir(name)
+        if not KEEP:
+            self.addCleanup(_rmtree, wd)
+        d = design() if callable(design) else designfile.load(design)[0]
+        f = designfile.run(d, wd, RUNNER, flow_steps=flow)
+        dec = f.decisions[-1]
+        self.assertEqual(dec["at"], "extract")
+        self.assertEqual(len(dec["candidates"]), len(f.steps["place"].kept))
+        self.assertGreaterEqual(len(dec["candidates"]), 2)
+        win = next(a for a in f.attempts if a.id == dec["winner"])
+        self.assertEqual(win.metrics["parasitics"], "rcx")  # decided on extracted parasitics
+        best = max(dec["candidates"], key=lambda c: c["score"])  # the decide score (auto: met, slack, wire)
+        self.assertEqual(best["attempt"], win.id)
+        for c in dec["candidates"]:  # every branch is in the graph, routed and extracted
+            a = next(x for x in f.attempts if x.id == c["attempt"])
+            self.assertIn("parasitics", a.capabilities)
+        return f
+
+    def test_dp8_and_gcd8(self):
+        from sipath.examples import dp8
+        tail = [{"step": s} for s in ("cts", "route_analog", "route_digital", "route_repair", "extract")]
+        f = self.run_search(dp8.make_design, [{"step": "floorplan"}, {"step": "physical"},
+                            {"step": "place", "variants": [{}, {"density": 0.45}, {"density": 0.7}], "parallel": 3,
+                             "score": "routability_then_wns", "keep": 2, "decide_at": "extract"}] + tail, "search_dp8")
+        self.assertTrue(any(s.startswith("route_digital@place.") for s in f.steps))
+        ex = os.path.join(os.path.dirname(__file__), "..", "examples", "gcd8.yaml")
+        self.run_search(ex, [{"step": "synth"}, {"step": "floorplan"}, {"step": "physical"},
+                             {"step": "place", "variants": [{}, {"density": 0.75}], "parallel": 2, "keep": 2,
+                              "decide_at": "extract"}] + tail, "search_gcd8")
