@@ -60,6 +60,46 @@ binary set `$SIPATH_PLATFORMS` to an ORFS `flow/platforms` directory.
 ORFS platform tree; routes to a DEF and three-corner SPEF and closes a pad ring
 (`examples/ihp_ring.py`), without signoff decks.
 
+## Setup
+
+One supported path per runtime. Each ends with `python3 -m sipath doctor`,
+which checks the machine (runtime, images, native tools, the PDK release and
+every view its description names, optional tools), says what a run would use,
+gives the fix for each problem and exits 1 when a run could not start
+(`--deep` also runs every locked image and compares its tools' versions with
+the lock).
+
+**macOS (Docker).** The locked images are amd64 and run under Rosetta on
+Apple silicon (see below for the arm64 options).
+
+```bash
+python3 -m pip install -e .
+python3 -m sipath install-pdk
+docker pull openroad/orfs@sha256:751a77afcade9882b51427e6d9d079b8e270e7a8f4aa66df2d0659457d1c29fd
+# optional, in this order: Magic (magic_drc, xor, integrate), then the precheck image built on it
+docker build --platform linux/amd64 -t sipath/orfs-magic:8.3.685 docker/magic
+docker build --platform linux/amd64 -t sipath/precheck:1.3.7 docker/precheck
+python3 -m sipath doctor
+```
+
+A locally built image has another digest than the lock's: name it as
+[recipe 8](examples.md#8-an-openframe-chip-prechecked-with-its-seal-ring)
+shows (`SIPATH_MAGIC_IMAGE`, `SIPATH_PRECHECK_IMAGE`).
+
+**Linux x86_64 (native).** The locked image's own OpenROAD, Yosys and
+KLayout, without Docker; runs find them by themselves (`runtime: auto`).
+Magic, Netgen and the precheck still need Docker and the images above.
+
+```bash
+python3 -m pip install -e .
+python3 -m sipath install-pdk
+python3 -m sipath install-tools
+python3 -m sipath doctor
+```
+
+**Colab.** The [tutorial notebook](../notebooks/sipath_tutorial.ipynb) does
+the Linux native path in its first cells.
+
 ## Runtimes
 
 **Which runtime.** `runtime` (`SIPATH_RUNTIME`) chooses: `auto` (the

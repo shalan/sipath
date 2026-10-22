@@ -2525,6 +2525,50 @@ class Verdict(unittest.TestCase):
             self.assertEqual((m["flow__verification__status"], m["flow__execution__status"]), ("completed", "completed"))
 
 
+class Doctor(unittest.TestCase):
+    """B1.4: sipath doctor, in stand-in environments (no Docker, no OpenROAD, a PDK of another release)."""
+
+    def run_doctor(self, runner=None, pdks=None, status=None):
+        import io
+        from contextlib import redirect_stdout
+        from unittest import mock
+        from sipath import toolchain
+        from sipath.tools import doctor
+        from sipath.tools.openroad import session
+        lock = dict(toolchain.lock(), pdks=pdks or {})
+        buf = io.StringIO()
+        from types import SimpleNamespace
+        from sipath import pdk as pdk_mod
+        fake = SimpleNamespace(name="sky130A", files=lambda: [])  # no PDK tree needed here
+        with mock.patch.object(doctor, "_docker", lambda rep: False), \
+                mock.patch.object(pdk_mod, "load", lambda *a, **k: fake), \
+                mock.patch.object(session, "find_openroad", lambda cfg=None: runner), \
+                mock.patch.object(toolchain, "lock", lambda: lock), \
+                mock.patch.object(toolchain, "pdk_status", lambda pdk: status), redirect_stdout(buf):
+            rc = doctor.main([])
+        return rc, buf.getvalue()
+
+    def test_no_openroad_fails_with_the_fix(self):
+        rc, out = self.run_doctor(runner=None)
+        self.assertEqual(rc, 1)
+        self.assertIn("FAIL  runtime: no OpenROAD found", out)
+        self.assertIn("docker pull openroad/orfs@sha256:", out)
+        self.assertTrue(out.rstrip().endswith("not ready: fix the FAIL lines"))
+
+    def test_a_native_runner_is_named_and_a_pdk_of_another_release_fails(self):
+        from sipath.session import NativeRunner
+        tree = NativeRunner("/t/sipath-bin/openroad", bindir="/t/sipath-bin", platforms="/t/p")
+        rc, out = self.run_doctor(runner=tree)
+        self.assertEqual(rc, 0)
+        self.assertIn("native: /t/sipath-bin/openroad (the locked tools unpacked by install-tools)", out)
+        pdks = {"sky130": {"variants": ["sky130A"], "version": "8afc"}}
+        rc, out = self.run_doctor(runner=tree, pdks=pdks, status={"tree": "/pdk/sky130A", "version": "0123",
+                                                                  "locked": "8afc8346", "match": False})
+        self.assertEqual(rc, 1)
+        self.assertIn("FAIL  pdk sky130A: /pdk/sky130A is 0123, locked 8afc8346", out)
+        self.assertIn("install-pdk sky130", out)
+
+
 class Adaptive(unittest.TestCase):
     """Adaptive rounds: Flow.extend, designfile.adapt, the place adapter and its blockages."""
 

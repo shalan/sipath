@@ -75,6 +75,7 @@ on any import that crosses these rules.
 | `openroad/heatmap.py` | heatmaps dumped after an attempt's checkpoint is saved (`Ctx.after_save`), with the instances or nets in each hotspot |
 | `run.py` | `run_tool` (a tool next to OpenROAD, its output in a log) and the runner lookup; `ToolFailed` |
 | `yosys.py`, `klayout.py`, `magic.py`, `netgen.py` | per-tool commands and version probes (Netgen: probe only; it runs in the precheck image) |
+| `doctor.py` | `sipath doctor`: the runtime a run would use, images, native tools, the PDK release and views, optional tools, each with its fix |
 | `toolchain.py`, `native.py` | probing the locked images' tools (`toolchain --check`); the locked ORFS image's tools without Docker (`install-tools`) |
 
 ## Steps and their libraries

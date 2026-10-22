@@ -28,6 +28,9 @@
                                       takes a checkpoint: <checkpoint.odb> [out]
     python3 -m sipath report <workdir> [--render]   run report (report.md, report.html; --render: layout.png)
     python3 -m sipath mcp               MCP server on stdio (tools: open_run, run_step, run_eco, ...)
+    python3 -m sipath doctor [--deep]   is this machine ready, and what would a run use (runtime, images,
+                                      native tools, PDK release and views, optional tools); exit 1 when
+                                      not (--deep: also each locked image's tool versions)
     python3 -m sipath toolchain [--check]   locked images, tool versions and PDK releases (--check: the
                                       configured images and installed PDK trees against the lock,
                                       sipath/toolchain.json)
@@ -37,7 +40,8 @@
     python3 -m sipath install-tools [dir] [--force]   the locked ORFS image's tools without Docker
                                       (OpenROAD, Yosys, KLayout; Linux x86_64, glibc 2.35+, e.g. Colab):
                                       the image's layers, digest-checked, unpacked into dir (default
-                                      ~/.cache/sipath/orfs-root) with wrappers in dir/sipath-bin for PATH
+                                      ~/.cache/sipath/orfs-root) with wrappers in dir/sipath-bin, which
+                                      runs then use (runtime auto)
     python3 -m sipath setup-placer [dir] [--python p]   the macro placer's Python (PyTorch CPU, numpy) for
                                       the macros method cdlns (default ~/.cache/sipath/placer-venv)
     python3 -m sipath lvs <gds> <top> <schematic.spice ...> --pdk p [--lib cells.spice] [--out dir]
@@ -272,6 +276,9 @@ def main(argv) -> int:
     if cmd == "limits":
         from .limits import main as lm
         return lm(argv[1:])
+    if cmd == "doctor":
+        from .tools.doctor import main as doctor
+        return doctor(argv[1:])
     if cmd == "toolchain":
         from .tools.toolchain import main as tc
         return tc(argv[1:])

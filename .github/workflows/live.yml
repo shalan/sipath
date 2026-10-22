@@ -69,6 +69,9 @@ jobs:
           echo "SIPATH_MAGIC_IMAGE=sipath/orfs-magic:8.3.685" >> "$GITHUB_ENV"
           echo "SIPATH_REQUIRE_DIGEST=0" >> "$GITHUB_ENV"
 
+      - name: Readiness (sipath doctor)
+        run: python -m sipath doctor
+
       - name: Macro placer Python (cdlns)
         if: matrix.group == 'blocks'
         run: python -m sipath setup-placer

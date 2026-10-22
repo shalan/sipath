@@ -57,8 +57,12 @@ release are locked in `sipath/toolchain.json`.
 python3 -m pip install -e .                    # the sipath package and console script
 python3 -m sipath install-pdk                  # the locked open_pdks release (sky130) through ciel
 docker pull openroad/orfs@sha256:751a77afcade9882b51427e6d9d079b8e270e7a8f4aa66df2d0659457d1c29fd
-python3 -m sipath toolchain --check            # images and PDK tree against the lock
+                                               # or, on Linux x86_64 without Docker: python3 -m sipath install-tools
+python3 -m sipath doctor                       # ready? what a run would use, and the fix for anything missing
 ```
+
+One setup path per runtime (macOS with Docker, Linux native, Colab), with the
+Magic and precheck images, is in [PDKs and runtimes](docs/pdks-and-runtimes.md#setup).
 
 Run a design (more in [example flows](docs/examples.md)):
 
