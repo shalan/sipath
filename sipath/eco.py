@@ -15,44 +15,19 @@ from __future__ import annotations
 import os
 
 from . import analog, equiv, liberty, steps, wires
-from .tools.openroad import tcl
 from .netlist import read_verilog
+from .tools.openroad.ops import db as db_ops
+from .tools.openroad.ops import eco as eco_ops
+from .tools.openroad.ops import place as place_ops
+from .tools.openroad.ops import route as route_ops
 from .tools.openroad.session import TclError
-from .tools.openroad.tcl import q, qlist, tcl_parse
-
-LOCATIONS_TCL = """
-set out {}
-foreach inst [[ord::get_db_block] getInsts] {
-  set t [[$inst getMaster] getType]
-  if {$t eq "CORE_SPACER"} continue
-  set l [$inst getLocation]
-  lappend out [$inst getName] [lindex $l 0] [lindex $l 1] [$inst getOrient]
-}
-set out
-"""
-
 
 def _locations(session) -> dict[str, tuple]:
-    f = session.value(LOCATIONS_TCL).split()
-    return {f[i]: (f[i + 1], f[i + 2], f[i + 3]) for i in range(0, len(f), 4)}
+    return eco_ops.locations(session)
 
 
 def _inst_nets(session, insts) -> set[str]:
-    if not insts:
-        return set()
-    out = session.value(f"""
-set out {{}}
-foreach n {qlist(sorted(insts))} {{
-  set i [[ord::get_db_block] findInst $n]
-  if {{$i eq "NULL"}} continue
-  foreach it [$i getITerms] {{
-    set net [$it getNet]
-    if {{$net eq "NULL" || [$net isSpecial] || [$net getSigType] in {{POWER GROUND}}}} continue
-    lappend out [$net getName]
-  }}
-}}
-join $out \\n""")
-    return {line for line in out.splitlines() if line}
+    return eco_ops.inst_nets(session, insts)
 
 
 def check_ops(ops, pdk, design):
@@ -68,51 +43,36 @@ def apply_op(session, op: dict) -> set[str]:
     kind = op["op"]
     if kind == "resize":
         nets = _inst_nets(session, [op["inst"]])
-        session.run(f"::flow_inst {q(op['inst'])}\nreplace_cell {q(op['inst'])} {q(op['master'])}")
-        # replace_cell does nothing (no error) when the masters' pins differ
-        now = session.value(f"[[::flow_inst {q(op['inst'])}] getMaster] getName")
+        now = eco_ops.resize(session, op["inst"], op["master"])  # replace_cell does nothing when the pins differ
         if now != op["master"]:
             raise RuntimeError(f"resize of {op['inst']} to {op['master']} did not happen (still {now}): "
                                "replace_cell needs a master with the same pins")
         return nets
     if kind == "buffer":
-        before = set(session.value("set o {}; foreach n [[ord::get_db_block] getNets] { lappend o [$n getName] }; "
-                                   "join $o \\n").splitlines())
+        before = eco_ops.net_names(session)
+        from .tools.openroad.tcl import q, qlist
         args = [f"-buffer_cell {op['master']}", f"-net {q(op['net'])}"]
         if op.get("loads"):
             args.append(f"-load_pins [get_pins {qlist(op['loads'])}]")
         if op.get("name"):
             args.append(f"-buffer_name {q(op['name'])}")
-        session.run(f"::flow_net {q(op['net'])}\ninsert_buffer {' '.join(args)}")
-        after = set(session.value("set o {}; foreach n [[ord::get_db_block] getNets] { lappend o [$n getName] }; "
-                                  "join $o \\n").splitlines())
+        eco_ops.insert_buffer(session, op["net"], args)
+        after = eco_ops.net_names(session)
         return {op["net"], *(after - before)}
     raise ValueError(f"unknown ECO op {kind!r}")
 
 
 def _destroy_wires(session, nets=None) -> int:
-    sel = "1" if nets is None else f"[lsearch -exact $keep [$net getName]] >= 0"
-    keep = f"set keep {qlist(sorted(nets))}" if nets is not None else "set keep {}"
-    return int(session.value(f"""
-{keep}
-set n 0
-foreach net [[ord::get_db_block] getNets] {{
-  if {{[$net isSpecial] || [$net getSigType] in {{POWER GROUND ANALOG}}}} continue
-  if {{!({sel})}} continue
-  set w [$net getWire]
-  if {{$w ne "NULL"}} {{ odb::dbWire_destroy $w; incr n }}
-  $net clearGuides
-}}
-set n"""))
+    return eco_ops.destroy_wires(session, nets)
 
 
 def _wire_signature(session, path) -> dict[str, tuple]:
     """Per-net routed geometry from a DEF written now."""
-    session.run(f"write_def {q(path)}")
+    route_ops.write_def(session, path)
     with open(path) as f:
         nets = wires.parse_def_paths(f.read())
     names = sorted({it[1] for i in nets.values() for p in i["paths"] for it in p["items"] if it[0] == "via"})
-    flat = session.value(analog.query_via_layers_tcl(names)).split() if names else []
+    flat = eco_ops.via_layers(session, analog.query_via_layers_tcl(names)) if names else []
     vias = {flat[k]: (flat[k + 1], flat[k + 2]) for k in range(0, len(flat), 3)}
     return {n: wires.geometry(i, vias) for n, i in nets.items()}
 
@@ -130,7 +90,7 @@ def run_eco(ctx):
     ops, max_patch = p["ops"], p["max_patch_nets"]
     check_ops(ops, ctx.pdk, d)
     pre_v, post_v = ctx.path("pre_eco.v"), ctx.path("post_eco.v")
-    s.run(f"write_verilog {q(pre_v)}")
+    eco_ops.write_verilog(s, pre_v)
     loc0 = _locations(s)
     if d.analog_nets and not analog.is_frozen(s, d.analog_nets):
         # the parent was extracted (analog wiring restored): freeze again so the
@@ -141,12 +101,12 @@ def run_eco(ctx):
     analog_before = analog.signature(s, frozen) if frozen else ""
     ctx.outputs["wires_normalized"] = wires.normalize(s, ctx.path("checkpoint.def"))
     sig0 = _wire_signature(s, ctx.path("pre_eco.def"))
-    s.run("remove_fillers")
+    eco_ops.remove_fillers(s)
     touched: set[str] = set()
     for op in ops:
         touched |= apply_op(s, op)
     ctx.outputs["reabut"] = steps.reabut_all(ctx)  # a resized datapath cell re-abuts its row
-    s.run("detailed_placement")
+    place_ops.detailed_placement(s)
     fences = [g.name for g in d.groups if g.kind == "fence"]
     ctx.outputs["fence_evicted"] = steps.enforce_fences(s, fences)
     steps.check_placement(ctx)
@@ -157,7 +117,7 @@ def run_eco(ctx):
     steps.reconnect_supplies(ctx)
 
     # equivalence before anything is routed or written
-    s.run(f"write_verilog {q(post_v)}")
+    eco_ops.write_verilog(s, post_v)
     ctx.outputs["equivalence"] = _equivalent(s, pre_v, post_v)
 
     loc1 = _locations(s)
@@ -169,7 +129,7 @@ def run_eco(ctx):
 
     ctx.outputs.update(patch_route(ctx, touched, sig0, analog_before, max_patch, p.get("iters", 64),
                                    p.get("max_drc", 0)))
-    s.run(tcl.filler(ctx.pdk))
+    eco_ops.fill(s, ctx.pdk)
     steps.check_placement(ctx)
     steps.extract(ctx)
     for f in (pre_v, post_v):
@@ -186,16 +146,16 @@ def patch_route(ctx, touched: set[str], sig0: dict, analog_before: str, max_patc
     before the change (taken after ``wires.normalize``)."""
     s, d = ctx.session, ctx.design
     out = {}
-    s.run(tcl.routing_layers(d, ctx.pdk))
+    route_ops.set_routing_layers(s, d, ctx.pdk)
     drc = ctx.path(f"drc{tag}.rpt")
     if len(touched) > max_patch:
         out["route_mode"] = "full"
         out["ripped"] = _destroy_wires(s)
-        r = s.run(tcl.route_digital(drc, iters))  # config.command_timeout
+        r = eco_ops.route_all_digital(s, drc, iters)
     else:
         out["route_mode"] = "incremental"
         out["ripped"] = _destroy_wires(s, touched)
-        r = s.run(tcl.route_subset(sorted(touched), drc, iters))  # config.command_timeout: a hang fails the attempt
+        r = eco_ops.route_nets(s, touched, drc, iters)
     nums = steps._drt_numbers(r.output)
     if "drc" not in nums:
         raise RuntimeError("detailed_route reported no violation count")
@@ -220,13 +180,7 @@ def patch_route(ctx, touched: set[str], sig0: dict, analog_before: str, max_patc
     if out["route_mode"] == "incremental" and len(collateral) > max_patch:
         raise RuntimeError(f"incremental route re-routed {len(collateral)} nets outside the patch")
     # nets without wiring, with their terminal counts: one terminal needs no wire
-    unrouted = tcl_parse(s.value(tcl.DIGITAL_NETS + """
-set out {}
-foreach name $::flow_digital {
-  set n [::flow_net $name]
-  if {[$n getWire] eq "NULL"} { lappend out [list $name [llength [$n getITerms]] [llength [$n getBTerms]]] }
-}
-set out"""))
+    unrouted = eco_ops.unwired_digital(s)
     out["unwired_single_terminal"] = [n for n, i, b in unrouted if int(i) + int(b) < 2]
     unrouted = [(n, int(i), int(b)) for n, i, b in unrouted if int(i) + int(b) >= 2]
     if unrouted:
@@ -242,23 +196,12 @@ set out"""))
     return out
 
 
-MASTERS_TCL = """
-set out {}
-foreach inst [[ord::get_db_block] getInsts] {
-  if {[[$inst getMaster] getType] eq "CORE_SPACER"} continue
-  lappend out [$inst getName] [[$inst getMaster] getName]
-}
-set out
-"""
-
-
 def _masters(session) -> dict[str, str]:
-    f = tcl.tcl_words(session.value(MASTERS_TCL))
-    return dict(zip(f[0::2], f[1::2]))
+    return eco_ops.masters(session)
 
 
 def _slacks(session):
-    v = tcl.tcl_words(session.value("list [sta::worst_slack -max] [sta::worst_slack -min]"))
+    v = db_ops.worst_slacks(session)
     return tuple(float(x) if abs(float(x)) < 1e30 else None for x in v)
 
 
@@ -268,7 +211,7 @@ def patch_limit(session, max_patch: int | None) -> int:
     larger repair to a full re-route (aes: ~2,300 s of the post-route step)."""
     if max_patch is not None:
         return int(max_patch)
-    n = int(session.value(tcl.DIGITAL_NETS + "llength $::flow_digital"))
+    n = eco_ops.digital_net_count(session)
     return max(40, n // 4)
 
 
@@ -286,22 +229,10 @@ def drv_drivers(session, report: str) -> list[tuple[str, str, list[str]]]:
                 pins.append(s_.split()[0])
     if not pins:
         return []
-    v = session.value(f"""set __o {{}}; set __seen {{}}
-foreach __p {qlist(sorted(set(pins)))} {{
-  set __pin [get_pins -quiet $__p]
-  if {{![llength $__pin]}} continue
-  foreach __d [get_pins -quiet -of_objects [get_nets -of_objects $__pin] -filter "direction==output"] {{
-    set __i [[ord::get_db_block] findInst [get_full_name [get_cells -of_objects $__d]]]
-    if {{$__i eq "NULL" || ![string match CORE* [[$__i getMaster] getType]]}} continue
-    if {{[lsearch -exact $__seen [$__i getName]] >= 0}} continue
-    lappend __seen [$__i getName]
-    lappend __o [list [$__i getName] [[$__i getMaster] getName]]
-  }}
-}}
-list $__o [lmap __c [get_lib_cells */*] {{ get_name $__c }}]""")
-    drivers, cells = tcl.tcl_words(v)
-    names = sorted(set(tcl.tcl_words(cells)))
-    return [(*tcl.tcl_words(w), names) for w in tcl.tcl_words(drivers)]
+    drivers, cells = eco_ops.drv_driver_list(session, pins)
+    from .tools.openroad.tcl import tcl_words
+    names = sorted(set(tcl_words(cells)))
+    return [(*tcl_words(w), names) for w in tcl_words(drivers)]
 
 
 def upsize(master: str, cells: list[str], excluded=lambda c: False) -> str | None:
@@ -324,7 +255,7 @@ def drv_upsize(ctx, report: str) -> list[list[str]]:
     design exclusions honoured). Returns [instance, from, to] per change."""
     import fnmatch
     s, pdk, d = ctx.session, ctx.pdk, ctx.design
-    s.run(f"report_check_types -max_slew -max_capacitance -violators > {q(report)}")
+    eco_ops.report_slew_cap_violators(s, report)
     pats = list(pdk.dont_use) + list(getattr(d, "dont_use", []) or [])
 
     def excluded(c):
@@ -333,7 +264,7 @@ def drv_upsize(ctx, report: str) -> list[list[str]]:
     for inst, master, cells in drv_drivers(s, report):
         new = upsize(master, cells, excluded)
         if new:
-            s.run(f"replace_cell {q(inst)} [lindex [get_lib_cells */{new}] 0]")
+            eco_ops.replace_with_lib_cell(s, inst, new)
             out.append([inst, master, new])
     return out
 
@@ -378,7 +309,7 @@ def post_route_repair(ctx, max_iter: int = 2, max_patch: int | None = None, drv_
             history[-1]["note"] = "stopped: one re-route per process (run route_repair again for more)"
             break
         pre_v, post_v = ctx.path(f"pre_repair{it}.v"), ctx.path(f"post_repair{it}.v")
-        s.run(f"write_verilog {q(pre_v)}")
+        eco_ops.write_verilog(s, pre_v)
         loc0, m0 = _locations(s), _masters(s)
         frozen = list(d.analog_nets) + list(d.analog_supplies)
         analog_before = analog.signature(s, frozen) if frozen else ""
@@ -394,10 +325,7 @@ def post_route_repair(ctx, max_iter: int = 2, max_patch: int | None = None, drv_
             # setup: sizing only (post-route setup buffering crashes this OpenROAD build,
             # and perturbs routes most); hold: buffering allowed (hold needs delay cells)
             try:
-                s.run("repair_timing -setup -repair_tns 100 -skip_pin_swap -skip_gate_cloning -skip_buffer_removal "
-                      "-skip_buffering" + tcl.margins(pdk))
-                s.run("repair_timing -hold -skip_pin_swap -skip_gate_cloning -skip_buffer_removal"
-                      + tcl.margins(pdk, "hold_route"))
+                eco_ops.repair_timing_routed(s, pdk)
             except TclError as e:
                 if "GRT-" in str(e):  # the resizer's incremental global router failed
                     from .scheduler import RetryWith
@@ -405,7 +333,7 @@ def post_route_repair(ctx, max_iter: int = 2, max_patch: int | None = None, drv_
                                     f"router: {str(e).splitlines()[0]}") from e
                 raise
         steps.reabut_all(ctx)
-        s.run("detailed_placement")
+        place_ops.detailed_placement(s)
         fences = [g.name for g in d.groups if g.kind == "fence"]
         steps.enforce_fences(s, fences)
         steps.check_placement(ctx)
@@ -419,7 +347,7 @@ def post_route_repair(ctx, max_iter: int = 2, max_patch: int | None = None, drv_
         if not changed and not moved:
             history[-1]["note"] = "repair_timing changed nothing"
             break
-        s.run(f"write_verilog {q(post_v)}")
+        eco_ops.write_verilog(s, post_v)
         _equivalent(s, pre_v, post_v)
         touched = (_inst_nets(s, changed | moved)) - set(d.analog_nets)
         try:

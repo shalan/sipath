@@ -23,7 +23,6 @@ import math
 import re
 
 from . import wires
-from .tools.openroad.tcl import q
 
 
 # ------------------------------------------------------------------ tech LEF
@@ -69,30 +68,14 @@ def tech_rules(tech_lef: str) -> dict:
     return {"layers": layers, "vias": vias}
 
 
-TECH_DB = r"""
-set o {}
-foreach l [[ord::get_db_tech] getLayers] {
-  if {[$l getType] ne "ROUTING"} continue
-  lappend o [list [$l getName] [$l getWidth] [$l getArea] [$l getSpacing] [$l getDirection] [$l getPitch]]
-}
-set v {}
-foreach via [[ord::get_db_tech] getVias] {
-  set bs {}
-  foreach b [$via getBoxes] {
-    set L [$b getTechLayer]
-    if {$L ne "NULL" && [$L getType] eq "ROUTING"} { lappend bs [list [$L getName] [$b xMin] [$b yMin] [$b xMax] [$b yMax]] }
-  }
-  lappend v [list [$via getName] $bs]
-}
-list $o $v
-"""
+from .tools.openroad.ops.minarea import TECH_DB  # noqa: E402,F401  (the query, with its operation)
 
 
 def tech_rules_db(session, dbu: int) -> dict:
     """The same rules from the loaded technology (works when the tech LEF
     lives only where OpenROAD runs, e.g. inside the container)."""
-    from .tools.openroad.tcl import tcl_parse
-    lays, vias_ = tcl_parse(session.value(TECH_DB))
+    from .tools.openroad.ops import minarea as ops
+    lays, vias_ = ops.tech_db(session)
     layers = {}
     for name, w, area, sp, direction, pitch in lays:
         d = {"width": int(w) / dbu, "dir": "V" if direction.upper().startswith("V") else "H", "pitch": int(pitch) / dbu}
@@ -241,38 +224,22 @@ def repair(ctx, def_path: str | None = None, layers: list[str] | None = None) ->
     from .analog import query_via_layers_tcl
     import os
     s, pdk = ctx.session, ctx.pdk
-    dbu = int(s.value("[ord::get_db_block] getDbUnitsPerMicron"))
+    from .tools.openroad.ops import db as db_ops, eco as eco_ops, minarea as ops, route as route_ops
+    dbu = db_ops.dbu(s)
     rules = tech_rules(pdk.tech_lef) if os.path.isfile(pdk.tech_lef) else tech_rules_db(s, dbu)
     def_path = def_path or ctx.path("minarea_check.def")
-    s.run(f"write_def {q(def_path)}")
+    route_ops.write_def(s, def_path)
     with open(def_path) as f:
         text = f.read()
     nets = wires.parse_def_paths(text)
     names = sorted({it[1] for i in nets.values() for p in i["paths"] for it in p["items"] if it[0] == "via"})
-    flat = s.value(query_via_layers_tcl(names)).split() if names else []
+    flat = eco_ops.via_layers(s, query_via_layers_tcl(names)) if names else []
     via_layers = {flat[k]: (flat[k + 1], flat[k + 2]) for k in range(0, len(flat), 3)}
     # the lowest routing layer holds standard-cell pin access: left to the router
     check = [ly for ly in (layers or pdk.layers[1:]) if rules["layers"].get(ly, {}).get("area")]
     # metal not in the routing: hard macro / pad outlines (islands there merge with
     # their pins: not judged) and top-level pin shapes (other nets' are obstacles)
-    flatb = s.value("""set o {}
-foreach i [[ord::get_db_block] getInsts] {
-  set m [$i getMaster]
-  if {[$m isBlock] || [string match PAD* [$m getType]]} {
-    set b [$i getBBox]; lappend o [list [$b xMin] [$b yMin] [$b xMax] [$b yMax]]
-  }
-}
-set p {}
-foreach bt [[ord::get_db_block] getBTerms] {
-  set n [[$bt getNet] getName]
-  foreach bp [$bt getBPins] { foreach bx [$bp getBoxes] {
-    set l [$bx getTechLayer]; if {$l eq "NULL"} continue
-    lappend p [list $n [$l getName] [$bx xMin] [$bx yMin] [$bx xMax] [$bx yMax]]
-  } }
-}
-list $o $p""")
-    from .tools.openroad.tcl import tcl_parse
-    blocks_, pins_ = tcl_parse(flatb)
+    blocks_, pins_ = ops.blocks_and_ports(s)
     blocks = [tuple(map(int, b)) for b in blocks_]
     pins = [(n, ly, tuple(map(int, r))) for n, ly, *r in pins_]
     shapes, skipped = {}, []
@@ -320,6 +287,6 @@ list $o $p""")
             info["paths"].append({"layer": ly, "taper": False,
                                   "items": [("pt", cx, cy, None), ("rect", x0 - cx, y0 - cy, x1 - cx, y1 - cy)]})
     if patches:
-        s.run("\n".join(wires.encoder_tcl(n, nets[n], via_layers) for n in patches))
+        ops.write_patches(s, "\n".join(wires.encoder_tcl(n, nets[n], via_layers) for n in patches))
     return {"islands": found, "patched": sum(len(v) for v in patches.values()), "nets": len(patches),
             "blocked": blocked, "skipped_nets": len(skipped)}

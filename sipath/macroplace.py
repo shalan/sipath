@@ -43,7 +43,9 @@ import random
 from dataclasses import dataclass
 
 from . import congestion
-from .tools.openroad.tcl import q, qlist, tcl_parse, tcl_words
+from .tools.openroad.ops import db as db_ops
+from .tools.openroad.ops import macros as ops
+from .tools.openroad.ops import route as route_ops
 
 ROT90 = ("R90", "R270", "MXR90", "MYR90")
 ALL_ORIENTS = ("R0", "MX", "MY", "R180", "R90", "R270", "MXR90", "MYR90")
@@ -146,78 +148,7 @@ def violation(c: MacroBox, others, core, keepouts, rules: Rules) -> str | None:
 
 
 # ---------------------------------------------------------------- OpenROAD side
-OBJ_TCL = r"""
-proc ::flow_nets_hpwl {names} {
-  # HPWL of the named nets over placed terminals only (DBU -> um)
-  set block [ord::get_db_block]; set hp 0
-  foreach n $names {
-    set net [$block findNet $n]; if {$net eq "NULL"} continue
-    set xs {}; set ys {}
-    foreach t [$net getITerms] {
-      if {![[$t getInst] isPlaced]} continue
-      set a [$t getAvgXY]; if {[lindex $a 0]} { lappend xs [lindex $a 1]; lappend ys [lindex $a 2] } else {
-        set b [[$t getInst] getBBox]; lappend xs [expr {([$b xMin]+[$b xMax])/2}]; lappend ys [expr {([$b yMin]+[$b yMax])/2}] } }
-    foreach t [$net getBTerms] { set a [$t getFirstPinLocation]; if {[lindex $a 0]} { lappend xs [lindex $a 1]; lappend ys [lindex $a 2] } }
-    if {[llength $xs] > 1} {
-      set xs [lsort -integer $xs]; set ys [lsort -integer $ys]
-      set hp [expr {$hp + [lindex $xs end] - [lindex $xs 0] + [lindex $ys end] - [lindex $ys 0]}]
-    }
-  }
-  expr {double($hp) / [$block getDbUnitsPerMicron]}
-}
-proc ::flow_macro_try {inst orient x y analog} {
-  set i [::flow_inst $inst]
-  $i setOrient $orient; $i setLocation $x $y; $i setPlacementStatus PLACED
-  list [::flow_macro_hpwl [list $inst]] [::flow_nets_hpwl $analog]
-}
-proc ::flow_macro_nets {inst} {
-  set out {}
-  foreach it [[::flow_inst $inst] getITerms] {
-    set n [$it getNet]; if {$n ne "NULL"} { lappend out [$n getName] }
-  }
-  return $out
-}
-proc ::flow_cut_rows_box {x0 y0 x1 y1 min_width} {
-  # split every row that overlaps the box into the parts left and right of it
-  # (cut_rows only cuts around instances); parts narrower than min_width (DBU) are dropped
-  set block [ord::get_db_block]; set n 0
-  foreach r [$block getRows] {
-    set rb [$r getBBox]
-    if {!([$rb xMin] < $x1 && [$rb xMax] > $x0 && [$rb yMin] < $y1 && [$rb yMax] > $y0)} continue
-    set site [$r getSite]; set sw [$r getSpacing]; set o [$r getOrigin]
-    set ox [lindex $o 0]; set oy [lindex $o 1]; set ns [$r getSiteCount]
-    set name [$r getName]; set orient [$r getOrient]; set dir [$r getDirection]
-    set left [expr {($x0 - $ox) / $sw}]
-    if {$left > $ns} { set left $ns }
-    set rstart [expr {($x1 - $ox + $sw - 1) / $sw}]
-    odb::dbRow_destroy $r
-    set min_sites [expr {max(1, ($min_width + $sw - 1) / $sw)}]
-    if {$left >= $min_sites} { odb::dbRow_create $block ${name}_gl $site $ox $oy $orient $dir $left $sw }
-    if {$ns - $rstart >= $min_sites} {
-      odb::dbRow_create $block ${name}_gr $site [expr {$ox + $rstart * $sw}] $oy $orient $dir [expr {$ns - $rstart}] $sw
-    }
-    incr n
-  }
-  return $n
-}
-proc ::flow_quick_eval {density report} {
-  # quick standard-cell placement + congestion-tolerant global route; cells are
-  # unplaced and guides cleared afterwards whatever happens (errors re-raised)
-  set block [ord::get_db_block]
-  set free {}
-  foreach inst [$block getInsts] { if {![$inst isPlaced]} { lappend free $inst } }
-  set rc [catch {
-    global_placement -density $density -skip_io
-    detailed_placement
-    set hp [dict get [::flow_metrics] hpwl_um]
-    global_route -allow_congestion -congestion_iterations 10 -congestion_report_file $report
-  } err opts]
-  foreach inst $free { $inst setPlacementStatus NONE }
-  foreach net [$block getNets] { $net clearGuides }
-  if {$rc == 1} { return -options $opts $err }
-  list [llength $free] $hp
-}
-"""
+OBJ_TCL = ops.OBJ_TCL  # the Tcl lives with its operations (tools/openroad/ops/macros.py)
 
 
 def _rules(ctx, dbu, row_h) -> Rules:
@@ -239,38 +170,34 @@ def _analog_insts(ctx) -> set[str]:
             if m.analog:
                 out.add(m.inst)
             continue
-        if nets & set(tcl_words(s.value(f"::flow_macro_nets {q(m.inst)}"))):
+        if nets & set(ops.macro_nets(s, m.inst)):
             out.add(m.inst)
     return out
 
 
 def _master_sides(ctx, inst):
     from .chip import _master_pins
-    master = ctx.session.value(f"[[::flow_inst {q(inst)}] getMaster] getName")
+    master = ops.master_name(ctx.session, inst)
     w, h, pins = _master_pins(ctx.session, master)
     return w, h, pin_sides(pins, w, h)
 
 
 def _box_of(s, inst):
-    return tuple(map(int, tcl_words(s.value(
-        f"set b [[::flow_inst {q(inst)}] getBBox]; list [$b xMin] [$b yMin] [$b xMax] [$b yMax]"))))
+    return ops.inst_box(s, inst)
 
 
 def place(ctx) -> dict:  # noqa: C901
     from .chip import MACRO_HPWL, _core
     d, s, p = ctx.design, ctx.session, ctx.params
-    s.run(MACRO_HPWL)
-    s.run(OBJ_TCL)
+    ops.load_helpers(s, MACRO_HPWL)
     method = p.get("method", "random")
     if method not in ("random", "mpl", "cdlns"):
         raise ValueError(f"unknown macro placement method {method!r}")
     seed = p.get("seed", 0)
     rng = random.Random(seed)
-    dbu = int(s.value("[ord::get_db_block] getDbUnitsPerMicron"))
+    dbu = db_ops.dbu(s)
     core = tuple(_core(s))
-    rx, ry, site_w, row_h = map(int, tcl_words(s.value(
-        "set r [lindex [[ord::get_db_block] getRows] 0]; set o [$r getOrigin]; "
-        "list [lindex $o 0] [lindex $o 1] [$r getSpacing] [[$r getBBox] dy]")))
+    rx, ry, site_w, row_h = ops.first_row(s)
     rules = _rules(ctx, dbu, row_h)
     keepouts = [tuple(int(v * dbu) for v in box) for box in d.keepouts]
     analog = _analog_insts(ctx)
@@ -289,8 +216,7 @@ def place(ctx) -> dict:  # noqa: C901
     for m in d.macros:
         if m.location is not None:
             x, y = int(round(m.location[0] * dbu)), int(round(m.location[1] * dbu))
-            s.run(f"place_macro -macro_name {q(m.inst)} -location {{{m.location[0]} {m.location[1]}}} "
-                  f"-orientation {m.orient} -exact\n[::flow_inst {q(m.inst)}] setPlacementStatus LOCKED")
+            ops.place_frozen(s, m.inst, m.location, m.orient)
             placed.append(mbox(m, m.orient, x, y))
             out[m.inst] = {"mode": "frozen", "loc_um": list(m.location), "orient": m.orient}
     autos = [m for m in d.macros if m.location is None]
@@ -331,8 +257,7 @@ def place(ctx) -> dict:  # noqa: C901
                         rejected[key] = rejected.get(key, 0) + 1
                         continue
                     any_legal = True
-                    hp, ahp = map(float, tcl_words(s.value(
-                        f"::flow_macro_try {q(m.inst)} {o} {x} {y} {qlist(analog_nets)}")))
+                    hp, ahp = ops.try_position(s, m.inst, o, x, y, analog_nets)
                     obj = hp + aw * ahp
                     if best is None or obj < best[0]:
                         best = (obj, o, x, y, c, hp, ahp)
@@ -340,8 +265,7 @@ def place(ctx) -> dict:  # noqa: C901
             if best is None:
                 raise RuntimeError(f"no legal position for macro {m.inst}; rejections: {rejected}")
             _, o, x, y, c, hp, ahp = best
-            s.run(f"set i [::flow_inst {q(m.inst)}]; $i setOrient {o}; $i setLocation {x} {y}; "
-                  "$i setPlacementStatus FIRM")
+            ops.set_position(s, m.inst, o, x, y)
             placed.append(c)
             out[m.inst] = {"mode": "auto", "method": "random", "seed": seed, "loc_um": [x / dbu, y / dbu],
                            "orient": o, "candidates": tried, "objective_um": round(best[0], 3)}
@@ -353,9 +277,8 @@ def place(ctx) -> dict:  # noqa: C901
             if c.analog:
                 g = _grow(c.box, c.halo + int(rules.analog_guard))
                 g = (max(g[0], core[0]), max(g[1], core[1]), min(g[2], core[2]), min(g[3], core[3]))
-                s.run(f"odb::dbBlockage_create [ord::get_db_block] {g[0]} {g[1]} {g[2]} {g[3]}")
                 # no rows (taps, endcaps) under it; no row pieces too short for a well tap
-                s.run(f"::flow_cut_rows_box {g[0]} {g[1]} {g[2]} {g[3]} {int(min_row * dbu)}")
+                ops.guard_blockage(s, g, int(min_row * dbu))
                 guards.append([v / dbu for v in g])
     if guards:
         ctx.outputs["analog_guard_blockages"] = guards
@@ -363,11 +286,10 @@ def place(ctx) -> dict:  # noqa: C901
     if d.macros:
         # a row piece must hold a well tap between its endcaps, or its n-well
         # floats (mcu8: 40 untapped wells beside the SRAM, found by LVS)
-        s.run(f"cut_rows -halo_width_x {halo} -halo_width_y {halo} -row_min_width {min_row:g}")
-    names = " ".join(q(m.inst) for m in d.macros)
-    ctx.metrics["macro_hpwl_um"] = float(s.value(f"::flow_macro_hpwl {{{names}}}")) if d.macros else 0.0
-    ctx.metrics["macro_hpwl_unplaced_terms"] = int(s.value("set ::flow_macro_hpwl_skipped")) if d.macros else 0
-    ctx.metrics["analog_hpwl_um"] = float(s.value(f"::flow_nets_hpwl {qlist(analog_nets)}")) if analog_nets else 0.0
+        ops.cut_rows(s, halo, min_row)
+    ctx.metrics["macro_hpwl_um"] = ops.macro_hpwl(s, [m.inst for m in d.macros]) if d.macros else 0.0
+    ctx.metrics["macro_hpwl_unplaced_terms"] = ops.macro_hpwl_skipped(s) if d.macros else 0
+    ctx.metrics["analog_hpwl_um"] = ops.nets_hpwl(s, analog_nets) if analog_nets else 0.0
     ctx.metrics["analog_macros"] = sorted(analog)
     # every macro, frozen or not, checked against the rules (frozen ones are reported, not refused)
     final = []
@@ -382,32 +304,28 @@ def place(ctx) -> dict:  # noqa: C901
 
 def _mpl(ctx, autos, placed, keepouts, rules, analog, dbu, mbox, core) -> dict:
     s, d, p = ctx.session, ctx.design, ctx.params
-    s.run("set ::flow_mpl_blk {}")
-    for k in keepouts:
-        s.run(f"lappend ::flow_mpl_blk [odb::dbBlockage_create [ord::get_db_block] {k[0]} {k[1]} {k[2]} {k[3]}]")
+    ops.mpl_keepouts(s, keepouts)
     for m in d.macros:
         h = m.halo * dbu + (rules.analog_guard / 2 if m.inst in analog else 0)
         h = max(h, rules.channel / 2, rules.pin_clearance / 2) / dbu
-        s.run(f"set_macro_halo -macro_name [[::flow_inst {q(m.inst)}] getName] -halo {{{h:.3f} {h:.3f}}}")
+        ops.macro_halo(s, m.inst, h)
     # rtl_macro_placer also places the standard cells; they are unplaced again
     # afterwards so every method hands the same kind of checkpoint on
-    s.run("set ::flow_mpl_free {}\nforeach i [[ord::get_db_block] getInsts] { "
-          "if {![$i isPlaced] && ![[$i getMaster] isBlock]} { lappend ::flow_mpl_free $i } }")
+    ops.mpl_mark_free(s)
     rep = ctx.path("mpl")
     os.makedirs(rep, exist_ok=True)
     util = p.get("target_util", 0.25)
     try:
-        s.run(f"rtl_macro_placer -report_directory {q(rep)} -target_util {util}", timeout=1800)
+        ops.rtl_macro_placer(s, rep, util)
     finally:
-        s.run("foreach b $::flow_mpl_blk { odb::dbBlockage_destroy $b }\nunset ::flow_mpl_blk\n"
-              "foreach i $::flow_mpl_free { $i setPlacementStatus NONE }\nunset ::flow_mpl_free")
+        ops.mpl_end(s)
     out, problems = {}, []
     for m in autos:
-        o, st = tcl_words(s.value(f"set i [::flow_inst {q(m.inst)}]; list [$i getOrient] [$i getPlacementStatus]"))
+        o, st = ops.orient_and_status(s, m.inst)
         x0, y0, _, _ = _box_of(s, m.inst)
         if st == "NONE":
             raise RuntimeError(f"rtl_macro_placer left {m.inst} unplaced")
-        s.run(f"[::flow_inst {q(m.inst)}] setPlacementStatus FIRM")
+        ops.set_firm(s, m.inst)
         c = mbox(m, o, x0, y0)
         why = violation(c, placed, core, keepouts, rules)
         if why:
@@ -419,46 +337,7 @@ def _mpl(ctx, autos, placed, keepouts, rules, analog, dbu, mbox, core) -> dict:
     return out
 
 
-CDLNS_EXPORT_TCL = r"""
-proc ::flow_cdlns_export {path} {
-  set f [open $path w]
-  set blk [ord::get_db_block]
-  foreach i [$blk getInsts] {
-    set m [$i getMaster]
-    set bb [$i getBBox]
-    if {[$m isBlock]} {
-      puts $f "M [$i getName] [$bb xMin] [$bb yMin] [$bb xMax] [$bb yMax]"
-    } elseif {[$i isPlaced]} {
-      puts $f "C [$i getName] [expr {([$bb xMin] + [$bb xMax]) / 2}] [expr {([$bb yMin] + [$bb yMax]) / 2}] \
-               [expr {double([$bb getDX]) * [$bb getDY]}]"
-    }
-  }
-  foreach b [$blk getBTerms] {
-    set bb [$b getBBox]
-    if {[$bb dx] || [$bb dy] || [$bb xMin]} {
-      puts $f "P [$b getName] [expr {([$bb xMin] + [$bb xMax]) / 2}] [expr {([$bb yMin] + [$bb yMax]) / 2}]"
-    }
-  }
-  foreach n [$blk getNets] {
-    if {[$n isSpecial] || [$n getSigType] in {POWER GROUND}} continue
-    set its [$n getITerms]
-    set bts [$n getBTerms]
-    if {[llength $its] + [llength $bts] < 2} continue
-    puts $f "N"
-    foreach it $its {
-      set i [$it getInst]
-      if {[[$i getMaster] isBlock]} {
-        set bb [$it getBBox]
-        puts $f "I [$i getName] [expr {([$bb xMin] + [$bb xMax]) / 2}] [expr {([$bb yMin] + [$bb yMax]) / 2}] [[$it getMTerm] getName]"
-      } else {
-        puts $f "I [$i getName]"
-      }
-    }
-    foreach bt $bts { puts $f "B [$bt getName]" }
-  }
-  close $f
-}
-"""
+CDLNS_EXPORT_TCL = ops.CDLNS_EXPORT_TCL  # the Tcl lives with its operations (tools/openroad/ops/macros.py)
 
 
 def placer_python(ctx) -> str:
@@ -653,16 +532,14 @@ def _cdlns(ctx, autos, placed, keepouts, rules, analog, dbu, mbox, core, grid) -
     rx, ry, site_w, row_h = grid
     py = placer_python(ctx)
     for m in autos:  # a fixed orientation: the placer flips nothing
-        s.run(f"[::flow_inst {q(m.inst)}] setOrient {m.orient}")
-    s.run("set ::flow_cdlns_free {}\nforeach i [[ord::get_db_block] getInsts] { "
-          "if {![$i isPlaced] && ![[$i getMaster] isBlock]} { lappend ::flow_cdlns_free $i } }")
+        ops.set_orient(s, m.inst, m.orient)
+    ops.cdlns_mark_free(s)
     dump = ctx.path("cdlns_floorplan.txt")
     try:
-        s.run(f"global_placement -skip_io -density {p.get('quick_density', 0.6)}", timeout=1800)
-        s.run(CDLNS_EXPORT_TCL)
-        s.run(f"::flow_cdlns_export {q(dump)}")
+        ops.quick_global_place(s, p.get('quick_density', 0.6))
+        ops.cdlns_export(s, dump)
     finally:
-        s.run("foreach i $::flow_cdlns_free { $i setPlacementStatus NONE }\nunset ::flow_cdlns_free")
+        ops.cdlns_end(s)
     halo = max([m.halo for m in d.macros] + [0.0])
     edge = int(max(halo * dbu, rules.pin_clearance))  # the canvas keeps halos and pin clearance off the core edge
     # spacing the rule check asks of two facing macros (violation), plus room for
@@ -711,8 +588,7 @@ def _cdlns(ctx, autos, placed, keepouts, rules, analog, dbu, mbox, core, grid) -
         c = mbox(m, m.orient, x, y)
         if why:
             problems.append(f"{name}: {why}")
-        s.run(f"set i [::flow_inst {q(name)}]; $i setOrient {m.orient}; $i setLocation {x} {y}; "
-              "$i setPlacementStatus FIRM")
+        ops.set_position(s, name, m.orient, x, y)
         placed.append(c)
         out[name] = {"mode": "auto", "method": "cdlns", "loc_um": [x / dbu, y / dbu], "orient": m.orient,
                      "repair_um": round(moved / dbu, 3)}
@@ -752,11 +628,9 @@ def _nearest_legal(m, x, y, w, h, placed, core, keepouts, rules, mbox, grid, rea
 
 def _evaluate(ctx, analog_weight):
     s, d = ctx.session, ctx.design
-    from .tools.openroad.tcl import routing_layers
-    s.run(routing_layers(d, ctx.pdk))
+    route_ops.set_routing_layers(s, d, ctx.pdk)
     rpt = ctx.path("quick_congestion.rpt")
-    n, hp = tcl_parse(s.value(f"::flow_quick_eval {ctx.params.get('quick_density', 0.6)} {q(rpt)}",
-                              timeout=1800))
+    n, hp = ops.quick_eval(s, ctx.params.get('quick_density', 0.6), rpt)
     cong = congestion.parse(rpt)
     ctx.metrics["quick_cells"] = int(n)
     ctx.metrics["quick_hpwl_um"] = float(hp)
@@ -774,7 +648,6 @@ def row_min_width(session, pdk) -> float:
     if not pdk.tap_cell:
         return 0.0
     def width(m):
-        return float(session.value(f"expr {{double([[[ord::get_db] findMaster {m}] getWidth]) / "
-                                   f"[[ord::get_db_block] getDbUnitsPerMicron]}}"))
+        return ops.master_width_um(session, m)
     w = width(pdk.tap_cell) + (2 * width(pdk.endcap_cell) if pdk.endcap_cell else 0.0)
     return round(2 * pdk.tap_distance + w, 3)

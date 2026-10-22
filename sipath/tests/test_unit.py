@@ -1039,14 +1039,16 @@ class Layers(unittest.TestCase):
         self.assertEqual(bad, [])
 
     def test_steps_talk_to_openroad_only_through_its_operations(self):
-        """Phase 2: the step modules keep the stage logic; every Tcl command is in sipath.tools.openroad.ops."""
+        """Phase 2: the step modules keep the stage logic; every Tcl command is in sipath.tools.openroad.ops. B3.4: so
+        do the libraries eco, macroplace, congestion and minarea."""
         import ast
         bad = []
         sdir = os.path.join(self.ROOT, "steps")
-        for f in sorted(os.listdir(sdir)):
-            if not f.endswith(".py"):
-                continue
-            with open(os.path.join(sdir, f)) as fh:
+        files = [os.path.join(sdir, f) for f in sorted(os.listdir(sdir)) if f.endswith(".py")]
+        files += [os.path.join(self.ROOT, f"{m}.py") for m in ("eco", "macroplace", "congestion", "minarea")]
+        for path in files:
+            f = os.path.relpath(path, self.ROOT)
+            with open(path) as fh:
                 tree = ast.parse(fh.read())
             for n in ast.walk(tree):
                 if not (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr in ("run", "value")):
@@ -3331,7 +3333,7 @@ class Scheduler(unittest.TestCase):
                     unittest.mock.patch.object(eco, "_wire_signature", lambda s, p: ""), \
                     unittest.mock.patch.object(eco, "patch_limit", lambda s, m: 40), \
                     unittest.mock.patch.object(eco.wires, "normalize", lambda s, p: None), \
-                    unittest.mock.patch.object(eco.tcl, "margins", lambda *a: ""):
+                    unittest.mock.patch.object(eco.eco_ops.tcl, "margins", lambda *a: ""):
                 ctx.session = Session()
                 with self.assertRaises(RetryWith) as r:
                     eco.post_route_repair(ctx)
