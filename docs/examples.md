@@ -221,8 +221,32 @@ with the seal ring:
 
 ```bash
 python3 -m sipath new myproj --template openframe --set inputs=8 --set outputs=6
-docker build --platform linux/amd64 -t sipath/precheck:1.3.7 docker/precheck   # once
+# once: the Magic image first (integrate and the precheck image use it), then the precheck image on it
+docker build --platform linux/amd64 -t sipath/orfs-magic:8.3.685 docker/magic
+docker build --platform linux/amd64 -t sipath/precheck:1.3.7 docker/precheck
 ```
+
+The defaults name these images by the digests locked in
+`sipath/toolchain.json` (`images.magic`, `images.precheck`). An image built
+on another machine gets another digest, so point the configuration at yours.
+Where Docker gives a local build a repository digest (Docker Desktop's
+containerd store: `docker image inspect --format '{{json .RepoDigests}}'
+sipath/orfs-magic:8.3.685` lists one), pin it:
+
+```bash
+export SIPATH_MAGIC_IMAGE="$(docker image inspect --format '{{index .RepoDigests 0}}' sipath/orfs-magic:8.3.685)"
+export SIPATH_PRECHECK_IMAGE="$(docker image inspect --format '{{index .RepoDigests 0}}' sipath/precheck:1.3.7)"
+```
+
+Otherwise (the classic engine keeps none for a local build) name the tags and
+allow unpinned images, which the run's provenance then records:
+
+```bash
+export SIPATH_MAGIC_IMAGE=sipath/orfs-magic:8.3.685 SIPATH_PRECHECK_IMAGE=sipath/precheck:1.3.7 SIPATH_REQUIRE_DIGEST=0
+```
+
+`python3 -m sipath toolchain --check` shows which images are configured and
+whether they are the locked ones.
 
 ```yaml
 flow:
@@ -234,8 +258,8 @@ flow:
 - step: route_analog
 - step: route_digital
 - step: route_repair
-- step: extract
-- step: signoff
+- step: extract              # no fill: the example wrapper passes the precheck's density check without it;
+- step: signoff              #   add - step: fill before extract for a design that needs it
 - step: precheck
 - step: integrate
   variants: [{seal_ring: true}]
@@ -356,20 +380,38 @@ print(eco.selected.metrics["wns"], eco.selected.outputs.get("equivalence"))
 ## 13. Driving a run from an agent (MCP)
 
 `python3 -m sipath mcp` serves the tools on stdio; register it with an MCP
-client as a command. A session, as tool calls:
+client as a command. A session, as tool calls. Every step but the first names
+its `parent`: the attempt the previous call's result reports as `selected`
+(only a selected attempt may be continued):
 
 ```text
-open_run     {"design": "gcd8", "workdir": "runs/agent_gcd8"}                 -> run_id
-run_step     {"run_id": R, "step": "synth"}
-run_step     {"run_id": R, "step": "place", "variants": [{"density": 0.5}, {"density": 0.7}],
-              "score": "routability_then_wns", "parallel": 2, "background": true}   -> job_id
-job_status   {"job_id": J}                                                      (progress, then the result)
+open_run      {"design": "gcd8", "workdir": "runs/agent_gcd8"}                     -> run_id R
+run_step      {"run_id": R, "step": "synth"}                                        -> selected synth.0
+run_step      {"run_id": R, "step": "floorplan", "parent": "synth.0"}               -> floorplan.0
+run_step      {"run_id": R, "step": "physical", "parent": "floorplan.0"}            -> physical.0
+run_step      {"run_id": R, "step": "place", "parent": "physical.0",
+               "variants": [{"density": 0.5}, {"density": 0.7}],
+               "score": "routability_then_wns", "parallel": 2, "background": true}  -> job_id J
+job_status    {"job_id": J}                       (progress, then the result: place.0 and place.1, one selected, say place.1)
 list_attempts {"run_id": R, "step": "place"}
-get_outputs  {"run_id": R, "attempt": "place.1"}                               (metrics, reports, files)
-render_checkpoint {"run_id": R, "attempt": "place.1"}                          (a layout picture)
-query_heatmap {"run_id": R, "attempt": "place.1", "map": "rudy"}               (congestion: peak, hotspots, bins)
-run_eco      {"run_id": R, "parent": "signoff.0", "ops": [{"op": "resize", "inst": "u1", "master": "sky130_fd_sc_hd__nand2_4"}]}
+get_outputs   {"run_id": R, "attempt": "place.1"}                                   (metrics, reports, files)
+render_checkpoint {"run_id": R, "attempt": "place.1"}                               (a layout picture)
+query_heatmap {"run_id": R, "attempt": "place.1", "map": "rudy"}                    (congestion: peak, hotspots)
+run_step      {"run_id": R, "step": "cts", "parent": "place.1"}                     -> cts.0
+run_step      {"run_id": R, "step": "route_analog", "parent": "cts.0"}              -> route_analog.0
+run_step      {"run_id": R, "step": "route_digital", "parent": "route_analog.0"}    -> route_digital.0
+run_step      {"run_id": R, "step": "route_repair", "parent": "route_digital.0"}    -> route_repair.0
+run_step      {"run_id": R, "step": "fill", "parent": "route_repair.0"}             -> fill.0
+run_step      {"run_id": R, "step": "extract", "parent": "fill.0"}                  -> extract.0
+run_step      {"run_id": R, "step": "signoff", "parent": "extract.0"}               -> signoff.0
+run_eco       {"run_id": R, "parent": "signoff.0",
+               "ops": [{"op": "resize", "inst": "u1", "master": "sky130_fd_sc_hd__nand2_4"}]}
 ```
+
+An ECO continues from the head of the run: a selected attempt nothing has
+continued from yet (here `signoff.0`). The attempt numbers are what this run
+gives; a retried attempt is numbered after the others, so read each one from
+the result rather than assuming `.0`.
 
 `describe_step` gives any step's parameters as a JSON Schema; arguments are
 checked before anything runs ([agents](agents.md)).
@@ -388,7 +430,7 @@ metric, and where identical inputs diverge step by step):
 
 ```bash
 python3 bench/repeat_compare.py aes --repeats 2 \
-    --config knee: --config least_area:synth.synth_fallback=least_area
+    --config knee:synth.synth_fallback=knee --config least_area:synth.synth_fallback=least_area
 ```
 
 The live tests check their runs against `limits.yaml`, nightly in CI

@@ -72,18 +72,43 @@ flow:                               # steps in order; each continues from the pr
   variants: [{method: random, seed: 1}, {method: random, seed: 2}, {method: cdlns}]
   score: macro_quick
   parallel: 3
+- step: physical                    # power grid, tap and endcap cells (after the macros are placed)
 - step: place
 - step: cts
 - step: route_analog
 - step: route_digital
 - step: route_repair
+- step: fill                        # metal fill to the PDK's density rules (signoff checks density)
 - step: extract
 - step: mypkg.checks:inst_count     # a step function by import path
 - step: signoff                     # or single checks: - step: drc, - step: lvs, - step: timing, ...
 ```
 
-An RTL design needs only `rtl`, `sdc`, and `core_utilization` or `die` (see
-`examples/gcd8.yaml`). Field notes:
+A `flow:` list runs exactly the steps it names. Leaving out `physical` leaves
+the design without a power grid, taps or endcaps; leaving out `fill` skips
+metal fill, so signoff's density check judges the routed metal alone. The
+examples that end without fill do so on purpose: `ihp_add8.yaml` (its PDK
+description has no fill rules or signoff decks, and the flow ends at
+extraction) and `openframe_gcd8.yaml` (the wrapper is mostly empty rows; it
+was signed off and passed cf-precheck's density check without fill; add
+`- step: fill` before `extract` for a design that needs it).
+
+The smallest RTL design file (`name`, `top`, `mode` and `pdk` are required for
+every design; an RTL design adds `rtl`, `sdc`, and `core_utilization` or
+`die`; the clock ports come from the SDC's `create_clock`). Without `flow:` it
+runs the default chain, to signoff on sky130A:
+
+```yaml
+name: my_block
+top: gcd8
+mode: macro
+pdk: sky130A
+rtl: [gcd8.v]
+sdc: gcd8.sdc
+core_utilization: 0.4
+```
+
+See `examples/gcd8.yaml` for the same with its flow spelled out. Field notes:
 - **Steps.** A step may run under another name with `fn:` (`{step:
   signoff_fast, fn: signoff}`); `fn:` and `step:` also take `module:function`.
   Without a `flow:` list the default chain is used.

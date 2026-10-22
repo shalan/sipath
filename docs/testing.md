@@ -4,12 +4,12 @@ Part of the [SiPath documentation](../README.md#documentation).
 
 ## Tests
 
-- **Unit tests** (`python3 -m unittest sipath.tests.test_unit`; 171 tests,
-  seconds, no tools): parsers and generators, the scheduler, scores, schemas
+- **Unit tests** (`python3 -m unittest sipath.tests.test_unit`; seconds,
+  no tools): parsers and generators, the scheduler, scores, schemas
   and parameters, geometry (shields, macro rules), undefined names, the step
   parameters of every example, and that the library code names no PDK. Tests
   that need an open_pdks tree skip, with the reason, when there is none.
-- **Live tests** (`python3 -m sipath.tests.run_live -j 4`; 46 tests): real
+- **Live tests** (`python3 -m sipath.tests.run_live -j 4`): real
   runs of the examples through OpenROAD, Yosys, KLayout and Magic, one process
   per test class, in parallel, with each class's time.
   `python3 -m unittest sipath.tests.test_sipath` runs everything in one process.

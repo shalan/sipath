@@ -18,10 +18,13 @@ wrong types, values not allowed and missing required keys are errors.
 
 
 def text() -> str:
+    from .config import ENV
     cfg = ["## Run configuration", "",
-           "Design file `config:`, a `--config` file, or `SIPATH_<KEY>` environment variables (sipath.config).", "",
-           "| key | type | description |", "|---|---|---|"]
-    cfg += [f"| `{k}` | {f.type} | {f.doc} |" for k, f in schema.CONFIG.items()]
+           "Design file `config:`, a `--config` file, or the environment variable each key names (sipath.config; "
+           "not always `SIPATH_<KEY>`). Later sources win: defaults, the `--config` file, the environment, "
+           "the design file's `config:`.", "",
+           "| key | environment | type | description |", "|---|---|---|---|"]
+    cfg += [f"| `{k}` | `{ENV[k]}` | {f.type} | {f.doc} |" for k, f in schema.CONFIG.items()]
     pdk = ["## PDK description keys", "",
            "Top-level keys of a PDK description (`sipath/pdks/*.yaml`); others are errors. "
            "`step_defaults` takes the same tables as a design file's.", "",

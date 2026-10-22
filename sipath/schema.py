@@ -99,7 +99,8 @@ DATAPATH = {
     "rows_per_slice": F("int", "rows per slice (slices)"),
 }
 CONFIG = {
-    "threads": F("int", "OpenROAD threads per process (default: all cores)"),
+    "threads": F("int", "OpenROAD threads per process (default: every core, as ORFS; two thirds of them on macOS, "
+                        "where Docker's VM shares the cores with the host)"),
     "command_timeout": F("number", "seconds before a Tcl command is abandoned"),
     "parallel_cap": F("int", "attempts at once across a step (0: as asked)"),
     "container_cpus": F("number", "CPU limit per container"),

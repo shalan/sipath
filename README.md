@@ -106,14 +106,17 @@ Other commands:
 | **Metrics** | Every attempt's metrics in `graph.json`, with power and peak memory per step; `metrics.json` and `metrics.csv` in METRICS2.1 names, as ORFS and LibreLane write them ([flow](docs/flow.md#metrics)) |
 | **Heatmaps** | Placement density, RUDY, routing congestion, pin density, power and IR drop after place, CTS, routing and extraction (OpenROAD's own maps, taken after the checkpoint is saved); peak, p95, hot share and the hotspots with the instances or nets inside; in the run report and over MCP ([flow](docs/flow.md#heatmaps)) |
 | **Agents** | MCP server: runs, steps, adaptive rounds, ECOs, background jobs with progress, checkpoint queries, heatmaps and pictures ([agents](docs/agents.md)) |
-| **Quality** | Regression limits per design; 194 unit tests and 47 live tests; CI on GitHub Actions (unit tests on every push, live tests nightly) |
+| **Quality** | Regression limits per design; unit and live tests; CI on GitHub Actions (unit tests on every push, live tests nightly) |
 
 ## The reference flow
 
 A design file without `flow:` runs this chain. A `flow:` list replaces it:
 any order, your own steps, several variants per step and a score to choose.
-Every step runs as one or more attempts (OpenROAD processes, in parallel),
-and the next step continues from the attempt its score selects. Every
+Every step runs as one or more attempts, in parallel, and the next step
+continues from the attempt its score selects. An OpenROAD step's attempt is
+its own OpenROAD process; tool steps (synthesis in Yosys, `integrate` in
+Magic, `precheck` in its image) run their tools instead, with no OpenROAD
+session. Every
 attempt is kept in `graph.json`.
 
 ```mermaid
@@ -168,22 +171,25 @@ Against OpenROAD-flow-scripts on its own reference designs (same RTL, SDC and
 utilization; both layouts measured by the same code; WNS at the typical
 corner):
 
-| design | flow | WNS (ns) | TNS (ns) | wirelength (µm) | cell area (µm²) | DRC | wall (s) |
-|---|---|---|---|---|---|---|---|
-| gcd (1.1 ns) | ORFS | −1.465 | −65.1 | 11,786 | 5,319 | 0 | 321 |
-| gcd (1.1 ns) | SiPath | **−1.083** | **−46.6** | **8,061** | **4,975** | 0 | **252** |
-| aes | ORFS | −0.196 | −0.67 | 588,211 | **124,637** | 0 | **2,724** |
-| aes | SiPath | **+0.233** | **0.00** | **583,437** | 136,273 | 0 | 4,207 |
+| design | flow | WNS (ns) | TNS (ns) | wirelength (µm) | cell area (µm²) | DRC | wall (s) | signoff |
+|---|---|---|---|---|---|---|---|---|
+| gcd (1.1 ns) | ORFS | −1.465 | −65.1 | 11,786 | 5,319 | 0 | 321 | — |
+| gcd (1.1 ns) | SiPath | **−1.083** | **−46.6** | **8,061** | **4,975** | 0 | **252** | fails: setup |
+| aes | ORFS | −0.196 | −0.67 | 588,211 | **124,637** | 0 | **2,724** | — |
+| aes | SiPath | **+0.233** | **0.00** | **583,437** | 136,273 | 0 | 4,207 | fails: setup at ss, slew |
 
 SiPath's wall time includes signoff (DRC, LVS, nine-corner STA), which ORFS's
-make does not run.
+make does not run. The benchmark runs signoff without failing the run
+(`fail_on_violation: false`), so both SiPath runs completed although their
+signoff failed: gcd's 1.1 ns clock is out of reach, and aes misses setup at
+the slow corners and has 34 slew violations (DRC 0 and LVS match in both).
 
 | benchmark | result |
 |---|---|
 | SiPath's designs through ORFS (gcd8, dp8, dp8_hs, ihp_add8) | timing met in both flows; SiPath 2–18% less cell area |
 | Synthesis, shalan/synth_flow's 16 designs | 12 meet timing with the defaults, 13 with the front-end sweep (synth_flow before repair: 6) |
 | Analog coupling, mcu8 `vref_lo` | 31.2 fF from a digital net → 0.09 fF with the guard and shields; signoff clean |
-| Macro placement, sram8 (eight SRAMs) | random search beats CD-LNS on routed wirelength and overflow (574k vs 628k µm, 7 vs 39) |
+| Macro placement, sram8 (eight SRAMs) | random search beats CD-LNS on the quick placement's HPWL and global-route overflow (574k vs 628k µm, 7 vs 39; HPWL, not routed wirelength) |
 | ChipFoundry precheck, OpenFrame example | 12 of 12 checks pass (LVS with Netgen, OEB with CVC, XOR, KLayout DRC); Magic DRC optional |
 | Explore mode, gcd8 | 20 s from RTL to a PPA first cut and a suggested clock |
 
@@ -215,7 +221,7 @@ make does not run.
 | document | contents |
 |---|---|
 | [Tutorial notebook](notebooks/sipath_tutorial.ipynb) | the example flows, runnable in Colab or Codespaces |
-| [Example flows](docs/examples.md) | fifteen recipes, one feature each: RTL to signoff, explore mode, synthesis and placement sweeps, macro placers, analog shields, a full die, an OpenFrame chip with precheck and seal ring, hardened macros, custom steps, resume, ECOs, an agent session, regression limits, a design-space exploration in parallel |
+| [Example flows](docs/examples.md) | recipes, one feature each: RTL to signoff, explore mode, synthesis and placement sweeps, macro placers, analog shields, a full die, an OpenFrame chip with precheck and seal ring, hardened macros, custom steps, resume, ECOs, an agent session, regression limits, a design-space exploration in parallel |
 | [How the flow works](docs/flow.md) | each step: floorplan and pads, hard macros, power, placement and CTS, analog nets, routing and repair, sweeps and ECOs, frames and hardened macros |
 | [Synthesis](docs/synthesis.md) | the synth step, its recipes and why its defaults are what they are |
 | [PDKs and runtimes](docs/pdks-and-runtimes.md) | Sky130 (open_pdks, release pinning, corners, excluded cells), IHP, where OpenROAD comes from, arm64 and native tools, resumable runs |

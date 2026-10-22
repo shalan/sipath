@@ -88,12 +88,18 @@ checks need Docker.
 
 On macOS, runs use the ORFS image (`openroad/orfs`, amd64: under Rosetta on Apple
 silicon). Two ways to avoid the emulation:
-- an arm64 image with the tools on PATH, e.g. LibreLane's multi-arch image:
-  `SIPATH_OPENROAD_IMAGE=ghcr.io/librelane/librelane:3.0.16
-  SIPATH_OPENROAD_BINARY=openroad SIPATH_PLATFORM=linux/arm64` (and
-  `SIPATH_MAGIC_IMAGE` the same image for the Magic checks). Its tool versions
-  differ (OpenROAD 2026-02-17, Yosys 0.62), so results differ slightly (gcd8:
-  158 against 165 cells). Measurements under
+- an arm64 image with the tools on PATH, e.g. LibreLane's multi-arch image
+  3.0.16, by the digest `sipath/toolchain.json` records for it
+  (`images.librelane_arm64`; a tag is refused while `require_digest` is on):
+
+  ```bash
+  export SIPATH_OPENROAD_IMAGE=ghcr.io/librelane/librelane@sha256:02d50f259d483979e126ef188a50f5b61e1d285b9d538312f280b087439b0302
+  export SIPATH_OPENROAD_BINARY=openroad SIPATH_PLATFORM=linux/arm64
+  export SIPATH_MAGIC_IMAGE="$SIPATH_OPENROAD_IMAGE"   # the same image for the Magic checks
+  ```
+
+  Its tool versions differ (OpenROAD 2026-02-17, Yosys 0.62), so results
+  differ slightly (gcd8: 158 against 165 cells). Measurements under
   [Benchmarks](benchmarks.md#rosetta-amd64-against-native-arm64).
 - `native_tools` (`SIPATH_NATIVE_TOOLS=yosys,klayout`): those tools run on the
   host while OpenROAD stays in the image (gcd8 synthesis 10.0 s to 4.4 s with

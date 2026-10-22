@@ -178,8 +178,9 @@ STEP_PARAMS: dict[str, list[Param]] = {
     "place": [
         Param("density", "float", 0.55, "global placement target density", min=0.05, max=1.0),
         Param("blockages", "list[dict]", None, "partial placement blockages: [{box: [x0, y0, x1, y1] (um), "
-              "max_density: %}] filled to at most max_density by global placement and legalization (e.g. from a "
-              "heatmap's hotspots)"),
+              "max_density: %}] that global placement fills to at most max_density (e.g. from a heatmap's "
+              "hotspots); removed before legalization (fixed taps inside one fail check_placement), so "
+              "legalization and the checkpoint do not see them"),
         Param("seed", "int", None, "global placement random seed; default: the tool's"),
         Param("routability_driven", "bool", True, "routability-driven global placement (ORFS's default; off "
               "left aes too congested to route)"),
@@ -243,7 +244,9 @@ STEP_PARAMS: dict[str, list[Param]] = {
         Param("drc", "bool", False, "full-chip KLayout DRC of the assembled chip (slow; the frame's IO cells "
               "carry their own waivers)"),
         Param("seal_ring", "bool", False, "add the harness's seal ring (frame.seal_ring) as the frame's "
-              "compositor does; checked to enclose the die with no shape inside it"),
+              "compositor does, centred on the die (its opening may be smaller than the die, so it can sit on "
+              "the die's outer band); the chip check requires it placed once, centred, touching none of the "
+              "frame's shapes on any layer, and reports its opening"),
     ],
     "precheck": [
         Param("skip", "list[str]", [], "cf-precheck checks to skip (its names, e.g. lvs, xor)"),

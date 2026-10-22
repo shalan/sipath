@@ -17,16 +17,27 @@ Wall time is the whole run, signoff included for SiPath, on an Apple-silicon
 Mac under Rosetta (amd64 image), 12 threads: indicative only. ORFS's results
 are its 2026-10-16 runs (same image), measured again.
 
-| design | flow | measured | WNS (ns) | TNS (ns) | wirelength (µm) | cells | cell area (µm²) | DRC (router / KLayout) | wall (s) |
-|---|---|---|---|---|---|---|---|---|---|
-| gcd (1.1 ns) | ORFS | 10-16 | −1.465 | −65.1 | 11,786 | 473 | 5,319 | 0 / 0 | 321 |
-| gcd (1.1 ns) | SiPath | 10-20 | **−1.083** | **−46.6** | **8,061** | 473 | **4,975** | 0 / 0 | **252** |
-| aes | ORFS | 10-16 | −0.196 | −0.67 | 588,211 | **15,396** | **124,637** | 0 / 0 | **2,724** |
-| aes | SiPath | 10-21 | **+0.233** | **0.00** | **583,437** | 19,123 | 136,273 | 0 / 0 | 4,207 |
+**Completion is not signoff.** The benchmark appends `signoff` with
+`fail_on_violation: false`, so a SiPath run finishes, and is measured, even
+when signoff fails. The last column is the verdict of the run's
+`signoff.json` (every required check: DRC, density, LVS, antennas, setup and
+hold on all nine corners, slew/cap/fanout, annotation). ORFS has no signoff
+step to compare. The SiPath rows come from `bench/repeat_compare.py`
+(`runs/bench_repeat/gcd/knee_r2`, `runs/bench_repeat/aes/best_slack_r2`),
+measured by the same code.
+
+| design | flow | measured | WNS (ns) | TNS (ns) | wirelength (µm) | cells | cell area (µm²) | DRC (router / KLayout) | wall (s) | signoff |
+|---|---|---|---|---|---|---|---|---|---|---|
+| gcd (1.1 ns) | ORFS | 10-16 | −1.465 | −65.1 | 11,786 | 473 | 5,319 | 0 / 0 | 321 | — |
+| gcd (1.1 ns) | SiPath | 10-20 | **−1.083** | **−46.6** | **8,061** | 473 | **4,975** | 0 / 0 | **252** | fails: setup |
+| aes | ORFS | 10-16 | −0.196 | −0.67 | 588,211 | **15,396** | **124,637** | 0 / 0 | **2,724** | — |
+| aes | SiPath | 10-21 | **+0.233** | **0.00** | **583,437** | 19,123 | 136,273 | 0 / 0 | 4,207 | fails: setup at ss, slew |
 
 - **gcd** (a 1.1 ns clock, beyond what sky130 HD closes): SiPath ends 0.38 ns
   ahead of ORFS in WNS and 28% in TNS, with 32% less wire, 6% less cell area and
-  a shorter run that includes signoff (DRC 0, LVS match). Its post-route repair
+  a shorter run that includes signoff. Signoff fails on setup (worst −3.079 ns
+  over the nine corners; the clock is out of reach), with DRC 0, LVS match and
+  antennas 0. Its post-route repair
   lost four nets in the incremental patch and was retried with a full re-route
   in a fresh process (see [How the flow works](flow.md#routing-and-repair)).
   With the 2026-10-16 defaults SiPath was 1.0 ns behind; the difference is the
@@ -38,9 +49,10 @@ are its 2026-10-16 runs (same image), measured again.
   2026-10-21; with the former `knee` default: −0.010 ns, 650,995 µm of wire,
   148,639 µm², see [synthesis](synthesis.md#the-fallback-when-nothing-meets-timing)).
   Wall time measured with other runs sharing the machine.
-- **aes signoff:** DRC 0, LVS match, antennas 0, hold met on all nine corners,
-  setup +0.222 ns at tt, −2.383 ns at ss_max and +0.921 ns at ff (ORFS does
-  not check ss), 34 slew violations.
+- **aes signoff fails** on setup at the slow corners (−2.383 ns at ss_max;
+  +0.222 ns at tt and +0.921 ns at ff; ORFS does not check ss) and on 34 slew,
+  1 capacitance and 2 fanout violations. DRC 0, LVS match, antennas 0, hold
+  met on all nine corners.
 - **One input, one result.** A first aes run the same day closed at −0.328 ns
   (6,679 s) and failed LVS on `sky130_fd_sc_hd__o211ai_4`, a cell sizing chose
   that the KLayout deck cannot pair; excluding that cell (now one of seven)
@@ -51,18 +63,23 @@ are its 2026-10-16 runs (same image), measured again.
   on every layer). ORFS's equivalence check (kepler-formal) is disabled
   (`LEC_CHECK=0`): its binary dies under Rosetta.
 
-aes by step (seconds):
+aes by step (seconds), from the same runs as the table (SiPath:
+`best_slack_r2`, whose steps add up to its 4,207 s):
 
 | step | ORFS | SiPath |
 |---|---|---|
-| synthesis | — | 689 (600 of it the RTL equivalence check, timed out: inconclusive) |
-| place | 83 | 112 |
-| CTS | 26 | 44 |
-| routing (global, repair, detailed, antennas) | 2,290 (detailed route) | 1,472 |
-| post-route repair | — | 1,588 |
-| extraction | — | 25 |
-| signoff (LVS, DRC, nine-corner STA in parallel) | — | 657 |
-| **whole run** | **2,724** | **4,602** |
+| synthesis | — | 683 (600 of it the RTL equivalence check, timed out: inconclusive) |
+| floorplan, power, analog routing, fill | — | 17 |
+| place | 83 | 115 |
+| CTS | 26 | 72 |
+| routing (global, repair, detailed, antennas) | 2,290 (detailed route) | 967 |
+| post-route repair | — | 1,419 (393 in an incremental patch that failed, DRT-0206, then 1,026 for the full re-route it retried with) |
+| extraction | — | 26 |
+| signoff (LVS, DRC, nine-corner STA in parallel) | — | 908 |
+| **whole run** | **2,724** | **4,207** |
+
+An earlier table here (4,602 s whole run) came from another run, the
+`knee`-default run of 2026-10-19 (WNS −0.010 ns).
 
 ## SiPath's own designs through ORFS
 

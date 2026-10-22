@@ -39,11 +39,25 @@ at the slow corner with the Liberty wire-load model).
    <recipe>` maps with one recipe. No ABC delay target by default
    (`abc_target: none|period|<ps>`).
 6. **Checks and proof.** An unmapped cell (e.g. a latch) or an excluded cell
-   fails the step; the selected netlist is proven against the RTL (Yosys
-   miter, cell functions from the Liberty file): equal outputs for every input
-   sequence for `equiv_depth` (10) cycles from reset. A mismatch fails the step
-   with the counterexample. It is bounded, not a full proof (induction needs
-   a register correspondence the synthesized names do not give).
+   fails the step. The selected netlist is then checked against the RTL
+   (Yosys miter, cell functions from the Liberty file): equal outputs for
+   every input sequence for `equiv_depth` (10) cycles from reset, within
+   `equiv_timeout` (600 s). It is bounded, not a full proof (induction needs
+   a register correspondence the synthesized names do not give). A successful
+   synth step therefore does not always mean equivalence was shown; the
+   outcome is in the attempt's `equiv` metric and output:
+
+   | `equiv` | meaning | the step |
+   |---|---|---|
+   | `equivalent for N cycles from reset` | no difference within N cycles | succeeds |
+   | `mismatch` | a counterexample (in the error, and `equiv.log`) | fails |
+   | `inconclusive (timeout)` | the solver ran out of time: nothing shown either way (aes: 600 s) | succeeds |
+   | `skipped` | the design has macros, which are black boxes to the check | succeeds |
+   | (none) | `equiv: off` | succeeds |
+
+   A run that ends without a result (no verdict and no timeout in the log)
+   fails the step. Raise `equiv_timeout` or lower `equiv_depth` to turn an
+   inconclusive result into a verdict.
 
 Recipes live in `sipath/synth_recipes/`: 18 from synth_flow (with its notes)
 plus SiPath's `area_map` and `speed_sizing`; a new one is a `.abc` file there.

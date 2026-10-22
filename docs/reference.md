@@ -175,7 +175,7 @@ YAML or JSON; relative paths are relative to the file. Keys not listed are error
 
 | key | type | required | description |
 |---|---|---|---|
-| `threads` | int |  | OpenROAD threads per process (default: all cores) |
+| `threads` | int |  | OpenROAD threads per process (default: every core, as ORFS; two thirds of them on macOS, where Docker's VM shares the cores with the host) |
 | `command_timeout` | number |  | seconds before a Tcl command is abandoned |
 | `parallel_cap` | int |  | attempts at once across a step (0: as asked) |
 | `container_cpus` | number |  | CPU limit per container |
@@ -283,7 +283,7 @@ Set per attempt in `variants` (design file `flow:` or MCP `run_step`), or as def
 | parameter | type | default | allowed | description |
 |---|---|---|---|---|
 | `density` | float | 0.55 | 0.05..1.0 | global placement target density |
-| `blockages` | list[dict] | – |  | partial placement blockages: [{box: [x0, y0, x1, y1] (um), max_density: %}] filled to at most max_density by global placement and legalization (e.g. from a heatmap's hotspots) |
+| `blockages` | list[dict] | – |  | partial placement blockages: [{box: [x0, y0, x1, y1] (um), max_density: %}] that global placement fills to at most max_density (e.g. from a heatmap's hotspots); removed before legalization (fixed taps inside one fail check_placement), so legalization and the checkpoint do not see them |
 | `seed` | int | – |  | global placement random seed; default: the tool's |
 | `routability_driven` | bool | true |  | routability-driven global placement (ORFS's default; off left aes too congested to route) |
 | `improve_placement` | bool | true |  | after detailed placement: improve_placement -max_displacement "5 1" and optimize_mirroring, as ORFS (skipped with fences) |
@@ -356,7 +356,7 @@ Set per attempt in `variants` (design file `flow:` or MCP `run_step`), or as def
 | parameter | type | default | allowed | description |
 |---|---|---|---|---|
 | `drc` | bool | false |  | full-chip KLayout DRC of the assembled chip (slow; the frame's IO cells carry their own waivers) |
-| `seal_ring` | bool | false |  | add the harness's seal ring (frame.seal_ring) as the frame's compositor does; checked to enclose the die with no shape inside it |
+| `seal_ring` | bool | false |  | add the harness's seal ring (frame.seal_ring) as the frame's compositor does, centred on the die (its opening may be smaller than the die, so it can sit on the die's outer band); the chip check requires it placed once, centred, touching none of the frame's shapes on any layer, and reports its opening |
 
 ### precheck
 
@@ -487,30 +487,30 @@ Set per attempt in `variants` (design file `flow:` or MCP `run_step`), or as def
 
 ## Run configuration
 
-Design file `config:`, a `--config` file, or `SIPATH_<KEY>` environment variables (sipath.config).
+Design file `config:`, a `--config` file, or the environment variable each key names (sipath.config; not always `SIPATH_<KEY>`). Later sources win: defaults, the `--config` file, the environment, the design file's `config:`.
 
-| key | type | description |
-|---|---|---|
-| `threads` | int | OpenROAD threads per process (default: all cores) |
-| `command_timeout` | number | seconds before a Tcl command is abandoned |
-| `parallel_cap` | int | attempts at once across a step (0: as asked) |
-| `container_cpus` | number | CPU limit per container |
-| `container_memory` | str | memory limit per container (e.g. 8g) |
-| `image` | str | ORFS image (name@sha256:... pins it) |
-| `placer_python` | str | Python with PyTorch for the macros method cdlns (sipath setup-placer) |
-| `magic_image` | str | image with Magic for the signoff checks magic_drc and xor (docker/magic) |
-| `openroad_binary` | str | OpenROAD inside the image (default the ORFS path; openroad for an image with it on PATH) |
-| `platform` | str | image platform: linux/amd64, or linux/arm64 for a native arm64 image |
-| `native_tools` | list[str] | tools run on the host instead of the image (klayout, yosys, magic): faster than emulation |
-| `runtime` | str | where OpenROAD, Yosys and KLayout run: auto (the locked tools unpacked by install-tools or openroad on PATH, else the locked image), native, or docker |
-| `tools_root` | str | the locked image's tools unpacked by sipath install-tools (default ~/.cache/sipath/orfs-root) |
-| `tool_timeout` | number | seconds one signoff tool run (KLayout DRC/LVS, Magic) may take |
-| `require_digest` | bool | refuse an image not pinned by digest (default on) |
-| `precheck_image` | str | image with ChipFoundry's cf-precheck and its tools (precheck step) |
-| `require_pdk_release` | bool | refuse an open_pdks tree whose release is not the locked one (default on) |
-| `debug_failed` | bool | write a debug checkpoint for a failed attempt |
-| `log_level` | str | flow logger level |
-| `snapshots` | str | a layout picture after every step (_pictures/<attempt>.png, in the report): off, selected (each step's selected attempt) or all (every finished attempt) |
+| key | environment | type | description |
+|---|---|---|---|
+| `threads` | `SIPATH_THREADS` | int | OpenROAD threads per process (default: every core, as ORFS; two thirds of them on macOS, where Docker's VM shares the cores with the host) |
+| `command_timeout` | `SIPATH_TIMEOUT` | number | seconds before a Tcl command is abandoned |
+| `parallel_cap` | `SIPATH_PARALLEL_CAP` | int | attempts at once across a step (0: as asked) |
+| `container_cpus` | `SIPATH_CPUS` | number | CPU limit per container |
+| `container_memory` | `SIPATH_MEMORY` | str | memory limit per container (e.g. 8g) |
+| `image` | `SIPATH_OPENROAD_IMAGE` | str | ORFS image (name@sha256:... pins it) |
+| `placer_python` | `SIPATH_PLACER_PYTHON` | str | Python with PyTorch for the macros method cdlns (sipath setup-placer) |
+| `magic_image` | `SIPATH_MAGIC_IMAGE` | str | image with Magic for the signoff checks magic_drc and xor (docker/magic) |
+| `openroad_binary` | `SIPATH_OPENROAD_BINARY` | str | OpenROAD inside the image (default the ORFS path; openroad for an image with it on PATH) |
+| `platform` | `SIPATH_PLATFORM` | str | image platform: linux/amd64, or linux/arm64 for a native arm64 image |
+| `native_tools` | `SIPATH_NATIVE_TOOLS` | list[str] | tools run on the host instead of the image (klayout, yosys, magic): faster than emulation |
+| `runtime` | `SIPATH_RUNTIME` | str | where OpenROAD, Yosys and KLayout run: auto (the locked tools unpacked by install-tools or openroad on PATH, else the locked image), native, or docker |
+| `tools_root` | `SIPATH_TOOLS_ROOT` | str | the locked image's tools unpacked by sipath install-tools (default ~/.cache/sipath/orfs-root) |
+| `tool_timeout` | `SIPATH_TOOL_TIMEOUT` | number | seconds one signoff tool run (KLayout DRC/LVS, Magic) may take |
+| `require_digest` | `SIPATH_REQUIRE_DIGEST` | bool | refuse an image not pinned by digest (default on) |
+| `precheck_image` | `SIPATH_PRECHECK_IMAGE` | str | image with ChipFoundry's cf-precheck and its tools (precheck step) |
+| `require_pdk_release` | `SIPATH_REQUIRE_PDK` | bool | refuse an open_pdks tree whose release is not the locked one (default on) |
+| `debug_failed` | `SIPATH_DEBUG_FAILED` | bool | write a debug checkpoint for a failed attempt |
+| `log_level` | `SIPATH_LOG_LEVEL` | str | flow logger level |
+| `snapshots` | `SIPATH_SNAPSHOTS` | str | a layout picture after every step (_pictures/<attempt>.png, in the report): off, selected (each step's selected attempt) or all (every finished attempt) |
 
 ## PDK description keys
 
