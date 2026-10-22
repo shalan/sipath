@@ -8,6 +8,44 @@ Part of the [SiPath documentation](../README.md#documentation).
 `density`, `lvs`, `lvs_full`, `antenna`, `timing`, `magic_drc`, `xor` and
 `harness` run single signoff checks.
 
+## What each step needs
+
+The order above is the reference flow, not a rule. Each step declares the
+capabilities it needs from its parent chain and those it adds, and a flow may
+list steps in any order that satisfies them. A step whose chain lacks one is
+refused before any tool starts, naming what is missing and the step that gives
+it: a design-file flow is checked as a whole before its first step runs (also
+by `sipath validate`), `Flow.step` checks each step, and MCP's `run_step`
+checks before its job starts.
+
+| step | needs | adds |
+|---|---|---|
+| `synth` | (RTL in the design) | netlist |
+| `floorplan` | netlist (the design's, or synthesis') | floorplan |
+| `macros` | floorplan | macros_placed |
+| `physical` | floorplan | power_grid (grid, taps, endcaps) |
+| `place` | floorplan, power_grid | placed |
+| `cts` | placed | clock_tree |
+| `route_analog` | placed | analog_routed |
+| `route_digital` | placed | routed |
+| `route_repair` | routed | |
+| `fill` | routed | filled |
+| `extract` | routed | parasitics |
+| `signoff` | routed; parasitics when timing is among its checks | signoff, gds, powered_netlist |
+| check steps (`drc`, `lvs`, `timing`, ...) | as signoff for their checks | powered_netlist; gds for the checks that stream it |
+| `views` | signoff, gds, parasitics | views |
+| `integrate` | gds | chip_gds |
+| `precheck` | gds, powered_netlist | |
+| `ppa` | placed | |
+| an ECO | routed | (keeps its parent's) |
+
+A plugin declares its own (`@registry.step("name", requires={"placed"},
+provides={"..."})`, or `fn.requires` / `fn.provides` on a step imported by
+path); `requires` may be a function of the step's parameters, as signoff's
+is. A step that declares neither runs unchecked, with a warning, and the steps
+after it are not checked either. Every attempt records its chain's
+capabilities in `graph.json`.
+
 ## Floorplan and pads
 - A soft macro takes its die, rows and pins from a DEF, or a die box or a
   utilization with pins placed at random, then by the cells after a first

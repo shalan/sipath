@@ -87,14 +87,18 @@ def validate() -> int:
     pdk = None
     for path in sorted(glob.glob(os.path.join(examples, "*.yaml"))):
         try:
-            d, _ = designfile.load(path)
+            d, spec = designfile.load(path)
         except FileNotFoundError as e:  # e.g. a parent of a macro not hardened yet
             print(f"skipped: {os.path.basename(path)}: {e}")
             continue
         pdk = load_pdk(d.pdk, runner) if runner else load_pdk(d.pdk, platforms=ORFS_PLATFORMS)
         designfile.resolve_srams(d, pdk)  # as a run does: sram: names the PDK's macro views
         d.validate(pdk, runner_prefixes=prefixes)
-        print(f"inputs ok: {d.name} ({d.mode}, {pdk.name}, corners {pdk.corner_source}) {len(d.input_files())} files")
+        problems = designfile.flow_problems(d, spec if spec else designfile.default_flow(d, pdk))
+        if problems:
+            raise SystemExit(f"{os.path.basename(path)}: " + "; ".join(problems))
+        print(f"inputs ok: {d.name} ({d.mode}, {pdk.name}, corners {pdk.corner_source}) {len(d.input_files())} files, "
+              "flow prerequisites met")
 
     # scheduler rules, with stand-in sessions (no design is produced)
     with tempfile.TemporaryDirectory() as td:

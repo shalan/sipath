@@ -21,7 +21,8 @@ registry.register_extension("example", {
 })
 
 
-@registry.step("cell_census", params=[Param("prefix", "str", "", "count only instances whose name starts with this")])
+@registry.step("cell_census", params=[Param("prefix", "str", "", "count only instances whose name starts with this")],
+               requires={"netlist"}, provides=())  # counts the linked netlist's instances; adds nothing
 def cell_census(ctx):
     """Count the design's instances (optionally under a hierarchy prefix)."""
     prefix = ctx.params.get("prefix") or ""

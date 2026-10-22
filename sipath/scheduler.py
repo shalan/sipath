@@ -102,6 +102,66 @@ class StepCancelled(StepFailed):
     pass
 
 
+class MissingPrerequisite(ValueError):
+    """A step asked of a parent chain without something it needs (checked before any tool starts)."""
+
+
+# what steps need and give (registry.register_step requires= / provides=; the built-ins: sipath.steps.CAPS)
+CAPABILITIES = {
+    "netlist": "a gate-level netlist (the design's, or synthesis')",
+    "floorplan": "die, core, rows, IO pins (and the pad ring of a die)",
+    "macros_placed": "hard macros placed",
+    "power_grid": "power grid, tap and endcap cells",
+    "placed": "standard cells placed and legal",
+    "clock_tree": "clock tree built",
+    "analog_routed": "analog nets routed and frozen",
+    "routed": "signal nets routed",
+    "filled": "metal fill",
+    "parasitics": "extracted parasitics (a SPEF per corner)",
+    "signoff": "signoff checks ran",
+    "gds": "a GDS of the design",
+    "powered_netlist": "a netlist with supply pins",
+    "views": "hardened-macro views",
+    "chip_gds": "the design integrated into its frame",
+}
+# the step that first gives each capability, named in a refusal
+GIVEN_BY = {"netlist": "synth", "floorplan": "floorplan", "macros_placed": "macros", "power_grid": "physical",
+            "placed": "place", "clock_tree": "cts", "analog_routed": "route_analog", "routed": "route_digital",
+            "filled": "fill", "parasitics": "extract", "signoff": "signoff", "gds": "signoff",
+            "powered_netlist": "signoff", "views": "views", "chip_gds": "integrate"}
+
+
+def needs(fn, params: dict) -> set | None:
+    """What ``fn`` requires of its parent chain for ``params``; None when it declares nothing."""
+    req = getattr(fn, "requires", None)
+    if req is None:
+        return None
+    return set(req(params or {}) if callable(req) else req)
+
+
+def missing_text(name: str, missing, have) -> str:
+    adds = ", ".join(f"{c} ({CAPABILITIES.get(c, c)}; given by {GIVEN_BY[c]})" if c in GIVEN_BY else c
+                     for c in sorted(missing))
+    return (f"step {name} needs {adds}, which its parent chain does not have "
+            f"(it has: {', '.join(sorted(have)) or 'nothing'})")
+
+
+def chain_problems(root: set, chain) -> list[str]:
+    """Check a whole flow before it runs: ``chain`` is [(name, fn, variants)], each continuing from the one
+    before; the problems (a step whose chain lacks what it needs), in order."""
+    have, out = set(root), []
+    for name, fn, variants in chain:
+        miss = set()
+        for v in variants or [{}]:
+            n = needs(fn, v)
+            if n is not None:
+                miss |= n - have
+        if miss:
+            out.append(missing_text(name, miss, have))
+        have |= set(getattr(fn, "provides", ()) or ())
+    return out
+
+
 def _same(a, b) -> bool:
     """Equal after a JSON round trip (tuples vs lists, key order)."""
     return json.dumps(a, sort_keys=True, default=str) == json.dumps(b, sort_keys=True, default=str)
@@ -137,6 +197,7 @@ class Attempt:
     adapt_reason: str | None = None  # what in it (e.g. the hotspots) the new params answer
     fingerprint: str | None = None  # the run's inputs, its step, params, declared defaults and parent (fingerprint)
     stale_reason: str | None = None  # why a resume did not reuse it (status "stale")
+    capabilities: list | None = None  # what its chain has after it (CAPABILITIES); None: unknown (an old graph)
     retry: dict | None = field(default=None, repr=False)  # params a RetryWith asked for (not recorded)
     retry_why: str | None = field(default=None, repr=False)  # its reason, handed to the retry
 
@@ -153,6 +214,7 @@ class Attempt:
             "debug_checkpoint": self.debug_checkpoint, "resumed": self.resumed, "retry_of": self.retry_of,
             "retry_reason": self.retry_reason, "adapted_from": self.adapted_from, "adapt_reason": self.adapt_reason,
             "fingerprint": self.fingerprint, **({"stale_reason": self.stale_reason} if self.stale_reason else {}),
+            "capabilities": self.capabilities,
         }
 
 
@@ -239,6 +301,10 @@ class Flow:
         self.input_changes: list[str] = []  # what differs from the recorded run (resume)
         self.stale: list[dict] = []  # steps a resume ran again, and why
         self._unfingerprinted = False  # a graph recorded before fingerprints: steps reused unchecked
+        # what the design itself gives the first step: its netlist, when it has one instead of RTL
+        self.root_capabilities = {"netlist"} if (getattr(self.design, "netlist", None)
+                                                  and not getattr(self.design, "rtl", None)) else set()
+        self._unchecked: set = set()  # steps that declare no prerequisites, warned about once
         if resume:
             self._load_graph()
 
@@ -273,7 +339,8 @@ class Flow:
                         transcript_tail=j.get("transcript_tail") or [], debug_checkpoint=j.get("debug_checkpoint"),
                         resumed=True, retry_of=j.get("retry_of"), retry_reason=j.get("retry_reason"),
                         adapted_from=j.get("adapted_from"), adapt_reason=j.get("adapt_reason"),
-                        fingerprint=j.get("fingerprint"), stale_reason=j.get("stale_reason"))
+                        fingerprint=j.get("fingerprint"), stale_reason=j.get("stale_reason"),
+                        capabilities=j.get("capabilities"))
             if j["parent"] and a.parent is None:
                 raise ValueError(f"{path}: attempt {a.id} names unknown parent {j['parent']}")
             if a.status in ("running", "pending"):
@@ -333,6 +400,33 @@ class Flow:
         self._make_stale(name, why)
         return None
 
+    def check_prerequisites(self, name: str, fn: Callable, parent: "Attempt | None", variants=None) -> None:
+        """MissingPrerequisite when ``parent``'s chain lacks what ``fn`` needs for any of ``variants``.
+        A parent from a graph without capabilities, or a step that declares none, is not checked."""
+        have = set(parent.capabilities) if parent is not None and parent.capabilities is not None else (
+            None if parent is not None else set(self.root_capabilities))
+        miss, declared = set(), False
+        for v in variants or [{}]:
+            n = needs(fn, v)
+            if n is None:
+                continue
+            declared = True
+            if have is not None:
+                miss |= n - have
+        if not declared and name not in self._unchecked:
+            self._unchecked.add(name)
+            log.warning("step %s declares no prerequisites (registry.step requires=/provides=): not checked", name)
+        if miss:
+            raise MissingPrerequisite(missing_text(name, miss, have))
+
+    def _capabilities(self, fn, parent) -> list | None:
+        """What the chain has after an attempt of ``fn``; None (unknown, so later steps are not checked) after a
+        step that declares nothing (a stand-in, an undeclared plugin) or a parent whose capabilities are unknown."""
+        have = parent.capabilities if parent is not None else sorted(self.root_capabilities)
+        if have is None or fn is None or not (hasattr(fn, "requires") or hasattr(fn, "provides")):
+            return None
+        return sorted(set(have) | set(getattr(fn, "provides", ()) or ()))
+
     def _make_stale(self, name, why):
         """The recorded attempts of ``name`` are kept, marked stale with ``why``, and never reused."""
         with self._lock:
@@ -391,6 +485,7 @@ class Flow:
         score_fn = score_mod.get(score)
         if parent is not None and parent.status != "selected":
             raise ValueError(f"{name}: parent {parent.id} is {parent.status}; continue only from a selected checkpoint")
+        self.check_prerequisites(name, fn, parent, variants)
         rec = self._recorded(name, parent, variants, score)
         if rec is not None:
             log.info("step %s: recorded result reused (selected %s)", name, rec.selected.id)
@@ -416,7 +511,8 @@ class Flow:
             if k in kept:
                 attempts.append(kept[k])  # not run again
             else:
-                a = self._new_attempt(name, base + k, v, parent, kind="tool" if getattr(fn, "tool", False) else "step")
+                a = self._new_attempt(name, base + k, v, parent, kind="tool" if getattr(fn, "tool", False) else "step",
+                                      fn=fn)
                 a.fingerprint = fps[k]
                 attempts.append(a)
         self._run_batch(name, attempts, fn, parallel, parent)
@@ -435,7 +531,7 @@ class Flow:
         # a failed attempt that asked for it (RetryWith) gets one fresh attempt with the merged params
         nxt = max(a.index for a in self.attempts if a.step == name) + 1
         for a in [a for a in todo if a.status == "failed" and a.retry]:
-            r = self._new_attempt(name, nxt, {**a.params, **a.retry}, parent, kind=a.kind)
+            r = self._new_attempt(name, nxt, {**a.params, **a.retry}, parent, kind=a.kind, fn=fn)
             r.fingerprint = self._attempt_fp(name, r.params, parent)
             r.retry_of, r.retry_reason, nxt = a.id, a.retry_why, nxt + 1
             r.adapted_from, r.adapt_reason = a.adapted_from, a.adapt_reason
@@ -467,7 +563,7 @@ class Flow:
             old = next((a for a in mine if _same(a.params, v)), None)
             if old is not None:
                 continue  # already tried (by an earlier round, or recorded before a resume)
-            a = self._new_attempt(name, nxt, v, parent, kind="tool" if getattr(fn, "tool", False) else "step")
+            a = self._new_attempt(name, nxt, v, parent, kind="tool" if getattr(fn, "tool", False) else "step", fn=fn)
             a.fingerprint = self._attempt_fp(name, v, parent)
             a.adapted_from, a.adapt_reason, nxt = o.get("from"), o.get("reason"), nxt + 1
             new.append(a)
@@ -514,6 +610,9 @@ class Flow:
             raise EcoRefused(f"ECO {name}: a step or attempt with that name exists; its checkpoints would be lost")
         if parent.status != "selected":
             raise EcoRefused(f"ECO {name}: parent {parent.id} is {parent.status}, not the selected checkpoint")
+        if parent.capabilities is not None and "routed" not in parent.capabilities:
+            raise MissingPrerequisite(f"ECO {name}: needs a routed parent; {parent.id} has "
+                                      f"{', '.join(parent.capabilities) or 'nothing'}")
         child = [a for a in self.attempts if a.parent is parent and a.status == "selected"]
         if child:
             raise EcoRefused(f"ECO {name}: parent {parent.id} already continued as {child[0].id}; "
@@ -521,7 +620,7 @@ class Flow:
         if fn is None:
             fn = registry.eco_runner()
         a = self._new_attempt(name, self._base_index(name), params, parent, kind="eco")
-        a.fingerprint = efp
+        a.fingerprint, a.capabilities = efp, parent.capabilities  # an ECO keeps what its parent had
         self._run_attempt(a, fn)
         if a.status == "cancelled":
             self.save_graph()
@@ -539,7 +638,7 @@ class Flow:
                             fingerprint=efp)
 
     # --------------------------------------------------------------- internals
-    def _new_attempt(self, step, k, params, parent, kind="step") -> Attempt:
+    def _new_attempt(self, step, k, params, parent, kind="step", fn=None) -> Attempt:
         # a directory is never reused: a retry (after a cancel or an interruption)
         # gets a fresh one and the old one stays for inspection. (Reusing a just
         # deleted path also confuses Docker Desktop's file sharing.)
@@ -548,7 +647,8 @@ class Flow:
         while os.path.exists(d):
             n += 1
             d = os.path.join(self.workdir, step, f"{k}_r{n}")
-        a = Attempt(id=f"{step}.{k}", step=step, index=k, params=dict(params), parent=parent, dir=d, kind=kind)
+        a = Attempt(id=f"{step}.{k}", step=step, index=k, params=dict(params), parent=parent, dir=d, kind=kind,
+                    capabilities=self._capabilities(fn, parent))
         with self._lock:
             self.attempts.append(a)
         return a

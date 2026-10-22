@@ -23,6 +23,7 @@ from . import steps as steps_mod
 from .design import Datapath, Design, Group, Macro, Pad, PdnSpec, Strap
 from .padplan import PadRules
 from .pdk import load as load_pdk, read_file
+from .scheduler import chain_problems
 
 PATH_FIELDS = ("netlist", "sdc", "floorplan_def")
 SIMPLE = ("name", "top", "mode", "die", "core_margin", "analog_nets", "analog_ndr", "analog_row_blocked_layers",
@@ -314,7 +315,28 @@ def run(path_or_design, workdir: str, runner=None, overrides: dict | None = None
     if explore:  # a first cut at PPA: see explore_flow
         spec = explore_flow(spec)
     flow.progress = progress
+    items = resolve_steps(spec, overrides)
+    problems = chain_problems(flow.root_capabilities, [(name, fn, item.get("variants")) for name, _, fn, item in items])
+    if problems:  # before any step runs
+        from .scheduler import MissingPrerequisite
+        raise MissingPrerequisite("the flow cannot run as listed:\n  " + "\n  ".join(problems))
     parent = None
+    for name, ref, fn, item in items:
+        score = item.get("score") or ("hotspots_then_wns" if item.get("adapt") else None)
+        r = flow.step(name, fn, parent=parent, variants=item.get("variants"), score=score,
+                      parallel=item.get("parallel", 1))
+        if item.get("adapt"):
+            r = adapt(flow, name, ref, fn, item["adapt"], item.get("parallel", 1))
+        if cfg.snapshots != "off":
+            snapshot(flow, r, cfg.snapshots)
+        parent = r.selected
+    return flow
+
+
+def resolve_steps(spec, overrides: dict | None = None) -> list[tuple]:
+    """A flow list as [(name, ref, fn, item)]: each step's function found (registered, or imported by
+    ``module:function``), overrides and sweeps applied, parameters checked."""
+    out = []
     for item in spec:
         item = expand_sweep(dict(item, **(overrides or {}).get(item["step"], {})))
         name = item["step"]
@@ -328,15 +350,14 @@ def run(path_or_design, workdir: str, runner=None, overrides: dict | None = None
         if fn is None:
             raise ValueError(f"unknown step {name!r}; known: {sorted(steps_mod.STEPS)}")
         steps_mod.check_params(ref, item.get("variants"))
-        score = item.get("score") or ("hotspots_then_wns" if item.get("adapt") else None)
-        r = flow.step(name, fn, parent=parent, variants=item.get("variants"), score=score,
-                      parallel=item.get("parallel", 1))
-        if item.get("adapt"):
-            r = adapt(flow, name, ref, fn, item["adapt"], item.get("parallel", 1))
-        if cfg.snapshots != "off":
-            snapshot(flow, r, cfg.snapshots)
-        parent = r.selected
-    return flow
+        out.append((name, ref, fn, item))
+    return out
+
+
+def flow_problems(d: Design, spec) -> list[str]:
+    """What keeps a flow list from running on design ``d`` (steps whose chain lacks what they need)."""
+    root = {"netlist"} if (d.netlist and not d.rtl) else set()
+    return chain_problems(root, [(name, fn, item.get("variants")) for name, _, fn, item in resolve_steps(spec)])
 
 
 def snapshot(flow, run, which: str = "selected") -> list[str]:

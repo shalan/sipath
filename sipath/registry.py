@@ -108,15 +108,23 @@ def adapter(step: str) -> Callable | None:
 
 
 # ----------------------------------------------------------------------- steps
-def register_step(name: str, fn: Callable, params=(), tool: bool | None = None, replace: bool = False):
+def register_step(name: str, fn: Callable, params=(), tool: bool | None = None, replace: bool = False,
+                  requires=None, provides=None):
     """Make ``fn(ctx)`` a step called ``name`` (design files, MCP, the CLI).
     ``params``: its sipath.params.Param declarations; ``tool``: run without
-    OpenROAD (the step writes outputs["checkpoint"])."""
+    OpenROAD (the step writes outputs["checkpoint"]). ``requires``: the
+    capabilities its parent chain must have (sipath.scheduler.CAPABILITIES;
+    a set, or fn(params) -> set), ``provides``: those it adds. A step that
+    declares neither runs unchecked, with a warning."""
     steps = builtin_steps()
     if name in steps and not replace:
         raise RegistryError(f"step {name!r} is already registered")
     if tool is not None:
         fn.tool = bool(tool)
+    if requires is not None:
+        fn.requires = requires if callable(requires) else frozenset(requires)
+    if provides is not None:
+        fn.provides = frozenset(provides)
     steps[name] = fn
     params = list(params)
     if not getattr(fn, "tool", False):  # an OpenROAD step: threads like the built-in ones
@@ -126,10 +134,10 @@ def register_step(name: str, fn: Callable, params=(), tool: bool | None = None, 
     return fn
 
 
-def step(name: str | None = None, params=(), tool: bool | None = None):
+def step(name: str | None = None, params=(), tool: bool | None = None, requires=None, provides=None):
     """Decorator form of register_step (the step name defaults to the function's)."""
     def wrap(fn):
-        return register_step(name or fn.__name__, fn, params, tool)
+        return register_step(name or fn.__name__, fn, params, tool, requires=requires, provides=provides)
     return wrap
 
 
@@ -222,7 +230,7 @@ def register_extension(namespace: str, fields: dict, replace: bool = False):
 def import_step(ref: str) -> str:
     """Register the step function ``module:function`` (a design file's
     ``step`` or ``fn``) under that name and return it. The function may carry
-    ``params`` (sipath.params.Param list) and ``tool`` attributes."""
+    ``params`` (sipath.params.Param list), ``tool``, ``requires`` and ``provides`` attributes."""
     if ref in builtin_steps():
         return ref
     mod, _, attr = ref.partition(":")

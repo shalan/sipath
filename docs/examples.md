@@ -326,14 +326,22 @@ def inst_count(ctx):
 
 
 inst_count.params = [Param("at_least", "int", 1, "fewest instances accepted", min=0)]
+inst_count.requires, inst_count.provides = {"netlist"}, set()  # what it reads, what it adds
 ```
+
+A step declares what it needs from the steps before it and what it adds (see
+[what each step needs](flow.md#what-each-step-needs)); one that declares
+nothing runs unchecked, with a warning.
 
 A whole package of steps, scores, checks and harnesses registers through
 `plugins: [mypkg.sipath_ext]` (`sipath/examples/plugin_example.py`).
 
 ## 11. Resume, and a step under another name
 
-An interrupted run continues where it stopped; finished attempts are kept:
+An interrupted run continues where it stopped; finished attempts are kept. A
+step whose inputs changed since (an edited SDC, RTL or macro view, another PDK
+release or image) runs again with every step after it, never reused silently;
+its old attempts stay in `graph.json` as `stale`, with the reason:
 
 ```bash
 python3 -m sipath run mcu8 runs/mcu8 --resume

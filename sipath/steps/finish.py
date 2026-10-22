@@ -62,9 +62,14 @@ def views(ctx):
     (default: all analysis corners), bloat_occupied_layers (True)."""
     import shutil
     d, s, p = ctx.design, ctx.session, ctx.params
-    so = ctx.parent_outputs("signoff")
+    so = {}
+    for k in ("gds", "signoff"):  # the nearest signoff in the chain, whatever its step is called
+        try:
+            so[k] = ctx.ancestor_output(k)
+        except KeyError:
+            pass
     if not (so.get("gds") and os.path.isfile(so["gds"])):
-        raise RuntimeError("views need a signed-off GDS (the parent signoff wrote none)")
+        raise RuntimeError("views need a signed-off GDS (no signoff in the parent chain wrote one)")
     out = ctx.path("views")
     os.makedirs(out, exist_ok=True)
     top = d.top

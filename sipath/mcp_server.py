@@ -296,6 +296,11 @@ class Server:
             raise ToolError("parent is required for every step but a run's first ('synth' or 'floorplan')")
         if p is not None and p.status != "selected":
             raise ToolError(f"parent {p.id} is {p.status}; continue only from a selected attempt")
+        from .scheduler import MissingPrerequisite
+        try:  # before the job starts: nothing runs for a step its parent cannot feed
+            flow.check_prerequisites(step, STEPS[step], p, variants)
+        except MissingPrerequisite as e:
+            raise ToolError(str(e)) from e
 
         def body():
             try:

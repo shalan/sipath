@@ -92,6 +92,39 @@ STEPS.update({
 })
 
 STEPS.update({name: check_step(name) for name in params.CHECK_STEPS})  # `- step: drc`, `- step: lvs`, ...
+
+
+def _signoff_needs(checks):
+    """Routing always; extracted parasitics when timing is among the checks (they read every corner's SPEF)."""
+    timing = {"setup", "hold", "drv", "annotation", "unconstrained"}
+    return lambda p: {"routed"} | ({"parasitics"} if timing & set(p.get("checks") or checks) else set())
+
+
+# what each built-in step needs from its parent chain and what it adds (sipath.scheduler.CAPABILITIES)
+CAPS = {
+    "synth": ((), ("netlist",)),
+    "floorplan": (("netlist",), ("floorplan",)),
+    "macros": (("floorplan",), ("macros_placed",)),
+    "physical": (("floorplan",), ("power_grid",)),
+    "place": (("floorplan", "power_grid"), ("placed",)),
+    "cts": (("placed",), ("clock_tree",)),
+    "route_analog": (("placed",), ("analog_routed",)),
+    "route_digital": (("placed",), ("routed",)),
+    "route_repair": (("routed",), ()),
+    "fill": (("routed",), ("filled",)),
+    "extract": (("routed",), ("parasitics",)),
+    "signoff": (_signoff_needs(params.SIGNOFF_CHECKS), ("signoff", "gds", "powered_netlist")),
+    "views": (("signoff", "gds", "parasitics"), ("views",)),
+    "integrate": (("gds",), ("chip_gds",)),
+    "precheck": (("gds", "powered_netlist"), ()),
+    "ppa": (("placed",), ()),
+}
+for _name, _checks in params.CHECK_STEPS.items():  # a check step streams the GDS when one of its checks reads it
+    _gds = bool({"drc", "density", "lvs", "lvs_full", "magic_drc", "xor"} & set(_checks))
+    CAPS[_name] = (_signoff_needs(_checks), ("powered_netlist",) + (("gds",) if _gds else ()))
+for _name, (_req, _prov) in CAPS.items():
+    STEPS[_name].requires = _req if callable(_req) else frozenset(_req)
+    STEPS[_name].provides = frozenset(_prov)
 registry.ADAPTERS.setdefault("place", adapt_place)  # adaptive rounds: hotspots -> the next placements
 
 # parameters each step reads from its variant dict; anything else is a mistake

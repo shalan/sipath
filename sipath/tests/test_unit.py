@@ -2316,6 +2316,91 @@ class Heatmaps(unittest.TestCase):
                     s.query_heatmap(*args)
 
 
+class Prerequisites(unittest.TestCase):
+    """B1.2: steps declare what they need and give; a step whose parent chain lacks something is refused
+    before any tool starts, naming what is missing and the step that gives it."""
+
+    def flow(self, td, rtl=False):
+        d = Design("fake", "fake", None if rtl else "x.v", "x.sdc", "macro", floorplan_def="x.def",
+                   rtl=["x.v"] if rtl else [])
+        return Flow(d, sky130hd("/p"), td, demo.fake_factory(), validate_inputs=False)
+
+    def parent(self, f, caps, step="physical"):
+        a = Attempt(f"{step}.0", step, 0, {}, None, f.workdir, status="selected", capabilities=sorted(caps))
+        f.attempts.append(a)
+        return a
+
+    def test_refusals_name_what_is_missing(self):
+        from sipath import steps
+        from sipath.scheduler import MissingPrerequisite
+        with tempfile.TemporaryDirectory() as td:
+            f = self.flow(td)
+            fp = self.parent(f, {"netlist", "floorplan"}, "floorplan")
+            with self.assertRaisesRegex(MissingPrerequisite, r"place needs power_grid .*given by physical"):
+                f.step("place", steps.STEPS["place"], parent=fp)
+            routed = self.parent(f, {"netlist", "floorplan", "power_grid", "placed", "routed"}, "route_repair")
+            with self.assertRaisesRegex(MissingPrerequisite, r"precheck needs gds .*powered_netlist"):
+                f.step("precheck", steps.STEPS["precheck"], parent=routed)
+            with self.assertRaisesRegex(MissingPrerequisite, r"signoff needs parasitics"):  # timing reads SPEFs
+                f.step("signoff", steps.STEPS["signoff"], parent=routed)
+            f.check_prerequisites("signoff", steps.STEPS["signoff"], routed, [{"checks": ["drc", "lvs"]}])  # none
+            with self.assertRaisesRegex(MissingPrerequisite, "timing needs parasitics"):
+                f.check_prerequisites("timing", steps.STEPS["timing"], routed)
+            self.assertEqual(f.attempts, [fp, routed])  # nothing started
+            with self.assertRaisesRegex(MissingPrerequisite, "ECO e: needs a routed parent"):
+                f.eco("e", fp, [{"op": "resize", "inst": "u", "master": "m"}])
+        with tempfile.TemporaryDirectory() as td:  # an RTL design: the first step must make the netlist
+            f = self.flow(td, rtl=True)
+            with self.assertRaisesRegex(MissingPrerequisite, r"floorplan needs netlist .*given by synth"):
+                f.step("floorplan", steps.STEPS["floorplan"])
+
+    def test_capabilities_follow_the_chain_and_are_recorded(self):
+        from sipath import registry
+        with tempfile.TemporaryDirectory() as td:
+            f = self.flow(td)
+
+            def mk(ctx):
+                ctx.metrics["wns"] = 1.0
+            mk.requires, mk.provides = frozenset({"netlist"}), frozenset({"floorplan"})
+            a = f.step("fp", mk, score="setup_wns").selected
+            self.assertEqual(a.capabilities, ["floorplan", "netlist"])
+            g = _read_json(os.path.join(td, "graph.json"))
+            self.assertEqual(g["attempts"][0]["capabilities"], ["floorplan", "netlist"])
+            with self.assertLogs("sipath", "WARNING") as logs:  # undeclared: runs, unchecked, warned once
+                b = f.step("custom", demo.fake_step(), parent=a, score="setup_wns").selected
+            self.assertIn("declares no prerequisites", " ".join(logs.output))
+            self.assertIsNone(b.capabilities)  # unknown after it: later steps are not checked
+            f.check_prerequisites("place", registry.builtin_steps()["place"], b)
+
+    def test_whole_flows_are_checked_before_they_run(self):
+        import glob
+        from sipath import designfile
+        for path in sorted(glob.glob(os.path.join(os.path.dirname(__file__), "..", "examples", "*.yaml"))):
+            try:
+                d, spec = designfile.load(path)
+            except FileNotFoundError:  # a parent of a macro not hardened here
+                continue
+            self.assertEqual(designfile.flow_problems(d, spec), [], os.path.basename(path))
+            self.assertEqual(designfile.flow_problems(d, designfile.default_flow(d)), [], os.path.basename(path))
+        d, _ = designfile.load(os.path.join(os.path.dirname(__file__), "..", "examples", "gcd8.yaml"))
+        problems = designfile.flow_problems(d, [{"step": "synth"}, {"step": "place"}])  # the old broken doc example
+        self.assertEqual(len(problems), 1)
+        self.assertIn("place needs floorplan", problems[0])
+        self.assertIn("power_grid", problems[0])
+
+    def test_mcp_refuses_before_the_job_starts(self):
+        from sipath import mcp_server
+        from sipath.mcp_server import ToolError
+        with tempfile.TemporaryDirectory() as td:
+            f = self.flow(td)
+            self.parent(f, {"netlist", "floorplan"}, "floorplan")
+            s = mcp_server.Server(emit=lambda m: None)
+            s.runs["r1"] = {"flow": f, "design": "fake", "job": None}
+            with self.assertRaisesRegex(ToolError, "place needs power_grid"):
+                s.run_step("r1", "place", parent="floorplan.0")
+            self.assertEqual(len(f.attempts), 1)
+
+
 class Adaptive(unittest.TestCase):
     """Adaptive rounds: Flow.extend, designfile.adapt, the place adapter and its blockages."""
 
