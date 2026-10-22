@@ -7,10 +7,10 @@ straight from the registry (a cut transfer resumes; a re-run keeps the layers
 already fetched), checks every layer against its digest, then unpacks the
 layers into ``dir`` (the image's filesystem, without the parts no step
 uses) and writes ``dir/sipath-bin/{openroad,sta,yosys,yosys-abc,klayout}``: wrappers
-that run the image's binaries with the image's libraries. With ``dir/sipath-bin`` on
-PATH, ``find_openroad()`` takes the native runner and the steps call the same
-tool builds the Docker runs use; ``SIPATH_PLATFORMS`` points at the image's
-platform tree (printed at the end).
+that run the image's binaries with the image's libraries. ``find_openroad()``
+takes them when nothing else is asked for (``runtime: auto``; the default
+``dir``, else ``tools_root``), with the image's platform tree, so the steps call
+the same tool builds the Docker runs use; nothing needs to go on PATH.
 
 The binaries are the image's Ubuntu 22.04 builds and use the host's C library,
 so the host needs glibc 2.35 or newer (Ubuntu 22.04 and later, Colab).
@@ -275,7 +275,7 @@ def main(argv) -> int:
     except (RuntimeError, ValueError, OSError, tarfile.TarError) as e:
         print(f"install-tools: {e}", file=sys.stderr)
         return 1
+    note = "" if root == DEFAULT else f"\nnot the default directory: export SIPATH_TOOLS_ROOT={root}"
     print(f"tools in {bindir}: {', '.join(TOOLS)}\n"
-          f'export PATH="{bindir}:$PATH"\n'
-          f'export SIPATH_PLATFORMS="{os.path.join(root, "OpenROAD-flow-scripts", "flow", "platforms")}"')
+          f"runs use them from now on (runtime auto; SIPATH_RUNTIME=docker keeps the image){note}")
     return 0

@@ -62,9 +62,15 @@ ORFS platform tree; routes to a DEF and three-corner SPEF and closes a pad ring
 
 ## Runtimes
 
-`find_openroad()` uses, in order: `$SIPATH_OPENROAD`, `openroad` on PATH, then
-the ORFS docker image (the digest locked in `sipath/toolchain.json`, or
-`$SIPATH_OPENROAD_IMAGE`) if it is already pulled. Host directories are
+**Which runtime.** `runtime` (`SIPATH_RUNTIME`) chooses: `auto` (the
+default), `native` or `docker`. `auto` takes the first of `$SIPATH_OPENROAD`,
+`openroad` on PATH, the locked tools unpacked by `install-tools` (below), and
+the locked ORFS image if it is pulled. `native` stops before the image, and
+`docker` takes only the image. So on Linux, once `install-tools` has run, runs
+use the native tools with nothing else to set; elsewhere, or without it, they
+use Docker. Both run the same builds: the tree is the locked image's own
+files. A tree of another image (an older lock) is not used, and a warning
+says so. Host directories are
 mounted at the same path, so file names in Tcl are the same inside and
 outside. On Linux the containers run as the calling user, so the files they
 write stay the user's (`SIPATH_DOCKER_AS_ROOT=1` keeps the image's user).
@@ -73,13 +79,14 @@ Without Docker, on Linux x86_64 with glibc 2.35 or newer (Ubuntu 22.04+, Colab),
 `python3 -m sipath install-tools [dir]` downloads the locked ORFS image's
 layers from the registry, checks each against its digest and unpacks them
 (1.6 GB to download; without ORFS's test designs and headers, 4 GB unpacked) into `dir` (default
-`~/.cache/sipath/orfs-root`). Its `sipath-bin/` holds `openroad`, `sta`,
-`yosys`, `yosys-abc` and `klayout` wrappers that run the image's binaries with
-the image's libraries; with it on PATH and `SIPATH_PLATFORMS` set (both
-printed), runs use the same builds as the Docker runs. Magic, Netgen and the
-precheck are other images, so their checks need Docker.
+`~/.cache/sipath/orfs-root`; another directory goes in `tools_root`,
+`SIPATH_TOOLS_ROOT`). Its `sipath-bin/` holds `openroad`, `sta`, `yosys`,
+`yosys-abc` and `klayout` wrappers that run the image's binaries with the
+image's libraries; the steps call them and read the image's platform tree, with
+nothing on PATH. Magic, Netgen and the precheck are other images, so their
+checks need Docker.
 
-The default is the ORFS image (`openroad/orfs`, amd64: under Rosetta on Apple
+On macOS, runs use the ORFS image (`openroad/orfs`, amd64: under Rosetta on Apple
 silicon). Two ways to avoid the emulation:
 - an arm64 image with the tools on PATH, e.g. LibreLane's multi-arch image:
   `SIPATH_OPENROAD_IMAGE=ghcr.io/librelane/librelane:3.0.16

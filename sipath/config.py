@@ -22,6 +22,10 @@ magic_image            SIPATH_MAGIC_IMAGE        image with Magic (signoff magic
 precheck_image         SIPATH_PRECHECK_IMAGE     image with ChipFoundry's cf-precheck and its tools (precheck
                                                  step; docker/precheck)
 native_tools           SIPATH_NATIVE_TOOLS       tools run on the host instead of the image (e.g. klayout,yosys)
+runtime                SIPATH_RUNTIME            where OpenROAD, Yosys and KLayout run: auto (native when installed,
+                                                 else the image), native, or docker (see find_openroad)
+tools_root             SIPATH_TOOLS_ROOT         the locked image's tools unpacked by `sipath install-tools`
+                                                 (default ~/.cache/sipath/orfs-root)
 placer_python          SIPATH_PLACER_PYTHON      Python with PyTorch for the macros step's cdlns method
                                                  (default ~/.cache/sipath/placer-venv, `sipath setup-placer`)
 require_digest         SIPATH_REQUIRE_DIGEST     refuse an image not pinned by digest (default on)
@@ -47,7 +51,7 @@ ENV = {"threads": "SIPATH_THREADS", "command_timeout": "SIPATH_TIMEOUT", "tool_t
        "container_cpus": "SIPATH_CPUS", "container_memory": "SIPATH_MEMORY", "image": "SIPATH_OPENROAD_IMAGE",
        "openroad_binary": "SIPATH_OPENROAD_BINARY", "platform": "SIPATH_PLATFORM",
        "magic_image": "SIPATH_MAGIC_IMAGE", "precheck_image": "SIPATH_PRECHECK_IMAGE",
-       "native_tools": "SIPATH_NATIVE_TOOLS",
+       "native_tools": "SIPATH_NATIVE_TOOLS", "runtime": "SIPATH_RUNTIME", "tools_root": "SIPATH_TOOLS_ROOT",
        "placer_python": "SIPATH_PLACER_PYTHON",
        "require_digest": "SIPATH_REQUIRE_DIGEST", "require_pdk_release": "SIPATH_REQUIRE_PDK", "debug_failed": "SIPATH_DEBUG_FAILED",
        "log_level": "SIPATH_LOG_LEVEL", "snapshots": "SIPATH_SNAPSHOTS"}
@@ -81,6 +85,8 @@ class Config:
     magic_image: str = MAGIC_IMAGE  # sipath/orfs-magic, built from docker/magic/Dockerfile
     precheck_image: str = ""  # sipath/precheck (docker/precheck); empty: the locked one, once built
     native_tools: list = field(default_factory=list)  # e.g. ["klayout", "yosys"]: host binaries, not the image's
+    runtime: str = "auto"  # auto | native | docker
+    tools_root: str = ""  # empty: ~/.cache/sipath/orfs-root (sipath install-tools)
     placer_python: str = ""  # empty: ~/.cache/sipath/placer-venv/bin/python (macros method cdlns)
     require_digest: bool = True  # an image not pinned by digest is refused (SIPATH_REQUIRE_DIGEST=0 allows it)
     require_pdk_release: bool = True  # an open_pdks tree of another release is refused (SIPATH_REQUIRE_PDK=0 allows it)
@@ -98,6 +104,8 @@ class Config:
             raise ConfigError("command_timeout must be > 0")
         if int(self.parallel_cap) < 0:
             raise ConfigError("parallel_cap must be >= 0")
+        if self.runtime not in ("auto", "native", "docker"):
+            raise ConfigError(f"runtime must be auto, native or docker, not {self.runtime!r}")
         if self.snapshots not in ("off", "selected", "all"):
             raise ConfigError(f"snapshots must be off, selected or all, not {self.snapshots!r}")
         if self.container_cpus is not None and float(self.container_cpus) <= 0:

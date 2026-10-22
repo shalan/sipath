@@ -50,18 +50,23 @@ class Result:
 # how to start the binary
 # -----------------------------------------------------------------------------
 class NativeRunner:
-    """``openroad`` on PATH (or an explicit path)."""
+    """``openroad`` on PATH (or an explicit path), or the locked image's tools unpacked by
+    ``install-tools`` (``bindir``: its wrappers, used for the other tools too; ``platforms``: its
+    ORFS platform tree)."""
 
     kind = "native"
 
-    def __init__(self, binary: str, threads: int = 2):
-        self.binary, self.threads = binary, threads
+    def __init__(self, binary: str, threads: int = 2, bindir: str | None = None, platforms: str | None = None):
+        self.binary, self.threads, self.bindir, self.platforms = binary, threads, bindir, platforms
 
     def command(self, workdir: str, name: str) -> list[str]:
         return [self.binary, "-no_splash", "-no_init", "-threads", str(self.threads)]
 
     def provenance(self) -> dict:
-        return {"kind": self.kind, "binary": self.binary, "threads": self.threads}
+        out = {"kind": self.kind, "binary": self.binary, "threads": self.threads}
+        if self.bindir:
+            out["tools"] = self.bindir
+        return out
 
     def gui_command(self, workdir: str, script: str) -> tuple[list[str], dict]:
         """Headless GUI run of a script (for save_image)."""
@@ -73,8 +78,11 @@ class NativeRunner:
     def tool_command(self, workdir: str, args: list[str], image: str | None = None,
                      env: dict | None = None) -> list[str]:
         """Command line running another tool of the installation (e.g. klayout,
-        magic: on PATH here, so ``image`` does not apply)."""
-        return (["env", *[f"{k}={v}" for k, v in env.items()]] if env else []) + list(args)
+        magic: on PATH here, so ``image`` does not apply; the tools tree's own wrapper when it has one)."""
+        args = list(args)
+        if self.bindir and args and os.sep not in args[0] and os.path.isfile(os.path.join(self.bindir, args[0])):
+            args[0] = os.path.join(self.bindir, args[0])
+        return (["env", *[f"{k}={v}" for k, v in env.items()]] if env else []) + args
 
     def mount(self, *paths):
         return self
@@ -84,7 +92,7 @@ class NativeRunner:
         return out.stdout.strip().splitlines()[0]
 
     def platform_root(self) -> str | None:
-        return os.environ.get("SIPATH_PLATFORMS")
+        return os.environ.get("SIPATH_PLATFORMS") or self.platforms
 
     def runner_prefixes(self) -> tuple[str, ...]:
         return ()
@@ -227,22 +235,50 @@ def native_tools(config: Config) -> dict:
     return out
 
 
+def installed_tools(config: Config | None = None) -> NativeRunner | None:
+    """A native runner on the tools ``install-tools`` unpacked (``config.tools_root``), when they are
+    there and are the configured image's: a tree of another image is left alone."""
+    from .. import native
+    cfg = config or Config.load()
+    root = os.path.abspath(os.path.expanduser(cfg.tools_root or native.DEFAULT))
+    binary = os.path.join(root, "sipath-bin", "openroad")
+    try:
+        with open(os.path.join(root, ".sipath-image")) as f:
+            ref = f.read().strip()
+    except OSError:
+        return None
+    if ref != cfg.image or not os.access(binary, os.X_OK):
+        if ref != cfg.image:
+            import logging
+            logging.getLogger("sipath").warning("tools in %s are %s, not the configured image %s: not used",
+                                                root, ref, cfg.image)
+        return None
+    return NativeRunner(binary, threads=cfg.threads, bindir=os.path.dirname(binary),
+                        platforms=os.path.join(root, "OpenROAD-flow-scripts", "flow", "platforms"))
+
+
 def find_openroad(config: Config | None = None):
     """Return a runner for an available OpenROAD, or None.
 
-    Order: $SIPATH_OPENROAD (path), ``openroad`` on PATH, then the ORFS docker
-    image (``config.image``: $SIPATH_OPENROAD_IMAGE, default the locked ORFS digest (toolchain.json),
-    ``name@sha256:...`` to pin it) if docker is present and the image is
-    already pulled. Threads and container limits come from ``config``
-    (default: ``Config.load()``).
+    ``config.runtime`` (``SIPATH_RUNTIME``) chooses. ``auto`` (the default), in order: $SIPATH_OPENROAD
+    (path), ``openroad`` on PATH, the locked image's tools unpacked by ``install-tools``
+    (``config.tools_root``, default ~/.cache/sipath/orfs-root), then the ORFS docker image
+    (``config.image``: $SIPATH_OPENROAD_IMAGE, default the locked ORFS digest (toolchain.json),
+    ``name@sha256:...`` to pin it) if docker is present and the image is already pulled. ``native``
+    stops before the image; ``docker`` takes only the image. Threads and container limits come from
+    ``config`` (default: ``Config.load()``).
     """
     cfg = config or Config.load()
-    explicit = os.environ.get("SIPATH_OPENROAD")
-    if explicit:
-        return NativeRunner(explicit, threads=cfg.threads)
-    native = shutil.which("openroad")
-    if native:
-        return NativeRunner(native, threads=cfg.threads)
+    if cfg.runtime != "docker":
+        explicit = os.environ.get("SIPATH_OPENROAD")
+        if explicit:
+            return NativeRunner(explicit, threads=cfg.threads)
+        native = shutil.which("openroad")
+        if native:
+            return NativeRunner(native, threads=cfg.threads)
+        tree = installed_tools(cfg)
+        if tree is not None or cfg.runtime == "native":
+            return tree
     if shutil.which("docker"):
         try:
             ok = subprocess.run(["docker", "image", "inspect", cfg.image], capture_output=True,

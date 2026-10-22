@@ -2915,6 +2915,43 @@ class ConfigTests(unittest.TestCase):
         self.assertIn("img@sha256:abc", cmd)
         self.assertEqual(NativeRunner("/bin/or", threads=5).command("/tmp", "n")[-1], "5")
 
+    def test_runtime_choice(self):
+        """auto takes the locked tools install-tools unpacked (no PATH needed), only when they are the configured
+        image's; docker skips them; native never falls back to the image."""
+        from sipath.config import Config, ConfigError
+        from sipath.tools.openroad import session as sess
+        with self.assertRaises(ConfigError):
+            Config(runtime="podman")
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d)
+        os.makedirs(os.path.join(d, "sipath-bin"))
+        for name in ("openroad", "klayout"):
+            with open(os.path.join(d, "sipath-bin", name), "w") as fh:
+                fh.write("#!/bin/sh\n")
+            os.chmod(os.path.join(d, "sipath-bin", name), 0o755)
+        cfg = Config(tools_root=d)
+        with open(os.path.join(d, ".sipath-image"), "w") as fh:
+            fh.write(cfg.image + "\n")
+        saved = {k: os.environ.pop(k, None) for k in ("SIPATH_OPENROAD", "SIPATH_PLATFORMS")}
+        path = os.environ["PATH"]
+        os.environ["PATH"] = "/nonexistent"  # no openroad, no docker
+        try:
+            r = sess.find_openroad(cfg)
+            self.assertEqual((r.kind, r.binary), ("native", os.path.join(d, "sipath-bin", "openroad")))
+            self.assertEqual(r.platform_root(), os.path.join(d, "OpenROAD-flow-scripts", "flow", "platforms"))
+            self.assertEqual(r.tool_command("/tmp", ["klayout", "-v"])[0], os.path.join(d, "sipath-bin", "klayout"))
+            self.assertEqual(r.tool_command("/tmp", ["magic", "-v"])[0], "magic")  # not in the tree: PATH
+            self.assertIsNone(sess.find_openroad(cfg.replace(runtime="docker")))
+            with open(os.path.join(d, ".sipath-image"), "w") as fh:  # another image's tools are left alone
+                fh.write("openroad/orfs@sha256:" + "1" * 64 + "\n")
+            with self.assertLogs("sipath", "WARNING"):
+                self.assertIsNone(sess.find_openroad(cfg.replace(runtime="native")))
+        finally:
+            os.environ["PATH"] = path
+            for k, v in saved.items():
+                if v is not None:
+                    os.environ[k] = v
+
     def test_images_pinned_by_default(self):
         from sipath import toolchain
         from sipath.config import Config, ConfigError

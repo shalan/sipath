@@ -47,10 +47,11 @@ To try it without installing anything, open the
 [tutorial notebook](notebooks/sipath_tutorial.ipynb) in Colab or Codespaces
 (the badges above): it runs every example flow.
 
-SiPath needs Python 3.10+ and Docker (or a native OpenROAD). The tool images
-and the open_pdks release are locked in `sipath/toolchain.json`. Without
-Docker, on Linux x86_64, `python3 -m sipath install-tools` unpacks the locked
-image's OpenROAD, Yosys and KLayout instead.
+SiPath needs Python 3.10+ and either Docker or, on Linux x86_64,
+`python3 -m sipath install-tools`, which unpacks the locked image's OpenROAD,
+Yosys and KLayout; runs then use those without Docker (`runtime: auto`;
+`SIPATH_RUNTIME=docker` keeps the image). The tool images and the open_pdks
+release are locked in `sipath/toolchain.json`.
 
 ```bash
 python3 -m pip install -e .                    # the sipath package and console script

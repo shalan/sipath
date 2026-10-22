@@ -186,6 +186,8 @@ YAML or JSON; relative paths are relative to the file. Keys not listed are error
 | `openroad_binary` | str |  | OpenROAD inside the image (default the ORFS path; openroad for an image with it on PATH) |
 | `platform` | str |  | image platform: linux/amd64, or linux/arm64 for a native arm64 image |
 | `native_tools` | list[str] |  | tools run on the host instead of the image (klayout, yosys, magic): faster than emulation |
+| `runtime` | str |  | where OpenROAD, Yosys and KLayout run: auto (the locked tools unpacked by install-tools or openroad on PATH, else the locked image), native, or docker (one of: auto, native, docker) |
+| `tools_root` | str |  | the locked image's tools unpacked by sipath install-tools (default ~/.cache/sipath/orfs-root) |
 | `tool_timeout` | number |  | seconds one signoff tool run (KLayout DRC/LVS, Magic) may take |
 | `require_digest` | bool |  | refuse an image not pinned by digest (default on) |
 | `precheck_image` | str |  | image with ChipFoundry's cf-precheck and its tools (precheck step) |
@@ -500,6 +502,8 @@ Design file `config:`, a `--config` file, or `SIPATH_<KEY>` environment variable
 | `openroad_binary` | str | OpenROAD inside the image (default the ORFS path; openroad for an image with it on PATH) |
 | `platform` | str | image platform: linux/amd64, or linux/arm64 for a native arm64 image |
 | `native_tools` | list[str] | tools run on the host instead of the image (klayout, yosys, magic): faster than emulation |
+| `runtime` | str | where OpenROAD, Yosys and KLayout run: auto (the locked tools unpacked by install-tools or openroad on PATH, else the locked image), native, or docker |
+| `tools_root` | str | the locked image's tools unpacked by sipath install-tools (default ~/.cache/sipath/orfs-root) |
 | `tool_timeout` | number | seconds one signoff tool run (KLayout DRC/LVS, Magic) may take |
 | `require_digest` | bool | refuse an image not pinned by digest (default on) |
 | `precheck_image` | str | image with ChipFoundry's cf-precheck and its tools (precheck step) |
