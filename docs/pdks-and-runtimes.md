@@ -179,8 +179,12 @@ report and the CLI list them. Every step reads the SDC, the Liberty and the
 LEF views, so any input change re-runs the flow from its first step; a change
 to a step's variants re-runs from that step. A graph written before
 fingerprints is resumed as before, with a warning that its inputs were not
-checked. SiPath's own version is recorded in the provenance but does not
-invalidate a run. A selected attempt's directory is never deleted, and no attempt
+checked. SiPath's own code is part of the fingerprint (its version and a
+digest of its sources): a resume after the code changed runs again and says
+so. The parameters fingerprinted are the ones execution resolves (the
+variant, the design's and the PDK's `step_defaults`, the declared defaults),
+as are those that prerequisites and admission judge, and each attempt
+records the threads it ran with. A selected attempt's directory is never deleted, and no attempt
 directory is reused. The library logs to the `sipath` logger and is silent
 unless the caller configures logging.
 

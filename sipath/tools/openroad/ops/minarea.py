@@ -51,6 +51,8 @@ def blocks_and_ports(s) -> list:
     return tcl_parse(s.value(BLOCKS_AND_PORTS_TCL))
 
 
-def write_patches(s, encoder_tcl: str):
-    """The patches as wires (the encoder script sipath.wires writes)."""
-    s.run(encoder_tcl)
+def write_patches(s, nets: dict, via_layers: dict):
+    """Each patched net's whole routing, encoded here (ops.wires.encoder_tcl), in one call: ``nets`` maps a net
+    name to its paths (the patch rectangles appended), ``via_layers`` a via to its (bottom, top) layers."""
+    from .wires import encoder_tcl
+    s.run("\n".join(encoder_tcl(n, info, via_layers) for n, info in nets.items()))

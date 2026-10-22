@@ -2509,6 +2509,27 @@ class Verdict(unittest.TestCase):
                                                         "params": {}, "outputs": {}, "status": st}])
                 self.assertEqual(verdict.verify(g2)["execution"], want)
 
+    def test_a_change_after_a_check_makes_it_stale(self):
+        """An ECO after signoff: the signoff described the design before it; the run does not inherit its pass."""
+        from sipath import verdict
+        eq_ok = {"result": "equivalent for 10 cycles from reset", "depth": 10}
+        with tempfile.TemporaryDirectory() as td:
+            g = self.chain(td, eq_ok, self.signoff(td, "ok"))
+            g["attempts"].append({"id": "eco1.0", "step": "eco1", "kind": "eco", "parent": "signoff.0", "params": {},
+                                  "outputs": {}, "status": "selected"})
+            g["steps"]["eco1"] = {"selected": "eco1.0", "parent": "signoff.0"}
+            g["head"] = "eco1.0"
+            v = verdict.verify(g)
+            self.assertEqual(v["verification"], "omitted")
+            self.assertEqual(v["checks"]["drc"]["status"], "stale")
+            self.assertIn("eco1.0", v["checks"]["drc"]["detail"])
+            self.assertEqual(v["checks"]["equivalence"]["status"], "passed")  # RTL against the synthesized netlist
+            so2 = self.signoff(td, "ok2")  # signoff again on the changed design: current again
+            g["attempts"].append({"id": "signoff2.0", "step": "signoff", "kind": "step", "parent": "eco1.0",
+                                  "params": {}, "outputs": {"signoff": so2}, "status": "selected"})
+            g["head"] = "signoff2.0"
+            self.assertEqual(verdict.verify(g)["verification"], "passed")
+
     def test_coverage_notes(self):
         from sipath import verdict
         with tempfile.TemporaryDirectory() as td:
@@ -2642,6 +2663,27 @@ class Processes(unittest.TestCase):
             self.assertEqual(f._procs.get("a.0"), set())
             with self.assertRaisesRegex(process.ProcessCancelled, "before it started"):  # still cancelled
                 process.run(["true"], None, tracker=tracker)
+
+    def test_children_a_tool_leaves_behind_end_with_it(self):
+        import time
+        from sipath.tools import process
+        with tempfile.TemporaryDirectory() as td:
+            pf = os.path.join(td, "pid")
+            r = process.run(["sh", "-c", f"sleep 60 & echo $! > {pf}; exit 0"], None, timeout=30)
+            time.sleep(0.2)
+            with open(pf) as fh:
+                pid = int(fh.read())
+            self.assertEqual((r.rc, r.cancelled), (0, False))  # finished normally ...
+            self.assertFalse(self.alive(pid))  # ... and its background child did not outlive it
+            p = process.Process(["sh", "-c", f"sleep 60 & echo $! > {pf}; exit 0"])
+            p.wait()
+            time.sleep(0.2)
+            with open(pf) as fh:
+                pid = int(fh.read())
+            self.assertTrue(self.alive(pid))  # the leader is gone, its child is not
+            p.kill()  # a cancel now still reaches the group
+            time.sleep(0.2)
+            self.assertFalse(self.alive(pid))
 
     def test_a_container_is_stopped_by_name(self):
         from unittest import mock

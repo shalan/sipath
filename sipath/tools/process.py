@@ -70,25 +70,37 @@ class Process:
             self._chunks.append(chunk)
 
     def alive(self) -> bool:
-        return self.p.returncode is None
+        """The process or anything left in its group (a background child outlives its parent)."""
+        return self.p.returncode is None or self.group_alive()
 
-    def kill(self, grace: float = 3.0):
-        """Stop the whole tree: its container (docker kill), then SIGTERM to the group, SIGKILL after ``grace``."""
-        self.killed = True
+    def group_alive(self) -> bool:
+        try:
+            os.killpg(self.p.pid, 0)
+        except (ProcessLookupError, PermissionError):
+            return False
+        return True
+
+    def kill(self, grace: float = 3.0, cancel: bool = True):
+        """Stop the whole tree: its container (docker kill), then SIGTERM to the group, SIGKILL after ``grace``.
+        ``cancel`` False: clearing what a finished tool left behind, not a cancel of the tool."""
+        if cancel:
+            self.killed = True
         if self.container:
             try:
                 subprocess.run(["docker", "kill", self.container], capture_output=True, timeout=60)
             except (OSError, subprocess.TimeoutExpired):
                 pass
-        for sig, wait in ((signal.SIGTERM, grace), (signal.SIGKILL, 0)):
+        for sig, wait in ((signal.SIGTERM, grace), (signal.SIGKILL, 2.0)):
             try:
-                os.killpg(self.p.pid, sig)
+                os.killpg(self.p.pid, sig)  # the whole group, also when its leader has already exited
             except (ProcessLookupError, PermissionError):
                 return
             end = time.time() + wait
-            while time.time() < end and self.alive():
+            while time.time() < end and self.group_alive():
+                if self.p.returncode is None:
+                    self.p.poll()  # reap the leader so the group can empty
                 time.sleep(0.05)
-            if not self.alive():
+            if not self.group_alive():
                 return
 
     def wait(self, timeout: float | None = None) -> bool:
@@ -144,6 +156,8 @@ def run(cmd, log: str | None = None, *, cwd=None, env=None, timeout: float | Non
         if not finished:
             proc.kill()
             proc.wait()
+        elif proc.group_alive():  # the tool exited and left children behind: they end with it
+            proc.kill(grace=1.0, cancel=False)
     finally:
         if tracker is not None:
             tracker.discard(proc)

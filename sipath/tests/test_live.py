@@ -357,7 +357,10 @@ class LiveSoftMacro(unittest.TestCase):
         so = self.flow.steps["signoff"].selected
         s = _read_json(so.outputs["signoff"])
         self.assertTrue(s["pass"], s["failures"])
-        v = self.flow.verification()  # a netlist design: no equivalence to omit; every standard check ran
+        from sipath import verdict
+        g = self.flow.graph()
+        g["head"] = so.id  # this signoff's own chain: an ECO the class applied later makes the run's head stale
+        v = verdict.verify(g)  # a netlist design: no equivalence to omit; every standard check ran
         self.assertEqual((v["execution"], v["verification"]), ("completed", "passed"), v)
         self.assertEqual(s["drc"]["count"], 0)  # KLayout, the PDK's sky130A_mr deck
         self.assertTrue(s["lvs"]["match"])

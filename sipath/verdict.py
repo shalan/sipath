@@ -143,11 +143,22 @@ def _precheck(a: dict, checks: dict):
         checks["precheck"] = {"status": "failed", "required": True, "attempt": a["id"], "detail": res["error"]}
 
 
+# steps that check or export the design without changing it: what they check stays current after them
+NON_MODIFYING = {"signoff", "views", "precheck", "ppa", "integrate"}
+
+
+def _modifies(a: dict) -> bool:
+    from .params import CHECK_STEPS
+    step = a.get("step", "").split("@")[0]
+    return a.get("kind") == "eco" or (a.get("kind") != "tool" and step not in NON_MODIFYING | set(CHECK_STEPS))
+
+
 def verify(g: dict) -> dict:
     chain, execution, notes = _chain(g)
     checks, omitted = {}, []
     signoffs = []
     rtl = False
+    position = {a["id"]: i for i, a in enumerate(chain)}
     for a in chain:
         if a.get("step") == "synth" or "equiv" in (a.get("outputs") or {}):
             rtl = True
@@ -156,6 +167,17 @@ def verify(g: dict) -> dict:
         if s is not None:
             signoffs.append(s)
         _precheck(a, checks)
+    # a check holds for the design it saw: one followed by a change (an ECO, a re-route) is stale, not passed
+    changed = [(position[a["id"]], a["id"]) for a in chain if _modifies(a)]
+    for name, c in checks.items():
+        if name == "equivalence":  # the synthesized netlist against the RTL; later netlist changes check their own
+            continue
+        later = [aid for i, aid in changed if i > position.get(c["attempt"], len(chain))]
+        if later:
+            c.update(status="stale", detail=f"the design changed after it ({later[-1]}); was {c['status']}")
+    stale = sorted(n for n, c in checks.items() if c["status"] == "stale")
+    if stale:
+        omitted.append(f"{', '.join(stale)} (stale: run them again on the changed design)")
     ran = {c for s in signoffs for c in s.get("checks") or []}
     layout = any(a.get("step") not in ("synth",) and a.get("kind") != "tool" for a in chain)
     if layout:

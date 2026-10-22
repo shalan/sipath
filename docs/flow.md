@@ -319,8 +319,14 @@ capabilities in `graph.json`.
   `<step>@<attempt>` (`route_digital@place.2`) in the same graph; the kept
   attempts get status `kept`. At `decide_at` the branches' attempts are
   compared by that step's score (or `decide_score`), the decision is recorded
-  in `graph.json` (`decisions`), and the run continues from the winner. A
-  branch that fails ends there; the others go on. Branches run one after
+  in `graph.json` (`decisions`, with the branches that failed before it), the
+  winner becomes the run's head and the run continues from it. A branch that
+  fails ends there; the others go on. A cancel or a run budget is not a lost
+  branch: the run stops, no comparison is recorded, and `--resume` finishes
+  the search (a resumed comparison reuses its recorded decision). With a
+  selector score (a rule over the attempts, such as `synth_select`), the
+  branches are the rule's choice, then its choice among the rest, and so on;
+  the baseline is found by its parameters. Branches run one after
   another, each within the budgets; `--plan` shows the steps on branches.
   Measured with `keep: 2` to `extract`: on gcd8 the selected placement
   (density 0.75) also won after extraction (setup slack 4.364 against 4.249

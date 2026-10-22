@@ -68,7 +68,13 @@ def net_names(s) -> set[str]:
     return set(s.value(NET_NAMES_TCL).splitlines())
 
 
-def insert_buffer(s, net: str, args: list[str]):
+def insert_buffer(s, net: str, master: str, loads=None, name: str | None = None):
+    """A buffer of ``master`` on ``net`` (before ``loads``, instance/pin names, when given; named ``name``)."""
+    args = [f"-buffer_cell {master}", f"-net {q(net)}"]
+    if loads:
+        args.append(f"-load_pins [get_pins {qlist(loads)}]")
+    if name:
+        args.append(f"-buffer_name {q(name)}")
     s.run(f"::flow_net {q(net)}\ninsert_buffer {' '.join(args)}")
 
 

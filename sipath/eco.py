@@ -50,13 +50,7 @@ def apply_op(session, op: dict) -> set[str]:
         return nets
     if kind == "buffer":
         before = eco_ops.net_names(session)
-        from .tools.openroad.tcl import q, qlist
-        args = [f"-buffer_cell {op['master']}", f"-net {q(op['net'])}"]
-        if op.get("loads"):
-            args.append(f"-load_pins [get_pins {qlist(op['loads'])}]")
-        if op.get("name"):
-            args.append(f"-buffer_name {q(op['name'])}")
-        eco_ops.insert_buffer(session, op["net"], args)
+        eco_ops.insert_buffer(session, op["net"], op["master"], op.get("loads"), op.get("name"))
         after = eco_ops.net_names(session)
         return {op["net"], *(after - before)}
     raise ValueError(f"unknown ECO op {kind!r}")

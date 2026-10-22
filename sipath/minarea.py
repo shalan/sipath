@@ -287,6 +287,6 @@ def repair(ctx, def_path: str | None = None, layers: list[str] | None = None) ->
             info["paths"].append({"layer": ly, "taper": False,
                                   "items": [("pt", cx, cy, None), ("rect", x0 - cx, y0 - cy, x1 - cx, y1 - cy)]})
     if patches:
-        ops.write_patches(s, "\n".join(wires.encoder_tcl(n, nets[n], via_layers) for n in patches))
+        ops.write_patches(s, {n: nets[n] for n in patches}, via_layers)
     return {"islands": found, "patched": sum(len(v) for v in patches.values()), "nets": len(patches),
             "blocked": blocked, "skipped_nets": len(skipped)}

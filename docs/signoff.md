@@ -90,6 +90,16 @@ counts), into MCP's `run_step` result, and as the CLI's last line.
   `omitted` (nothing failed or undecided, but standard checks did not run: no
   signoff, a subset of checks, equivalence off or skipped) or `completed` (no
   check ran at all).
+- **The result is the run's head** (`head` in `graph.json`): the latest
+  selection on the main chain, a bounded search's winner, an accepted ECO.
+  The verdict, the report, `metrics.json`, the CLI and the benchmark export all
+  read the result through that head's ancestry, never through another
+  branch's selection.
+- **A check holds for the design it saw.** A check followed on the chain by a
+  step that changes the design (an ECO, a re-route, fill) is `stale`, not
+  passed, with what changed it; the run's verification is then `omitted` until
+  the check runs again. The RTL-to-netlist equivalence of synthesis is kept:
+  later netlist changes check their own (ECOs and post-route repair).
 - **What limits the checks that ran**, listed as notes: black boxes LVS
   checked at their pins only, abstract macros whose insides DRC did not see,
   unconstrained endpoints and pad ports, density judged in the parent for an

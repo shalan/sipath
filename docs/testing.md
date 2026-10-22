@@ -30,7 +30,14 @@ Part of the [SiPath documentation](../README.md#documentation).
   the run's verdict, step times, SiPath commit, image digest and open_pdks
   release, machine, input hashes, overrides, the run directory, and why a
   failed run failed); `bench/tables.py` writes the documentation's tables
-  from those records only, and a unit test fails when a table is stale.
+  from those records only, and a unit test fails when a table is stale. A
+  record takes its input hashes from the run's own graph (as hashed when it
+  ran), its SiPath identity from the run's provenance (commit, code digest,
+  the digest of an uncommitted diff, which the driver archives under
+  `bench/results/sources/` before it runs), and keeps the exporter's identity
+  apart; each run has an outcome (completed, execution or measurement
+  failed), a run that fails before it has a graph still gets a record, and
+  `strategy_compare.py` exits 1 when a run did not complete.
 
 ## Regression limits
 
