@@ -237,6 +237,7 @@ def build(d: Design, workdir: str, runner, config=None, resume: bool = False, ex
     d.resolve(pdk)
     from . import blackbox
     models = blackbox.generate(d, pdk, os.path.join(os.path.abspath(workdir), "models"))  # opt-in only
+    os.makedirs(workdir, exist_ok=True)  # a runner mounts only what exists: a new runs/x/y would be left out
     runner.mount(workdir, *d.input_files(), *d.rtl_includes, *pdk.files())
     prov = runner.provenance() if hasattr(runner, "provenance") else {}
     from . import toolchain

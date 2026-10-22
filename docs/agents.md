@@ -45,6 +45,35 @@ Long steps (aes signoff takes most of an hour) are better run with
 `background: true` and followed with `job_status`; Claude Code moves a tool
 call still running after two minutes to the background on its own.
 
+## From a script (Claude Agent SDK)
+
+[`sipath/examples/agent_sdk.py`](../sipath/examples/agent_sdk.py) runs an agent
+on a goal with the [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk/overview).
+It gives the model SiPath's MCP tools and nothing else: no shell, no file
+access, and none of your own Claude Code settings, servers or plugins. It
+prints every tool call and answer.
+
+```bash
+python3 -m pip install claude-agent-sdk
+export ANTHROPIC_API_KEY=...
+python3 -m sipath.examples.agent_sdk
+python3 -m sipath.examples.agent_sdk "Take dp8 through routing and explain the worst routing hotspot" --max-turns 40
+```
+
+The default goal takes gcd8 through placement, sweeps placement density 0.5,
+0.65 and 0.8 in parallel, compares slack and the placement-density and RUDY
+heatmaps, and says which attempt to keep. Tried with SDK 0.2.171 and
+`claude-sonnet-5-5`: it ran synth, floorplan, physical and the three-way
+place sweep, queried the six heatmaps and answered with a table (15 turns,
+36 s, $0.09). It kept density 0.8 (setup slack 4.590 ns against 4.506 and
+4.510; HPWL 2514 µm against 2775 and 2653; no hotspot in any map); every
+number matched the run's `graph.json`. Told to stop when a tool fails, it
+did: an earlier try hit a mount bug (a new `runs/mcp/` was not mounted into
+the container, now fixed) and it reported the error instead of working around
+it.
+
+## The tools
+
 `python3 -m sipath mcp` serves `open_run` (an example name or any design file;
 `resume` picks up a workdir), `run_step`, `run_eco`, `job_status`,
 `cancel_job`, `list_jobs`, `list_attempts`, `get_outputs`, `describe_step`,

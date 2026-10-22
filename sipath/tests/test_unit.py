@@ -2952,6 +2952,26 @@ class ConfigTests(unittest.TestCase):
                 if v is not None:
                     os.environ[k] = v
 
+    def test_a_new_nested_workdir_is_mounted(self):
+        """designfile.build creates the workdir before mounting it: Docker mounts only host paths that exist,
+        so runs/mcp/<id> on a fresh checkout (no runs/mcp yet) was left out and the first OpenROAD step
+        could not read the synthesized netlist."""
+        from sipath import designfile
+        from sipath.examples import dp8
+        from sipath.session import DockerRunner
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d)
+        wd = os.path.join(d, "runs", "mcp", "x")
+        r = DockerRunner("img@sha256:" + "0" * 64)
+        r.mount(wd)
+        self.assertEqual(r.mounts, [])  # what the runner alone does with a path whose parent is missing
+        r.platform_root = lambda: None
+        try:
+            designfile.build(dp8.make_design(), wd, r)
+        except Exception as e:  # build reads the PDK before it mounts
+            self.skipTest(f"needs the sky130A PDK tree: {e}")
+        self.assertTrue(any(wd == m or wd.startswith(m + os.sep) for m in r.mounts), r.mounts)
+
     def test_images_pinned_by_default(self):
         from sipath import toolchain
         from sipath.config import Config, ConfigError
