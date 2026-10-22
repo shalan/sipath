@@ -93,7 +93,7 @@ def collect(workdir: str) -> dict:
         order.index(os.path.basename(p)[:-4]) if os.path.basename(p)[:-4] in order else len(order), p))
     return {"design": g.get("design", {}), "pdk": g.get("pdk"), "provenance": g.get("provenance", {}),
             "steps": steps, "signoff": signoff, "ppa": ppa, "files": files, "pictures": pictures,
-            "heatmaps": heatmaps, "stale": g.get("stale") or []}
+            "heatmaps": heatmaps, "stale": g.get("stale") or [], "verification": g.get("verification")}
 
 
 def markdown(workdir: str, r: dict) -> str:
@@ -103,6 +103,18 @@ def markdown(workdir: str, r: dict) -> str:
     prov = r["provenance"]
     out.append(f"PDK `{r['pdk']}`; runner {prov.get('kind', '?')} {prov.get('image', '')}; workdir `{workdir}`")
     out.append("")
+    v = r.get("verification")
+    if v:  # first: what the run established, apart from whether its steps finished
+        out += [f"## Verification: {v['verification'].upper()} (execution {v['execution']})", ""]
+        if v["checks"]:
+            out += ["| check | status | required | attempt | detail |", "|---|---|---|---|---|"]
+            out += [f"| {c} | {x['status']} | {'yes' if x['required'] else 'no'} | {x['attempt']} | "
+                    f"{(x['detail'] or '').replace('|', '/')[:160]} |" for c, x in v["checks"].items()]
+            out.append("")
+        if v["omitted"]:
+            out += ["Not checked: " + "; ".join(v["omitted"]) + ".", ""]
+        if v["notes"]:
+            out += ["Limits of what was checked:", ""] + [f"- {n}" for n in v["notes"]] + [""]
     out += ["## Steps", "", "| step | attempts | selected | seconds | key metrics |", "|---|---|---|---|---|"]
     for s in r["steps"]:
         sel = s["sel"]
@@ -292,6 +304,13 @@ def metrics2(g: dict) -> dict:
         if stage != "synth":  # final values describe the layout, not synthesis's estimates
             final.update(vals)
     out.update(final)
+    v = g.get("verification")
+    if v:  # SiPath's own: METRICS2.1 has no verdict
+        out["flow__execution__status"] = v["execution"]
+        out["flow__verification__status"] = v["verification"]
+        for st in ("failed", "inconclusive", "skipped"):
+            out[f"flow__verification__{st}__count"] = sum(1 for x in v["checks"].values() if x["status"] == st)
+        out["flow__verification__omitted__count"] = len(v["omitted"])
     return out
 
 

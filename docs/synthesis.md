@@ -51,13 +51,17 @@ at the slow corner with the Liberty wire-load model).
    |---|---|---|
    | `equivalent for N cycles from reset` | no difference within N cycles | succeeds |
    | `mismatch` | a counterexample (in the error, and `equiv.log`) | fails |
-   | `inconclusive (timeout)` | the solver ran out of time: nothing shown either way (aes: 600 s) | succeeds |
+   | `inconclusive (timeout)` | the solver ran out of time: nothing shown either way (aes: 600 s) | succeeds (`equiv_on_timeout: fail`: fails) |
    | `skipped` | the design has macros, which are black boxes to the check | succeeds |
    | (none) | `equiv: off` | succeeds |
 
    A run that ends without a result (no verdict and no timeout in the log)
    fails the step. Raise `equiv_timeout` or lower `equiv_depth` to turn an
-   inconclusive result into a verdict.
+   inconclusive result into a verdict. `equiv_on_timeout` decides what a
+   timeout does: `warn` (the default: the step passes, the run's
+   [verdict](signoff.md#the-runs-verdict) is inconclusive), `fail` (the step
+   fails) or `pass` (accepted: the verdict counts it as passed and says so in
+   a note).
 
 Recipes live in `sipath/synth_recipes/`: 18 from synth_flow (with its notes)
 plus SiPath's `area_map` and `speed_sizing`; a new one is a `.abc` file there.

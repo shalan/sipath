@@ -311,9 +311,13 @@ class Server:
                 raise ToolError(str(e)[:4000]) from e
             except ValueError as e:
                 raise ToolError(str(e)) from e
+            v = flow.verification()
             return {"step": step, "selected": r.selected.id, "score": r.score_name,
                     "recorded": bool(getattr(r, "resumed", False)),
-                    "attempts": [self._summary(a) for a in r.attempts]}
+                    "attempts": [self._summary(a) for a in r.attempts],
+                    # the run so far: what its checks established (not just that the step finished)
+                    "verification": {k: v[k] for k in ("execution", "verification", "omitted", "notes")}
+                    | {"checks": {c: x["status"] for c, x in v["checks"].items()}}}
         return self._job(run_id, f"run_step {step}", body, len(variants or [{}]), background)
 
     def adapt_step(self, run_id, step, rounds=1, options=None, parallel=1, background=False):

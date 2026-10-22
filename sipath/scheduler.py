@@ -843,9 +843,19 @@ class Flow:
                               **({"rounds": v.rounds} if v.rounds else {})}
                           for k, v in self.steps.items()}}
 
+    def verification(self) -> dict:
+        """What the run established (sipath.verdict.verify): execution and verification status, each check."""
+        from . import verdict
+        return verdict.verify(self.graph())
+
     def save_graph(self):
         with self._lock:  # attempts finish concurrently
             data = self.graph()
+            try:  # the verdict follows the graph; reading a result file never fails the run
+                from . import verdict
+                data["verification"] = verdict.verify(data)
+            except Exception as e:  # noqa: BLE001
+                log.warning("verification verdict not written: %s", e)
             tmp = os.path.join(self.workdir, "graph.json.tmp")
             with open(tmp, "w") as f:
                 json.dump(data, f, indent=1, default=str)

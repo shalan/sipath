@@ -974,7 +974,8 @@ class Layers(unittest.TestCase):
     """The layers (docs/modules.md): core knows no tool, tools know no step, nothing below flows imports a
     flow, and library code imports the moved modules from sipath.tools (not their compatibility aliases)."""
     ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    CORE = {"scheduler", "params", "scores", "registry", "config", "report", "recipes", "toolchain", "fingerprint"}
+    CORE = {"scheduler", "params", "scores", "registry", "config", "report", "recipes", "toolchain", "fingerprint",
+            "verdict"}
     MODEL = {"design", "pdk", "netlist", "lef", "heatmap", "sdc"}
     FLOWS = {"designfile", "mcp_server", "__main__", ""}  # "": the package's __init__ (its public API)
     ALIASES = {"session", "tcl", "tclquote", "nativetools"}  # = sipath.tools.openroad.*, sipath.tools.native
@@ -1434,6 +1435,34 @@ class RtlEquivalence(unittest.TestCase):
         self.assertEqual(synth.find_reset(["clk", "rst_ni"]), ("rst_ni", 0))
         self.assertEqual(synth.find_reset(["clk", "RST"]), ("RST", 1))
         self.assertIsNone(synth.find_reset(["clk", "en"]))
+
+
+    def test_timeout_policy(self):
+        """equiv_on_timeout: warn reports inconclusive, pass records it as accepted, fail fails the step."""
+        from types import SimpleNamespace
+        from unittest import mock
+        from sipath import synth
+        with tempfile.TemporaryDirectory() as td:
+            net = os.path.join(td, "t.v")
+            with open(net, "w") as fh:
+                fh.write("module t(input clk, input rst_n, output y); endmodule\n")
+
+            def fake_yosys(ctx, script, log, out):  # what Yosys writes when the SAT run hits its limit
+                with open(log, "w") as fh:
+                    fh.write("Solving problem with 1234 variables...\nSAT solving timeout reached.\n")
+            for policy, want in (("warn", "warn"), ("pass", "pass")):
+                ctx = SimpleNamespace(design=Design("t", "t", None, "s.sdc", "macro", rtl=["/r/t.v"]), pdk=None,
+                                      params={"equiv_on_timeout": policy, "equiv_timeout": 5}, outputs={},
+                                      path=lambda n: os.path.join(td, n))
+                with mock.patch.object(synth.yosys, "script", fake_yosys), \
+                        mock.patch.object(synth, "equiv_script", lambda *a, **k: ""):
+                    r = synth.equivalence(ctx, net)
+                self.assertEqual((r["result"], r["on_timeout"]), ("inconclusive (timeout)", want))
+            ctx.params = {"equiv_on_timeout": "fail", "equiv_timeout": 5}
+            with mock.patch.object(synth.yosys, "script", fake_yosys), \
+                    mock.patch.object(synth, "equiv_script", lambda *a, **k: ""):
+                with self.assertRaisesRegex(RuntimeError, "timed out after 5 s"):
+                    synth.equivalence(ctx, net)
 
 
 class BlackboxModels(unittest.TestCase):
@@ -2399,6 +2428,101 @@ class Prerequisites(unittest.TestCase):
             with self.assertRaisesRegex(ToolError, "place needs power_grid"):
                 s.run_step("r1", "place", parent="floorplan.0")
             self.assertEqual(len(f.attempts), 1)
+
+
+class Verdict(unittest.TestCase):
+    """B1.3: what a run established, apart from whether it finished."""
+
+    def graph(self, td, attempts, steps):
+        return {"design": "d", "attempts": attempts, "steps": steps}
+
+    def signoff(self, td, name, failures=(), checks=None, required=None, **extra):
+        checks = list(checks or ["drc", "density", "lvs", "antenna", "setup", "hold", "drv", "annotation",
+                                 "unconstrained", "harness"])
+        s = {"checks": checks, "required": list(required or [c for c in checks if c != "unconstrained"]),
+             "failures": list(failures), "pass": not failures, "timing": {"unconstrained": []}, **extra}
+        p = os.path.join(td, f"{name}.json")
+        _write_json(p, s)
+        return p
+
+    def chain(self, td, synth_eq=None, so=None, so_params=None, last_selected=True):
+        a = [{"id": "synth.0", "step": "synth", "kind": "tool", "parent": None, "params": {},
+              "outputs": {"equiv": synth_eq} if synth_eq else {}},
+             {"id": "floorplan.0", "step": "floorplan", "kind": "step", "parent": "synth.0", "params": {}, "outputs": {}},
+             {"id": "signoff.0", "step": "signoff", "kind": "step", "parent": "floorplan.0",
+              "params": so_params or {}, "outputs": {"signoff": so} if so else {}}]
+        steps = {"synth": {"selected": "synth.0"}, "floorplan": {"selected": "floorplan.0", "parent": "synth.0"},
+                 "signoff": {"selected": "signoff.0" if last_selected else None, "parent": "floorplan.0"}}
+        return self.graph(td, a, steps)
+
+    def test_statuses(self):
+        from sipath import verdict
+        eq_ok = {"result": "equivalent for 10 cycles from reset", "depth": 10}
+        with tempfile.TemporaryDirectory() as td:
+            v = verdict.verify(self.chain(td, eq_ok, self.signoff(td, "ok")))
+            self.assertEqual((v["execution"], v["verification"], v["omitted"]), ("completed", "passed", []))
+            self.assertIn("bounded", v["checks"]["equivalence"]["detail"])
+            bad = self.signoff(td, "bad", failures=["setup: worst -2.383 ns", "drv: slew 34"])
+            v = verdict.verify(self.chain(td, eq_ok, bad, {"fail_on_violation": False}))
+            self.assertEqual(v["verification"], "failed")  # even though the step passed
+            self.assertEqual(v["checks"]["setup"]["status"], "failed")
+            self.assertTrue(any("fail_on_violation: false" in n for n in v["notes"]))
+            self.assertIn("failed: setup, drv", verdict.line(v))
+            timeout = {"result": "inconclusive (timeout)", "depth": 10, "on_timeout": "warn"}
+            v = verdict.verify(self.chain(td, timeout, self.signoff(td, "ok2")))
+            self.assertEqual(v["verification"], "inconclusive")
+            v = verdict.verify(self.chain(td, dict(timeout, on_timeout="pass"), self.signoff(td, "ok3")))
+            self.assertEqual(v["verification"], "passed")
+            self.assertTrue(any("accepted" in n for n in v["notes"]))
+            v = verdict.verify(self.chain(td, eq_ok, None))  # no signoff in the chain
+            self.assertEqual(v["verification"], "omitted")
+            self.assertIn("signoff (no signoff", v["omitted"][0])
+            sub = self.signoff(td, "sub", checks=["drc", "lvs"])
+            v = verdict.verify(self.chain(td, eq_ok, sub))
+            self.assertEqual(v["verification"], "omitted")
+            self.assertIn("setup (not among the signoff checks)", v["omitted"])
+            g = self.chain(td, None, self.signoff(td, "ok4"), last_selected=False)
+            g["attempts"][-1]["status"] = "failed"
+            v = verdict.verify(g)
+            self.assertEqual((v["execution"], v["head"]), ("failed", "floorplan.0"))  # verified as far as it got
+            g["attempts"][-1].update(status="rejected", error="ECO regressed timing")
+            v = verdict.verify(g)
+            self.assertEqual(v["execution"], "completed")  # ran, refused by a rule: a note
+            self.assertTrue(any("rejected" in n for n in v["notes"]))
+            v = verdict.verify(self.graph(td, [{"id": "p.0", "step": "p", "kind": "step", "parent": None,
+                                                 "params": {}, "outputs": {}}], {"p": {"selected": "p.0"}}))
+            self.assertEqual(v["verification"], "completed")  # a layout and no check at all: nothing established
+            self.assertIn("signoff (no signoff", v["omitted"][0])
+            self.assertEqual(verdict.verify({"attempts": [], "steps": {}})["execution"], "empty")
+
+    def test_coverage_notes(self):
+        from sipath import verdict
+        with tempfile.TemporaryDirectory() as td:
+            so = self.signoff(td, "n", lvs={"match": True, "blackboxed": {"u_adc": "EF_ADC"}},
+                              drc={"count": 0, "abstract_macros": ["u_sram"]},
+                              timing={"unconstrained": ["u_core.ro_0/D", "u_core.ro_1/D"]},
+                              density={"count": 0, "scope": "embedded macro: informational"})
+            v = verdict.verify(self.chain(td, {"result": "skipped", "reason": "macros are black boxes to the check"},
+                                          so))
+            text = " ".join(v["notes"])
+            for want in ("black boxes checked at their pins only", "abstract macros", "2 unconstrained endpoints",
+                         "density: informational"):
+                self.assertIn(want, text)
+            self.assertEqual(v["checks"]["equivalence"]["status"], "skipped")
+            self.assertEqual(v["verification"], "omitted")  # equivalence skipped: not everything was checked
+
+    def test_graph_report_and_metrics_carry_it(self):
+        from sipath import report
+        with tempfile.TemporaryDirectory() as td:
+            f = Flow(Design("fake", "fake", "x.v", "x.sdc", "macro", floorplan_def="x.def"), sky130hd("/p"), td,
+                     demo.fake_factory(), validate_inputs=False)
+            f.step("a", demo.fake_step(), score="setup_wns")
+            g = _read_json(os.path.join(td, "graph.json"))
+            self.assertEqual(g["verification"]["verification"], "completed")  # no check ran
+            with open(os.path.join(td, "report.md")) as fh:
+                self.assertIn("## Verification: COMPLETED (execution completed)", fh.read())
+            m = report.metrics2(g)
+            self.assertEqual((m["flow__verification__status"], m["flow__execution__status"]), ("completed", "completed"))
 
 
 class Adaptive(unittest.TestCase):

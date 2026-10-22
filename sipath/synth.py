@@ -337,6 +337,11 @@ def equivalence(ctx, netlist: str) -> dict:
                            f"(log {log}):\n{tail}")
     elif "timeout" in text.lower() or "Interrupted" in text:
         res["result"] = "inconclusive (timeout)"
+        policy = p.get("equiv_on_timeout", "warn")
+        if policy == "fail":
+            raise RuntimeError(f"synth: the equivalence check timed out after {timeout} s within {depth} cycles "
+                               f"(equiv_on_timeout: fail; raise equiv_timeout or lower equiv_depth; log {log})")
+        res["on_timeout"] = policy
     else:
         raise RuntimeError(f"synth: equivalence check did not run to a result (log {log})")
     return res

@@ -210,6 +210,8 @@ def main(argv) -> int:
         for s in flow.stale:  # a resume that did not reuse a recorded step says why
             print(f"ran again: {s['step']}: {s['reason']}")
         print("graph:", os.path.join(wd, "graph.json"))
+        from . import verdict
+        print(verdict.line(flow.verification()))  # what the run established, not just that it finished
         return 0
     if cmd == "harden":
         import logging

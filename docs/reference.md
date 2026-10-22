@@ -245,6 +245,7 @@ Set per attempt in `variants` (design file `flow:` or MCP `run_step`), or as def
 | `equiv_depth` | int | 10 | 1.. | cycles from reset the equivalence covers |
 | `equiv_reset` | str | – |  | reset port and active level, e.g. rst_n:0 (default: found, in any case, among rst_n, resetn, reset_n, rstn, nrst, rst_ni, presetn, hresetn, aresetn, arst_n (active 0), rst, reset, arst (active 1)) |
 | `equiv_timeout` | int | 600 | 1.. | SAT time limit; reached: inconclusive (reported, not passed) [s] |
+| `equiv_on_timeout` | str | warn | warn, fail, pass | when the equivalence check times out: warn (the step passes, the run's verification verdict is inconclusive), fail (the step fails), or pass (accepted: the verdict counts the check as passed and notes the timeout) |
 | `port_buffers` | bool | true |  | buffer assignments between ports (off: a port-to-port assignment stays one net with two pins, e.g. a wrapper output tied to a frame loopback input) |
 
 ### floorplan

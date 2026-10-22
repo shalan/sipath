@@ -144,6 +144,9 @@ STEP_PARAMS: dict[str, list[Param]] = {
               "rst, reset, arst (active 1))"),
         Param("equiv_timeout", "int", 600, "SAT time limit; reached: inconclusive (reported, not passed)",
               unit="s", min=1),
+        Param("equiv_on_timeout", "str", "warn", "when the equivalence check times out: warn (the step passes, the "
+              "run's verification verdict is inconclusive), fail (the step fails), or pass (accepted: the verdict "
+              "counts the check as passed and notes the timeout)", choices=("warn", "fail", "pass")),
         Param("port_buffers", "bool", True, "buffer assignments between ports (off: a port-to-port assignment "
               "stays one net with two pins, e.g. a wrapper output tied to a frame loopback input)"),
     ],

@@ -67,6 +67,40 @@ Found by signoff and fixed (DRC alone sees none of the LVS ones):
   unconnected supply pins; global connections are re-applied after every step
   that adds cells.
 
+## The run's verdict
+
+A finished run is not a verified one, so every run states both
+(`sipath/verdict.py`). It reads the selected chain from the first step to the
+last, with every check any attempt in it ran: synthesis' equivalence check,
+`signoff` and the check steps (each check's own result, a later attempt
+overriding an earlier one), and cf-precheck's checks. It writes the result to
+`graph.json` (`verification`), at the top of the run report, into
+`metrics.json` (`flow__verification__status`, `flow__execution__status` and
+counts), into MCP's `run_step` result, and as the CLI's last line.
+
+- **Execution:** `completed`, `failed` (the latest step's attempts failed or
+  were interrupted), `cancelled`. A step whose attempts all ran and were
+  rejected (an ECO that lost slack) is a note, not a failure, and the verdict
+  covers the chain up to the latest step that selected an attempt.
+- **Verification:** `passed` (every check that ran passed and the standard
+  ones all ran: equivalence for an RTL design, and every check signoff
+  requires by default), `failed` (a required check failed, also when
+  `fail_on_violation: false` let the step pass), `inconclusive` (nothing
+  failed, something could not be decided: an equivalence timeout),
+  `omitted` (nothing failed or undecided, but standard checks did not run: no
+  signoff, a subset of checks, equivalence off or skipped) or `completed` (no
+  check ran at all).
+- **What limits the checks that ran**, listed as notes: black boxes LVS
+  checked at their pins only, abstract macros whose insides DRC did not see,
+  unconstrained endpoints and pad ports, density judged in the parent for an
+  embedded macro, a timeout accepted as a pass (`equiv_on_timeout: pass`), a
+  failure that did not fail its step, a check that failed but was not
+  required.
+
+The aes benchmark run, for example, reads `execution completed; verification
+FAILED; failed: setup, drv; inconclusive: equivalence`, with the note that
+its signoff ran with `fail_on_violation: false`.
+
 ## Tapeout precheck
 
 The `precheck` step runs ChipFoundry's own tapeout precheck,

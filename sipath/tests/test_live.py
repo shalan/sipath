@@ -65,6 +65,9 @@ class LiveRtl(unittest.TestCase):
         s = _read_json(f.steps["signoff"].selected.outputs["signoff"])
         self.assertTrue(s["pass"], s["failures"])
         self.assertEqual((s["drc"]["count"], s["lvs"]["match"], s["antenna"]["violations"]), (0, True, 0))
+        v = _read_json(os.path.join(wd, "graph.json"))["verification"]  # B1.3: what the run established
+        self.assertEqual((v["execution"], v["verification"], v["omitted"]), ("completed", "passed", []), v)
+        self.assertEqual(v["checks"]["equivalence"]["status"], "passed")
         _check_limits(self, wd, "gcd8")
 
     def test_systemverilog_through_slang(self):
@@ -354,6 +357,8 @@ class LiveSoftMacro(unittest.TestCase):
         so = self.flow.steps["signoff"].selected
         s = _read_json(so.outputs["signoff"])
         self.assertTrue(s["pass"], s["failures"])
+        v = self.flow.verification()  # a netlist design: no equivalence to omit; every standard check ran
+        self.assertEqual((v["execution"], v["verification"]), ("completed", "passed"), v)
         self.assertEqual(s["drc"]["count"], 0)  # KLayout, the PDK's sky130A_mr deck
         self.assertTrue(s["lvs"]["match"])
         self.assertEqual(s["gds"]["empty"], [])

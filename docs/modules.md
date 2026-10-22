@@ -10,7 +10,7 @@ on any import that crosses these rules.
 
 | layer | modules | may import |
 |---|---|---|
-| core | `scheduler`, `params`, `scores`, `registry`, `config`, `report`, `recipes`, `toolchain`, `fingerprint` | core, model |
+| core | `scheduler`, `params`, `scores`, `registry`, `config`, `report`, `recipes`, `toolchain`, `fingerprint`, `verdict` | core, model |
 | model | `design`, `pdk`, `netlist`, `lef`, `heatmap`, `sdc` | core, model |
 | tools | `tools/` | core, model, tools |
 | steps | `steps/` and the libraries they use (everything not listed elsewhere) | core, model, tools, steps |
@@ -48,6 +48,7 @@ on any import that crosses these rules.
 | module | role |
 |---|---|
 | `scheduler.py` | `Flow.step`, `Flow.eco`, the attempt graph (`graph.json`), resume, cancel, retries (`RetryWith`, recorded with `retry_of` and `retry_reason`) |
+| `verdict.py` | what a run established, apart from whether it finished: execution status, a verification status (passed, failed, inconclusive, omitted, completed), every check along the selected chain, what was omitted and what limits the rest |
 | `fingerprint.py` | what a run's results depend on (input file contents, the resolved design, PDK, tools, result-changing config), as hashes; each attempt's fingerprint, which a resume compares |
 | `params.py`, `config.py` | step parameter and design-file declarations; run configuration |
 | `scores.py`, `recipes.py` | named scores; ABC recipes and objective sets (`synth_recipes/`) |
