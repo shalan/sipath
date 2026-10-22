@@ -7,11 +7,19 @@ variables, the ``config:`` section of a design file, and keyword overrides.
 =====================  ======================  =====================================
 field                  environment             meaning
 =====================  ======================  =====================================
-threads                SIPATH_THREADS            OpenROAD ``-threads`` per process (default: all cores, as ORFS;
-                                                 two thirds of them on macOS, see default_threads)
+threads                SIPATH_THREADS            the run's cores: OpenROAD ``-threads`` of one attempt, shared
+                                                 among attempts running at once and among a signoff's concurrent
+                                                 checks (default: all cores, as ORFS; two thirds of them on macOS)
 command_timeout        SIPATH_TIMEOUT            seconds one Tcl command may take
 tool_timeout           SIPATH_TOOL_TIMEOUT       seconds one signoff tool run (KLayout DRC/LVS, Magic) may take
 parallel_cap           SIPATH_PARALLEL_CAP       most attempts alive at once (0: none)
+budget_s               SIPATH_BUDGET             wall-time budget of a run, in seconds (0: none): past it, running
+                                                 attempts stop with status "budget"; --resume continues
+step_budget_s          SIPATH_STEP_BUDGET        a time box per step, in seconds (0: none): attempts not finished by
+                                                 then stop ("budget") and the step selects among those that did
+max_attempts           SIPATH_MAX_ATTEMPTS       most attempts a run starts (0: none); the rest end "budget"
+memory_gb              SIPATH_MEMORY_BUDGET      memory budget, in GB (0: none): fewer attempts at once when the
+                                                 step's recorded peak memory says they would not fit
 container_cpus         SIPATH_CPUS               docker ``--cpus`` per process
 container_memory       SIPATH_MEMORY             docker ``--memory`` per process (e.g. 8g)
 image                  SIPATH_OPENROAD_IMAGE     ORFS image (default: the locked digest, toolchain.json)
@@ -48,6 +56,8 @@ ORFS_IMAGE = _locked("orfs")  # openroad/orfs@sha256:... (toolchain.json)
 MAGIC_IMAGE = _locked("magic")
 
 ENV = {"threads": "SIPATH_THREADS", "command_timeout": "SIPATH_TIMEOUT", "tool_timeout": "SIPATH_TOOL_TIMEOUT", "parallel_cap": "SIPATH_PARALLEL_CAP",
+       "budget_s": "SIPATH_BUDGET", "step_budget_s": "SIPATH_STEP_BUDGET", "max_attempts": "SIPATH_MAX_ATTEMPTS",
+       "memory_gb": "SIPATH_MEMORY_BUDGET",
        "container_cpus": "SIPATH_CPUS", "container_memory": "SIPATH_MEMORY", "image": "SIPATH_OPENROAD_IMAGE",
        "openroad_binary": "SIPATH_OPENROAD_BINARY", "platform": "SIPATH_PLATFORM",
        "magic_image": "SIPATH_MAGIC_IMAGE", "precheck_image": "SIPATH_PRECHECK_IMAGE",
@@ -77,6 +87,10 @@ class Config:
     command_timeout: float = 3600.0
     tool_timeout: float = 7200.0
     parallel_cap: int = 0
+    budget_s: float = 0.0  # run wall time (0: none)
+    step_budget_s: float = 0.0  # each step's time box (0: none)
+    max_attempts: int = 0  # attempts a run starts (0: none)
+    memory_gb: float = 0.0  # memory for attempts at once (0: none)
     container_cpus: float | None = None
     container_memory: str | None = None
     image: str = ORFS_IMAGE
@@ -104,6 +118,9 @@ class Config:
             raise ConfigError("command_timeout must be > 0")
         if int(self.parallel_cap) < 0:
             raise ConfigError("parallel_cap must be >= 0")
+        for k in ("budget_s", "step_budget_s", "max_attempts", "memory_gb"):
+            if float(getattr(self, k)) < 0:
+                raise ConfigError(f"{k} must be >= 0 (0: no budget)")
         if self.runtime not in ("auto", "native", "docker"):
             raise ConfigError(f"runtime must be auto, native or docker, not {self.runtime!r}")
         if self.snapshots not in ("off", "selected", "all"):

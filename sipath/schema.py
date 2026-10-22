@@ -99,10 +99,18 @@ DATAPATH = {
     "rows_per_slice": F("int", "rows per slice (slices)"),
 }
 CONFIG = {
-    "threads": F("int", "OpenROAD threads per process (default: every core, as ORFS; two thirds of them on macOS, "
-                        "where Docker's VM shares the cores with the host)"),
+    "threads": F("int", "the run's cores: one attempt's OpenROAD threads, shared among attempts running at once and "
+                        "among a signoff's concurrent checks (default: every core, as ORFS; two thirds of them on "
+                        "macOS, where Docker's VM shares the cores with the host)"),
     "command_timeout": F("number", "seconds before a Tcl command is abandoned"),
     "parallel_cap": F("int", "attempts at once across a step (0: as asked)"),
+    "budget_s": F("number", "wall-time budget of a run in seconds (0: none): past it, running attempts stop with "
+                            "status budget; --resume continues"),
+    "step_budget_s": F("number", "a time box per step in seconds (0: none): attempts not finished stop (budget) and "
+                                 "the step selects among those that finished"),
+    "max_attempts": F("int", "most attempts a run starts (0: none); the rest end with status budget"),
+    "memory_gb": F("number", "memory budget in GB (0: none): fewer attempts at once when the step's recorded peak "
+                             "memory says they would not fit"),
     "container_cpus": F("number", "CPU limit per container"),
     "container_memory": F("str", "memory limit per container (e.g. 8g)"),
     "image": F("str", "ORFS image (name@sha256:... pins it)"),

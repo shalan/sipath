@@ -78,6 +78,8 @@ Other commands:
 
 | command | what it does |
 |---|---|
+| `sipath doctor` | is this machine ready, what a run would use, and the fix for anything missing |
+| `sipath run <design> --plan` | what a run would do before it runs: attempts, how many at once, threads, budgets |
 | `sipath pdks`, `sipath templates` | PDK descriptions; design templates (`sipath new <dir> --template openframe`) |
 | `sipath harden <design> <dir>` | a design's hardened-macro views (LEF, Liberty, GDS, SPEF) |
 | `sipath install-tools [dir]` | the locked ORFS image's tools without Docker (Linux x86_64, glibc 2.35+: Colab, Ubuntu 22.04+) |

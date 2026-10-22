@@ -305,14 +305,15 @@ def drc(ctx, gds: str, owners: dict | None = None, top: str | None = None) -> di
     together are the deck's, each process reads the layout itself."""
     so = _cfg(ctx)
     base = dict(so.get("drc_options") or {})
-    total = max(4, int(getattr(ctx, "threads", None) or getattr(_runner(ctx), "threads", 1) or 1))
+    share = getattr(ctx, "drc_threads", None) or getattr(ctx, "job_threads", None)  # DRC's share in signoff
+    total = int(share) if share else max(4, int(getattr(ctx, "threads", None) or getattr(_runner(ctx), "threads", 1) or 1))
     groups = list(so.get("drc_groups") or []) if (ctx.params or {}).get("drc_split", True) else []
     if len(groups) < 2:
         base.setdefault("thr", total)  # the open_pdks decks read $thr
         rpt = _drc_run(ctx, gds, base, "", top)
         return {**parse_lyrdb(rpt, owners, top or ctx.design.top), "report": rpt}
     from concurrent.futures import ThreadPoolExecutor
-    thr = max(2, -(-total // len(groups)))
+    thr = max(1, total // len(groups)) if share else max(2, -(-total // len(groups)))  # the groups run at once
     runs = [{**base, "thr": thr, **g} for g in groups]
     with ThreadPoolExecutor(max_workers=len(runs)) as ex:
         rpts = list(ex.map(lambda kv: _drc_run(ctx, gds, kv[1], f"_{kv[0]}", top), enumerate(runs)))
@@ -616,6 +617,12 @@ def lvs_prepare(ctx, gds: str) -> dict:
     return {"_compare": dict(gds=gds, cdl=cdl, bb=bb, joins=joins, abstract_shorts=abstract_shorts, info=info)}
 
 
+def _share(ctx, wanted) -> int:
+    """A check's threads: what it asks for, at most its share among signoff's concurrent checks."""
+    share = getattr(ctx, "job_threads", None)
+    return max(1, min(int(wanted), int(share))) if share else int(wanted)
+
+
 def lvs_compare(ctx, prep: dict) -> dict:
     """The KLayout comparison of a prepared LVS (no OpenROAD session needed)."""
     so, d = _cfg(ctx), ctx.design
@@ -624,7 +631,7 @@ def lvs_compare(ctx, prep: dict) -> dict:
     rpt = ctx.path("lvs.lvsdb")
     out = run_tool(ctx, ["klayout", "-b", "-rd", f"in_gds={gds}", "-rd", f"cdl_file={cdl}", "-rd", f"report_file={rpt}",
                          "-rd", f"target_netlist={ctx.path(d.top + '.extracted.cir')}",
-                         "-rd", f"threads={so.get('lvs_threads', 4)}",
+                         "-rd", f"threads={_share(ctx, so.get('lvs_threads', 4))}",
                          "-rd", f"blackbox={','.join(sorted(set(bb.values())))}",
                          "-rd", f"bb_joins={joins[0]}", "-rd", f"bb_join_metals={joins[1]}", "-r", so["lvs_deck"]],
                    ctx.path("lvs.log"))
@@ -658,7 +665,7 @@ def lvs_full(ctx, gds: str) -> dict:
     with open(sch, "w") as fh:
         fh.write(text)
     cfg = getattr(ctx, "config", None)
-    res = lf.run(_runner(ctx), gds, d.top, sch, ctx.dir, so["lvs_full_deck"], int(so.get("lvs_threads", 4)),
+    res = lf.run(_runner(ctx), gds, d.top, sch, ctx.dir, so["lvs_full_deck"], _share(ctx, so.get("lvs_threads", 4)),
                  so.get("lvs_full_options"), timeout=getattr(cfg, "tool_timeout", None),
                  tracker=getattr(ctx, "processes", None))
     return {**res, "schematic": sch, **info}
@@ -689,6 +696,8 @@ def timing(ctx, verilog: str, spef_corners: dict) -> dict:
     corners = [c.name for c in every]
     res = {"corners": {}}
     with OpenRoadSession(wd, r, timeout=getattr(ctx.session, "timeout", 3600)) as s:
+        if getattr(ctx, "job_threads", None):  # its share among signoff's concurrent checks
+            s.run(f"set_thread_count {int(ctx.job_threads)}")
         s.run(tcl.HELPERS)
         out = [*tcl._define_corners(pdk, every)]
         out += [f"read_lef {q(f)}" for f in [pdk.tech_lef, *pdk.cell_lefs, *d.extra_lefs, *[m.lef for m in d.macros]]]
@@ -920,6 +929,11 @@ def run(ctx) -> dict:
         except Exception as e:  # re-raised below, after every job has finished
             errors[name] = e
         timings[name] = round(time.time() - t, 1)
+    # the checks running at once share the attempt's threads (config threads: the run's cores), not each all of them
+    threads = int(getattr(ctx, "threads", None) or getattr(_runner(ctx), "threads", 1) or 1)
+    ctx.job_threads = max(1, threads // max(1, len(jobs)))
+    ctx.drc_threads = ctx.job_threads + max(0, threads - ctx.job_threads * max(1, len(jobs)))  # the rest: DRC, longest
+    timings["threads_per_check"] = ctx.job_threads
     from concurrent.futures import ThreadPoolExecutor
     with ThreadPoolExecutor(max_workers=max(1, len(jobs))) as ex:
         futs = [ex.submit(timed, k, f) for k, f in jobs.items()]

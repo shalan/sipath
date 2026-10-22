@@ -354,6 +354,103 @@ def resolve_steps(spec, overrides: dict | None = None) -> list[tuple]:
     return out
 
 
+def plan(path_or_design, workdir: str | None = None, config=None, flow_steps=None, explore: bool = False) -> dict:
+    """What a run would do, before it runs: per step its attempts, how many run at once (parallel, parallel_cap,
+    explicit threads, the memory budget with peaks recorded in ``workdir``'s graph), threads each, a signoff's
+    concurrent checks and their share, recorded seconds; the budgets and the prerequisite check."""
+    import json
+    from .config import Config
+    from .params import CHECK_STEPS, SIGNOFF_CHECKS
+    if isinstance(path_or_design, Design):
+        d, spec, fcfg = path_or_design, list(flow_steps or []), {}
+    else:
+        d, spec = load(path_or_design)
+        fcfg = file_config(path_or_design)
+    cfg = config or Config.load(**fcfg)
+    pdk = None
+    try:
+        pdk = load_pdk(d.pdk) if isinstance(d.pdk, str) else d.pdk
+    except (ValueError, OSError):  # a PDK read from the image's platform tree: no default-flow decks here
+        pass
+    if not spec:
+        spec = default_flow(d, pdk)
+    if explore:
+        spec = explore_flow(spec)
+    recorded = {}
+    gpath = os.path.join(workdir, "graph.json") if workdir else None
+    if gpath and os.path.isfile(gpath):
+        with open(gpath) as f:
+            for a in json.load(f).get("attempts", []):
+                r = recorded.setdefault(a["step"], {"mem": [], "sec": []})
+                if isinstance((a.get("metrics") or {}).get("mem_peak_mb"), (int, float)):
+                    r["mem"].append(a["metrics"]["mem_peak_mb"])
+                if a.get("seconds"):
+                    r["sec"].append(a["seconds"])
+    cores = max(1, int(cfg.threads))
+    rows, total = [], 0
+    groups = len(((getattr(pdk, "signoff", None) or {}).get("drc_groups")) or [])
+    for name, ref, fn, item in resolve_steps(spec):
+        variants = item.get("variants") or [{}]
+        total += len(variants)
+        at_once, why = max(1, min(len(variants), cfg.cap(item.get("parallel", 1)))), []
+        explicit = [int(v["threads"]) for v in variants if v.get("threads")]
+        if explicit and at_once * max(explicit) > cores:
+            at_once, _ = max(1, cores // max(explicit)), why.append(f"{max(explicit)} threads each")
+        mem = max(recorded.get(name, {}).get("mem") or [0]) or None
+        if cfg.memory_gb and mem and at_once > max(1, int(cfg.memory_gb * 1024 // mem)):
+            at_once, _ = max(1, int(cfg.memory_gb * 1024 // mem)), why.append(f"{mem:.0f} MB each")
+        each = max(explicit) if explicit else max(1, cores // at_once)
+        row = {"step": name, "attempts": len(variants), "at_once": at_once, "threads_each": each,
+               "cores": at_once * each, **({"limited_by": why} if why else {})}
+        if ref == "signoff" or ref in CHECK_STEPS:  # concurrent checks share the attempt's threads
+            checks = list((variants[0] or {}).get("checks") or (CHECK_STEPS.get(ref) or SIGNOFF_CHECKS))
+            jobs = [j for j in ("drc", "density", "magic_drc", "xor", "lvs", "lvs_full") if j in checks]
+            if {"setup", "hold", "drv", "annotation", "unconstrained"} & set(checks):
+                jobs.append("sta")
+            row["concurrent_checks"] = jobs
+            row["threads_per_check"] = max(1, each // max(1, len(jobs)))
+            if "drc" in jobs and groups > 1:
+                row["drc_groups"] = groups
+        if name in recorded and recorded[name]["sec"]:
+            row["recorded_seconds"] = round(max(recorded[name]["sec"]), 1)
+        if mem:
+            row["recorded_peak_mb"] = mem
+        rows.append(row)
+    root = {"netlist"} if (d.netlist and not d.rtl) else set()
+    problems = chain_problems(root, [(n, f, i.get("variants")) for n, _, f, i in resolve_steps(spec)])
+    budget = {k: getattr(cfg, k) for k in ("threads", "parallel_cap", "budget_s", "step_budget_s", "max_attempts",
+                                           "memory_gb")}
+    notes = []
+    if cfg.max_attempts and total > cfg.max_attempts:
+        notes.append(f"{total} attempts planned, max_attempts {cfg.max_attempts}: the last ones will not start")
+    secs = sum(r.get("recorded_seconds", 0) for r in rows)
+    if cfg.budget_s and secs > cfg.budget_s:
+        notes.append(f"the recorded steps took {secs:.0f} s, more than budget_s {cfg.budget_s:g}")
+    return {"design": d.name, "steps": rows, "attempts": total, "budget": budget, "problems": problems, "notes": notes}
+
+
+def plan_text(p: dict) -> str:
+    out = [f"plan for {p['design']}: {p['attempts']} attempts; cores {p['budget']['threads']}"
+           + "".join(f", {k} {v:g}" for k, v in p["budget"].items() if k != "threads" and v)]
+    out.append(f"{'step':<16}{'attempts':>9}{'at once':>9}{'threads':>9}{'cores':>7}  notes")
+    for r in p["steps"]:
+        extra = []
+        if r.get("concurrent_checks"):
+            extra.append(f"{len(r['concurrent_checks'])} checks at once ({', '.join(r['concurrent_checks'])}), "
+                         f"{r['threads_per_check']} threads each" + (f", DRC in {r['drc_groups']} groups"
+                                                                    if r.get("drc_groups") else ""))
+        if r.get("limited_by"):
+            extra.append("limited by " + ", ".join(r["limited_by"]))
+        if r.get("recorded_seconds"):
+            extra.append(f"took {r['recorded_seconds']} s before")
+        if r.get("recorded_peak_mb"):
+            extra.append(f"peak {r['recorded_peak_mb']:.0f} MB")
+        out.append(f"{r['step']:<16}{r['attempts']:>9}{r['at_once']:>9}{r['threads_each']:>9}{r['cores']:>7}  "
+                   + "; ".join(extra))
+    out += [f"problem: {x}" for x in p["problems"]] + [f"note: {x}" for x in p["notes"]]
+    return "\n".join(out)
+
+
 def flow_problems(d: Design, spec) -> list[str]:
     """What keeps a flow list from running on design ``d`` (steps whose chain lacks what they need)."""
     root = {"netlist"} if (d.netlist and not d.rtl) else set()

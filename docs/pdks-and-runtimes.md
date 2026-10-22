@@ -186,9 +186,23 @@ unless the caller configures logging.
 From a file (`--config`, `$SIPATH_CONFIG`), `SIPATH_*` variables, or a design
 file's `config:` section (all keys in the [reference](reference.md)):
 
-- **threads:** every core by default, as ORFS (two thirds of them on macOS,
-  where Docker's VM shares the host); per step with the `threads` parameter of
-  every OpenROAD step, and shared among a step's attempts running at once;
+- **threads:** the run's cores: every core by default, as ORFS (two thirds
+  of them on macOS, where Docker's VM shares the host); shared among a step's
+  attempts running at once, and inside a signoff among its concurrent checks
+  (DRC and its rule groups, LVS, full LVS, STA), so they add up to the budget
+  instead of each taking every core; a step's `threads` parameter asks for a
+  number per attempt, and fewer attempts run at once when those would not fit;
+- **budgets:** `budget_s` (the run's wall time: running attempts stop with
+  status `budget` and `--resume` continues), `step_budget_s` (a time box per
+  step: attempts not finished by then stop and the step selects among those
+  that finished), `max_attempts`, and `memory_gb` (fewer attempts at once when
+  the step's peak memory, recorded by an earlier attempt, says they would not
+  fit). `graph.json` records each step's allocation (attempts at once, threads
+  each, what limited it), and the verdict's execution status says `budget`.
+  `sipath run <design> [workdir] --plan` shows the allocation before anything
+  runs: each step's attempts, how many at once, threads each, a signoff's
+  concurrent checks and their share, the times and memory peaks a previous run
+  in `workdir` recorded, and what the budgets will cut;
 - **timeouts** (per command and per signoff tool), the **parallel cap**,
   container CPU and memory limits, **debug checkpoints** of failed attempts,
   the log level;

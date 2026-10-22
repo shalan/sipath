@@ -175,9 +175,13 @@ YAML or JSON; relative paths are relative to the file. Keys not listed are error
 
 | key | type | required | description |
 |---|---|---|---|
-| `threads` | int |  | OpenROAD threads per process (default: every core, as ORFS; two thirds of them on macOS, where Docker's VM shares the cores with the host) |
+| `threads` | int |  | the run's cores: one attempt's OpenROAD threads, shared among attempts running at once and among a signoff's concurrent checks (default: every core, as ORFS; two thirds of them on macOS, where Docker's VM shares the cores with the host) |
 | `command_timeout` | number |  | seconds before a Tcl command is abandoned |
 | `parallel_cap` | int |  | attempts at once across a step (0: as asked) |
+| `budget_s` | number |  | wall-time budget of a run in seconds (0: none): past it, running attempts stop with status budget; --resume continues |
+| `step_budget_s` | number |  | a time box per step in seconds (0: none): attempts not finished stop (budget) and the step selects among those that finished |
+| `max_attempts` | int |  | most attempts a run starts (0: none); the rest end with status budget |
+| `memory_gb` | number |  | memory budget in GB (0: none): fewer attempts at once when the step's recorded peak memory says they would not fit |
 | `container_cpus` | number |  | CPU limit per container |
 | `container_memory` | str |  | memory limit per container (e.g. 8g) |
 | `image` | str |  | ORFS image (name@sha256:... pins it) |
@@ -492,9 +496,13 @@ Design file `config:`, a `--config` file, or the environment variable each key n
 
 | key | environment | type | description |
 |---|---|---|---|
-| `threads` | `SIPATH_THREADS` | int | OpenROAD threads per process (default: every core, as ORFS; two thirds of them on macOS, where Docker's VM shares the cores with the host) |
+| `threads` | `SIPATH_THREADS` | int | the run's cores: one attempt's OpenROAD threads, shared among attempts running at once and among a signoff's concurrent checks (default: every core, as ORFS; two thirds of them on macOS, where Docker's VM shares the cores with the host) |
 | `command_timeout` | `SIPATH_TIMEOUT` | number | seconds before a Tcl command is abandoned |
 | `parallel_cap` | `SIPATH_PARALLEL_CAP` | int | attempts at once across a step (0: as asked) |
+| `budget_s` | `SIPATH_BUDGET` | number | wall-time budget of a run in seconds (0: none): past it, running attempts stop with status budget; --resume continues |
+| `step_budget_s` | `SIPATH_STEP_BUDGET` | number | a time box per step in seconds (0: none): attempts not finished stop (budget) and the step selects among those that finished |
+| `max_attempts` | `SIPATH_MAX_ATTEMPTS` | int | most attempts a run starts (0: none); the rest end with status budget |
+| `memory_gb` | `SIPATH_MEMORY_BUDGET` | number | memory budget in GB (0: none): fewer attempts at once when the step's recorded peak memory says they would not fit |
 | `container_cpus` | `SIPATH_CPUS` | number | CPU limit per container |
 | `container_memory` | `SIPATH_MEMORY` | str | memory limit per container (e.g. 8g) |
 | `image` | `SIPATH_OPENROAD_IMAGE` | str | ORFS image (name@sha256:... pins it) |

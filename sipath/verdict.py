@@ -5,7 +5,8 @@ attempts wrote) along the selected chain, from the first step to the last,
 and returns:
 
 - ``execution``: ``completed``, ``failed`` (the latest step's attempts failed
-  or were interrupted), ``cancelled``, or ``empty``; a step whose attempts all
+  or were interrupted), ``cancelled``, ``budget`` (a budget stopped it;
+  ``--resume`` continues), or ``empty``; a step whose attempts all
   ran and were rejected (an ECO that lost slack) is a note, not a failure;
 - ``verification``: ``passed`` (every check that ran passed and the standard
   ones all ran), ``failed`` (a required check failed, even with
@@ -48,11 +49,18 @@ def _chain(g: dict) -> tuple[list[dict], str, list[str]]:
         states = {a.get("status") for a in mine}
         if "cancelled" in states:
             execution = "cancelled"
+        elif "budget" in states and not states & {"failed", "interrupted"}:
+            execution = "budget"  # stopped by a run budget: --resume continues
         elif states & {"failed", "interrupted", "running", "pending"} or not mine:
             execution = "failed"
         else:
             notes.append(f"{last}: every attempt ran and was rejected "
                          f"({'; '.join((a.get('error') or 'by its score')[:120] for a in mine)})")
+    # a step stopped before it selected (cancelled, a run budget, every attempt failed by an exception) has no entry
+    loose = {a.get("status") for a in by_id.values() if a.get("step") not in steps and a.get("status") != "stale"}
+    if execution == "completed" and loose & {"cancelled", "budget", "failed", "interrupted", "running", "pending"}:
+        execution = ("cancelled" if "cancelled" in loose else "budget" if "budget" in loose and
+                     not loose & {"failed", "interrupted"} else "failed")
     head = next((by_id.get(steps[n]["selected"]) for n in reversed(names) if steps[n].get("selected")), None)
     chain = []
     while head is not None:

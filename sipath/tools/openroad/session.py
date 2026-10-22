@@ -441,6 +441,10 @@ class OpenRoadSession(Session):
                     pipe.close()
                 except Exception:
                     pass
+            try:  # reap it: a killed process left unwaited lingers until garbage collection
+                self.proc.wait(timeout=30)
+            except Exception:
+                pass
 
     def close(self):
         if self.closed:

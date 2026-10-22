@@ -102,6 +102,10 @@ class StepCancelled(StepFailed):
     pass
 
 
+class BudgetExceeded(StepFailed):
+    """The run's wall-time or attempt budget ran out (config budget_s / max_attempts); --resume continues."""
+
+
 class MissingPrerequisite(ValueError):
     """A step asked of a parent chain without something it needs (checked before any tool starts)."""
 
@@ -318,6 +322,12 @@ class Flow:
         self._cancel = threading.Event()
         self._live: dict[str, object] = {}  # attempt id -> its open session
         self._procs: dict[str, set] = {}  # attempt id -> its running tool processes (_Processes)
+        self._t0: float | None = None  # when this process's first step started (the run's wall budget)
+        self._started = 0  # attempts started by this process (max_attempts)
+        self._budget_stopped: set = set()  # attempts stopped by a budget (status "budget")
+        self._step_deadline: dict[str, float] = {}  # step -> its time box's end (step_budget_s)
+        self._run_timer = None
+        self.allocation: dict[str, dict] = {}  # step -> how many attempts ran at once, with how many threads, why
         self.progress: Callable | None = None  # called with (event, attempt) as attempts start and end
         if validate_inputs:
             design.validate(pdk, runner_prefixes=runner_prefixes)
@@ -475,6 +485,78 @@ class Flow:
                              if not (a.step == name and a.status != "stale"
                                      and ((a.resumed and a.status != "ok") or a.status == "cancelled"))]
 
+    # ---------------------------------------------------------------- budgets
+    def _over_budget(self, a: "Attempt") -> str | None:
+        """Why ``a`` may not start (a budget ran out), or None."""
+        c, now = self.config, time.time()
+        if float(getattr(c, "budget_s", 0) or 0) and self._t0 is not None and now - self._t0 >= c.budget_s:
+            return f"run budget of {c.budget_s:g} s reached"
+        if int(getattr(c, "max_attempts", 0) or 0) and self._started >= c.max_attempts:
+            return f"attempt budget of {c.max_attempts} reached"
+        end = self._step_deadline.get(a.step)
+        if end is not None and now >= end:
+            return f"step budget of {c.step_budget_s:g} s reached"
+        return None
+
+    def _start_run_clock(self):
+        if self._t0 is not None:
+            return
+        self._t0 = time.time()
+        b = float(getattr(self.config, "budget_s", 0) or 0)
+        if b:
+            self._run_timer = threading.Timer(b, self._stop_for_budget, (None, f"run budget of {b:g} s reached"))
+            self._run_timer.daemon = True
+            self._run_timer.start()
+
+    def _stop_for_budget(self, step: str | None, why: str):
+        """Stop the running attempts (of ``step``; all with None) for a budget: their status is "budget"."""
+        with self._lock:
+            live = [(aid, s) for aid, s in self._live.items()] + \
+                   [(aid, p) for aid, ps in self._procs.items() for p in list(ps)]
+            live = [(aid, s) for aid, s in live if step is None or aid.rsplit(".", 1)[0] == step]
+            self._budget_stopped |= {aid for aid, _ in live}
+        for aid, s in live:
+            log.warning("budget: %s, stopping %s", why, aid)
+            kill = getattr(s, "kill", None)
+            if kill:
+                kill()
+
+    def _budget_reason(self, a: "Attempt") -> str:
+        c = self.config
+        if self._step_deadline.get(a.step) is not None and float(getattr(c, "step_budget_s", 0) or 0):
+            return f"step budget of {c.step_budget_s:g} s reached"
+        return f"run budget of {float(getattr(c, 'budget_s', 0) or 0):g} s reached"
+
+    def _memory_estimate(self, name: str) -> float | None:
+        """MB one attempt of ``name`` needs: the largest peak recorded for the step, else for any step, else None."""
+        def peaks(atts):
+            return [a.metrics.get("mem_peak_mb") for a in atts
+                    if isinstance(a.metrics.get("mem_peak_mb"), (int, float))]
+        mine = peaks([a for a in self.attempts if a.step == name])
+        anyp = mine or peaks(self.attempts)
+        return max(anyp) if anyp else None
+
+    def _admit(self, name: str, todo: list, parallel: int) -> int:
+        """Attempts of ``name`` that may run at once: the step's parallel (and parallel_cap), fewer when the attempts'
+        explicit threads or the memory budget would not fit; recorded in ``allocation``."""
+        k, why = self.config.cap(parallel), []
+        cores = max(1, int(getattr(self.config, "threads", 1) or 1))
+        explicit = [int(a.params["threads"]) for a in todo if a.params.get("threads")]
+        if explicit and k * max(explicit) > cores:
+            k = max(1, cores // max(explicit))
+            why.append(f"{max(explicit)} threads each in {cores} cores")
+        gb = float(getattr(self.config, "memory_gb", 0) or 0)
+        est = self._memory_estimate(name) if gb else None
+        if est:
+            fit = max(1, int(gb * 1024 // est))
+            if fit < k:
+                k, _ = fit, why.append(f"{est:.0f} MB each in {gb:g} GB")
+        k = max(1, min(k, len(todo) or 1))
+        self.allocation[name] = {"at_once": k, "threads_each": self._threads({}, k) if not explicit else max(explicit),
+                                 "cores": cores, **({"memory_mb_each": est} if est else {}),
+                                 **({"limited_by": why} if why else {})}
+        return k
+
     # ---------------------------------------------------------------- cancel
     def cancel(self):
         """Stop running attempts (their OpenROAD processes and their tool processes are killed) and keep
@@ -511,6 +593,7 @@ class Flow:
         if parent is not None and parent.status != "selected":
             raise ValueError(f"{name}: parent {parent.id} is {parent.status}; continue only from a selected checkpoint")
         self.check_prerequisites(name, fn, parent, variants)
+        self._start_run_clock()
         rec = self._recorded(name, parent, variants, score)
         if rec is not None:
             log.info("step %s: recorded result reused (selected %s)", name, rec.selected.id)
@@ -548,11 +631,24 @@ class Flow:
         """Run the attempts not finished yet (at most ``parallel`` at once), then one retry for each that asked for
         it (RetryWith), appended to ``attempts``; StepCancelled when any was cancelled."""
         todo = [a for a in attempts if a.status != "ok"]
-        log.info("step %s: %d attempts (%d to run, %d recorded), parallel %d", name, len(attempts), len(todo),
-                 len(attempts) - len(todo), self.config.cap(parallel))
-        together = max(1, min(len(todo), self.config.cap(parallel)))  # attempts alive at once share the threads
-        with ThreadPoolExecutor(max_workers=self.config.cap(parallel)) as ex:
-            list(ex.map(lambda a: self._run_attempt(a, fn, together), todo))
+        k = self._admit(name, todo, parallel)
+        log.info("step %s: %d attempts (%d to run, %d recorded), %d at once", name, len(attempts), len(todo),
+                 len(attempts) - len(todo), k)
+        together = max(1, min(len(todo), k))  # attempts alive at once share the threads
+        sb = float(getattr(self.config, "step_budget_s", 0) or 0)
+        timer = None
+        if sb and todo:  # a time box: what has not finished by then stops, the step selects among the rest
+            self._step_deadline[name] = time.time() + sb
+            timer = threading.Timer(sb, self._stop_for_budget, (name, f"step budget of {sb:g} s reached"))
+            timer.daemon = True
+            timer.start()
+        try:
+            with ThreadPoolExecutor(max_workers=k) as ex:
+                list(ex.map(lambda a: self._run_attempt(a, fn, together), todo))
+        finally:
+            if timer is not None:
+                timer.cancel()
+            self._step_deadline.pop(name, None)
         # a failed attempt that asked for it (RetryWith) gets one fresh attempt with the merged params
         nxt = max(a.index for a in self.attempts if a.step == name) + 1
         for a in [a for a in todo if a.status == "failed" and a.retry]:
@@ -566,6 +662,10 @@ class Flow:
         if any(a.status == "cancelled" for a in attempts):
             self.save_graph()
             raise StepCancelled(f"step {name} cancelled: " + ", ".join(f"{a.id} {a.status}" for a in attempts))
+        run_out = [a for a in attempts if a.status == "budget" and not (a.error or "").startswith("step budget")]
+        if run_out:  # the run's budget, not this step's time box: stop here, resumable
+            self.save_graph()
+            raise BudgetExceeded(f"step {name}: {run_out[0].error}; --resume continues")
 
     def extend(self, name: str, fn: Callable, variants: list[dict], origins: list[dict] | None = None,
                parallel: int = 1) -> StepRun:
@@ -692,6 +792,13 @@ class Flow:
             a.status, a.error = "cancelled", "cancelled before it started"
             self.save_graph()
             return
+        why = self._over_budget(a)
+        if why:
+            a.status, a.error = "budget", f"{why}: not started"
+            self.save_graph()
+            return
+        with self._lock:
+            self._started += 1
         a.status = "running"
         a.resumed = False
         t0 = time.time()
@@ -757,8 +864,10 @@ class Flow:
             a.status = "ok"
             log.info("attempt %s: ok in %.1fs", a.id, time.time() - t0)
         except Exception as e:  # the attempt fails; nothing is invented
-            a.status = "cancelled" if self.cancelled else "failed"
+            a.status = ("budget" if a.id in self._budget_stopped else "cancelled" if self.cancelled else "failed")
             a.error = f"{type(e).__name__}: {e}"
+            if a.status == "budget":
+                a.error = f"{self._budget_reason(a)}: stopped ({a.error.splitlines()[0][:200]})"
             if isinstance(e, RetryWith) and a.retry_of is None:  # one retry, never a retry of a retry
                 a.retry, a.retry_why = e.params, e.reason
             log.warning("attempt %s: %s: %s", a.id, a.status, str(e).splitlines()[0] if str(e) else type(e).__name__)
@@ -866,6 +975,7 @@ class Flow:
     def graph(self) -> dict:
         return {"design": self.design.name, "pdk": getattr(self.pdk, "name", None),
                 "provenance": self.provenance, "config": self.config.to_dict(), "inputs": self.inputs,
+                **({"allocation": self.allocation} if self.allocation else {}),
                 **({"stale": self.stale} if self.stale else {}),
                 "attempts": [a.to_json() for a in self.attempts],
                 "steps": {k: {"score": v.score_name, "selected": v.selected.id if v.selected else None,

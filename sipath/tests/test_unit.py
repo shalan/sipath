@@ -2494,6 +2494,11 @@ class Verdict(unittest.TestCase):
             self.assertEqual(v["verification"], "completed")  # a layout and no check at all: nothing established
             self.assertIn("signoff (no signoff", v["omitted"][0])
             self.assertEqual(verdict.verify({"attempts": [], "steps": {}})["execution"], "empty")
+            g = self.chain(td, eq_ok, self.signoff(td, "ok5"))  # a later step stopped before it selected
+            for st, want in (("cancelled", "cancelled"), ("budget", "budget"), ("failed", "failed")):
+                g2 = dict(g, attempts=g["attempts"] + [{"id": "x.0", "step": "x", "kind": "step", "parent": "signoff.0",
+                                                        "params": {}, "outputs": {}, "status": st}])
+                self.assertEqual(verdict.verify(g2)["execution"], want)
 
     def test_coverage_notes(self):
         from sipath import verdict
@@ -2648,6 +2653,89 @@ class Processes(unittest.TestCase):
         from sipath.session import DockerRunner
         cmd = DockerRunner("img@sha256:" + "0" * 64).tool_command("/tmp", ["klayout", "-v"], name="sipath-tool-x")
         self.assertEqual(cmd[cmd.index("--name") + 1], "sipath-tool-x")
+
+
+class Budgets(unittest.TestCase):
+    """B2.2: compute budgets: a step's time box, the run's wall time and attempt count, admission by threads and
+    memory, and the plan shown before a run."""
+
+    def make(self, td, resume=False, **cfg):
+        from sipath.config import Config
+        d = Design("fake", "fake", "x.v", "x.sdc", "macro", floorplan_def="x.def")
+        made = []
+
+        def fac(w):
+            s = KillableSession(w)
+            made.append(s)
+            return s
+        return Flow(d, sky130hd("/p"), td, fac, validate_inputs=False, config=Config(**cfg), resume=resume), made
+
+    @staticmethod
+    def step(ctx):
+        if ctx.params.get("slow"):
+            ctx.session.run("block")  # until killed
+        ctx.metrics["wns"] = float(ctx.params.get("k", 0))
+
+    def test_a_step_time_box_selects_among_what_finished(self):
+        import time
+        with tempfile.TemporaryDirectory() as td:
+            f, _ = self.make(td, step_budget_s=1.0)
+            t0 = time.time()
+            r = f.step("s", self.step, variants=[{"k": 1}, {"k": 2, "slow": True}, {"k": 3}], score="setup_wns",
+                       parallel=3)
+            self.assertLess(time.time() - t0, 15)
+            st = {a.id: a.status for a in r.attempts}
+            self.assertEqual(st["s.1"], "budget")
+            self.assertIn("step budget of 1 s reached", r.attempts[1].error)
+            self.assertEqual(r.selected.id, "s.2")  # the best of those that finished
+
+    def test_the_run_budget_stops_and_resume_continues(self):
+        from sipath.scheduler import BudgetExceeded
+        with tempfile.TemporaryDirectory() as td:
+            f, _ = self.make(td, budget_s=1.0)
+            f.step("a", self.step, variants=[{"k": 1}], score="setup_wns")
+            with self.assertRaisesRegex(BudgetExceeded, r"run budget of 1 s reached.*--resume continues"):
+                f.step("b", self.step, parent=f.steps["a"].selected, variants=[{"slow": True}], score="setup_wns")
+            self.assertEqual(f.verification()["execution"], "budget")
+            f2, made = self.make(td, resume=True)
+            r = f2.step("a", self.step, variants=[{"k": 1}], score="setup_wns")
+            self.assertEqual(made, [])  # recorded
+            b = f2.step("b", self.step, parent=r.selected, variants=[{"k": 5}], score="setup_wns")
+            self.assertEqual(b.selected.status, "selected")
+
+    def test_attempt_budget_and_admission(self):
+        from sipath.scheduler import BudgetExceeded
+        with tempfile.TemporaryDirectory() as td:
+            f, made = self.make(td, max_attempts=2)
+            with self.assertRaisesRegex(BudgetExceeded, "attempt budget of 2"):
+                f.step("a", self.step, variants=[{"k": 1}, {"k": 2}, {"k": 3}], score="setup_wns")
+            self.assertEqual([a.status for a in f.attempts].count("budget"), 1)
+            self.assertEqual(len(made), 2)
+        with tempfile.TemporaryDirectory() as td:  # explicit threads larger than the cores: fewer at once
+            f, _ = self.make(td, threads=8)
+            f.step("a", self.step, variants=[{"k": i, "threads": 4} for i in range(3)], score="setup_wns", parallel=3)
+            self.assertEqual(f.allocation["a"]["at_once"], 2)
+            self.assertIn("4 threads each in 8 cores", f.allocation["a"]["limited_by"])
+            f.attempts[0].metrics["mem_peak_mb"] = 3000  # a recorded peak: two would not fit in 4 GB
+            f.config = f.config.replace(memory_gb=4)
+            f.step("b", self.step, parent=f.steps["a"].selected, variants=[{"k": 1}, {"k": 2}], score="setup_wns",
+                   parallel=2)
+            self.assertEqual(f.allocation["b"]["at_once"], 1)
+            self.assertIn("3000 MB each in 4 GB", f.allocation["b"]["limited_by"][0])
+
+    def test_the_plan_shows_the_allocation(self):
+        from sipath import designfile
+        from sipath.config import Config
+        path = os.path.join(os.path.dirname(__file__), "..", "examples", "gcd8_explore.yaml")
+        p = designfile.plan(path, config=Config(threads=12, parallel_cap=2, max_attempts=10))
+        rows = {r["step"]: r for r in p["steps"]}
+        self.assertEqual((rows["place"]["attempts"], rows["place"]["at_once"], rows["place"]["threads_each"]),
+                         (3, 2, 6))
+        self.assertEqual(p["problems"], [])
+        self.assertTrue(any("max_attempts 10" in n for n in p["notes"]))
+        if "signoff" in rows:  # the reference flow ends in signoff where the PDK has its decks
+            self.assertIn("sta", rows["signoff"]["concurrent_checks"])
+        self.assertIn("at once", designfile.plan_text(p))
 
 
 class Adaptive(unittest.TestCase):

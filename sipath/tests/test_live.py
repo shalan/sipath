@@ -1153,3 +1153,42 @@ class LiveCancel(unittest.TestCase):
                  {"step": "macros", "variants": [{"method": "cdlns", "placer_seconds": 120}]}]
         self.cancel_during(os.path.join(ex, "sram8.yaml"), steps, "macros", wd,
                            want=lambda p: "run_cdlns.py" in " ".join(map(str, p.cmd)))
+
+
+@LIVE
+class LiveBudget(unittest.TestCase):
+    """B2.2: a 3-way sweep under a 6-core budget runs within it (2 threads each, seen in each attempt's own
+    transcript); a wall-time budget stops a real run cleanly (status budget) and --resume finishes it."""
+
+    def test_core_budget_and_wall_budget(self):
+        import re
+        from sipath import designfile
+        from sipath.config import Config
+        from sipath.examples import dp8
+        from sipath.scheduler import BudgetExceeded
+        wd = _workdir("budget")
+        if not KEEP:
+            self.addCleanup(_rmtree, wd)
+        sweep = [{"step": "floorplan"}, {"step": "physical"},
+                 {"step": "place", "variants": [{"density": 0.5}, {"density": 0.6}, {"density": 0.7}],
+                  "parallel": 3, "score": "routability_then_wns"}]
+        f = designfile.run(dp8.make_design(), os.path.join(wd, "sweep"), RUNNER, flow_steps=sweep,
+                           config=Config(threads=6))
+        self.assertEqual((f.allocation["place"]["at_once"], f.allocation["place"]["threads_each"]), (3, 2))
+        for a in f.steps["place"].attempts:
+            with open(os.path.join(a.dir, "openroad.log"), errors="replace") as fh:
+                counts = set(re.findall(r"set_thread_count (\d+)", fh.read()))
+            self.assertEqual(counts, {"2"}, a.id)  # its share, not the machine's cores
+        steps = [{"step": s} for s in ("floorplan", "physical", "place", "cts", "route_analog", "route_digital",
+                                       "route_repair", "extract")]
+        run = os.path.join(wd, "wall")
+        with self.assertRaises(BudgetExceeded):
+            designfile.run(dp8.make_design(), run, RUNNER, flow_steps=steps, config=Config(budget_s=15))
+        g = _read_json(os.path.join(run, "graph.json"))
+        self.assertEqual(g["verification"]["execution"], "budget")
+        self.assertIn("budget", {a["status"] for a in g["attempts"]})
+        done = [s for s in g["steps"] if g["steps"][s].get("selected")]
+        f2 = designfile.run(dp8.make_design(), run, RUNNER, flow_steps=steps, resume=True)
+        self.assertIn("extract", f2.steps)
+        for s in done:  # what finished before the budget is reused
+            self.assertTrue(f2.steps[s].selected.resumed, s)

@@ -2,7 +2,7 @@
 
     python3 -m sipath validate          inputs present + scheduler graph rules (FakeSession; no design)
     python3 -m sipath gen-inputs        (re)write sipath/examples/inputs
-    python3 -m sipath run <design.yaml|dp8|mcu8|ihp_add8> [workdir] [--resume] [--explore] [--snapshots[=all]]
+    python3 -m sipath run <design.yaml|dp8|mcu8|ihp_add8> [workdir] [--resume] [--explore] [--snapshots[=all]] [--plan]
                                       [--config file] [-v]
                                       real OpenROAD run -> routed DEF + SPEF; --resume continues the
                                       attempt graph in workdir (finished steps are not run again);
@@ -184,6 +184,7 @@ def main(argv) -> int:
         from . import designfile
         from .config import Config
         resume, verbose, explore = "--resume" in argv, "-v" in argv, "--explore" in argv
+        argv_full = list(argv)
         snapshots = "all" if "--snapshots=all" in argv else ("selected" if "--snapshots" in argv else None)
         args = [a for a in argv[1:] if not a.startswith("-")]
         cfg_file = argv[argv.index("--config") + 1] if "--config" in argv else None
@@ -202,6 +203,10 @@ def main(argv) -> int:
         run_cfg = Config.load(cfg_file, **fcfg) if (cfg_file or fcfg) else cfg
         if snapshots:
             run_cfg = run_cfg.replace(snapshots=snapshots)
+        if "--plan" in argv_full:  # what the run would do, nothing run
+            p = designfile.plan(path, wd, run_cfg, explore=explore)
+            print(designfile.plan_text(p))
+            return 1 if p["problems"] else 0
         flow = designfile.run(path, wd, config=run_cfg, resume=resume, explore=explore)
         last = list(flow.steps.values())[-1].selected
         ppa_md = (last.outputs.get("reports") or {}).get("ppa")
