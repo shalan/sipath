@@ -1228,3 +1228,77 @@ class LiveFork(unittest.TestCase):
         with open(os.path.join(orig, "graph.json"), "rb") as fh:
             self.assertEqual(hashlib.sha256(fh.read()).hexdigest(), before)
         self.assertEqual(_read_json(os.path.join(wd, "fork", "graph.json"))["verification"]["execution"], "completed")
+
+
+@LIVE
+class LiveDocs(unittest.TestCase):
+    """B2.4: the MCP session in docs/examples.md (recipe 13) runs as printed: each call's arguments as written
+    (R and J are the ids the calls return; the selected placement is whichever the score picks), and each
+    "-> selected X" it shows is what the call returns."""
+
+    def calls(self):
+        import re
+        path = os.path.join(os.path.dirname(__file__), "..", "..", "docs", "examples.md")
+        with open(path) as fh:
+            text = fh.read()
+        sec = text[text.index("## 13."):text.index("## 14.")]
+        block = re.search(r"```text\n(.*?)```", sec, re.S).group(1)
+        entries = []
+        for ln in block.splitlines():
+            if ln.startswith(" ") and entries:
+                entries[-1] += " " + ln.strip()
+            elif ln.strip():
+                entries.append(ln.strip())
+        out = []
+        for e in entries:
+            tool, rest = e.split(None, 1)
+            depth, end = 0, None
+            for i, ch in enumerate(rest):
+                depth += ch == "{"
+                depth -= ch == "}"
+                if depth == 0 and ch == "}":
+                    end = i + 1
+                    break
+            args = re.sub(r":\s*([RJ])\b", r': "__\1__"', rest[:end])
+            want = re.search(r"-> selected (\S+)", rest[end:])
+            out.append((tool, json.loads(args), want.group(1) if want else None))
+        return out
+
+    def test_mcp_walkthrough_as_printed(self):
+        import time as _t
+        from sipath import mcp_server
+        wd = _workdir("docs_mcp")
+        if not KEEP:
+            self.addCleanup(_rmtree, wd)
+        s = mcp_server.Server(emit=lambda m: None)
+        ids, rename = {}, {}
+        calls = self.calls()
+        self.assertGreater(len(calls), 12)
+
+        def fill(v):
+            if isinstance(v, str):
+                return ids.get(v, rename.get(v, v))
+            if isinstance(v, list):
+                return [fill(x) for x in v]
+            if isinstance(v, dict):
+                return {k: fill(x) for k, x in v.items()}
+            return v
+        for tool, args, want in calls:
+            args = fill(args)
+            if tool == "open_run":
+                args["workdir"] = os.path.join(wd, "run")
+            out = s.call(tool, args)
+            if tool == "open_run":
+                ids["__R__"] = out["run_id"]
+            elif "job_id" in out and tool != "job_status":
+                ids["__J__"] = out["job_id"]
+            elif tool == "job_status":
+                while out.get("status") in ("running", "pending"):
+                    _t.sleep(2)
+                    out = s.call(tool, args)
+                self.assertEqual(out.get("status"), "done", out)
+                rename["place.1"] = out["result"]["selected"]  # the doc says "say place.1": the score's pick
+            if want:
+                self.assertEqual(out.get("selected"), fill(want), f"{tool} {args}")
+        eco = out
+        self.assertEqual(eco["attempt"]["status"], "selected", eco)

@@ -2781,6 +2781,90 @@ class Fork(unittest.TestCase):
             self.assertIn(out["run_id"], s.runs)
 
 
+class ExecutableDocs(unittest.TestCase):
+    """B2.4: the documentation's code is checked, not only read: every YAML block validates as a design file or a
+    flow (step names, parameters, prerequisites), every Python block compiles, every `sipath run` command makes a
+    plan, every other `sipath` command exists. (The MCP walkthrough runs in the live suite.)"""
+
+    ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+    def blocks(self, lang):
+        import glob
+        import re
+        out = []
+        for f in ["README.md"] + sorted(glob.glob(os.path.join(self.ROOT, "docs", "*.md"))):
+            path = os.path.join(self.ROOT, f) if not os.path.isabs(f) else f
+            with open(path) as fh:
+                text = fh.read()
+            for m in re.finditer(r"```" + lang + r"\n(.*?)```", text, re.S):
+                out.append((os.path.relpath(path, self.ROOT), text[:m.start()].count("\n") + 1, m.group(1)))
+        return out
+
+    def test_yaml_blocks_are_valid_designs_or_flows(self):
+        import yaml
+        from sipath import designfile, schema, steps
+        from sipath.scheduler import chain_problems
+        checked = 0
+        for f, line, body in self.blocks("yaml"):
+            where = f"{f}:{line}"
+            data = yaml.safe_load(body)
+            if isinstance(data, dict) and {"name", "top"} <= set(data):
+                schema.validate(data, required=True)  # raises on a wrong key, type or missing field
+            flow = data if isinstance(data, list) else (data or {}).get("flow") if isinstance(data, dict) else None
+            if not flow:
+                continue
+            chain = []
+            for item in flow:
+                ref = item.get("fn", item["step"])
+                if ":" in ref or ref not in steps.STEPS:  # a user's step by import path: names a function
+                    self.assertIn(":", ref, f"{where}: unknown step {ref!r}")
+                    continue
+                steps.check_params(ref, item.get("variants"))
+                chain.append((item["step"], steps.STEPS[ref], item.get("variants")))
+            if chain and chain[0][0] in ("synth", "floorplan"):  # a whole flow: its prerequisites hold
+                root = set() if chain[0][0] == "synth" else {"netlist"}
+                self.assertEqual(chain_problems(root, chain), [], where)
+            checked += 1
+        self.assertGreater(checked, 10)
+
+    def test_python_blocks_compile(self):
+        found = self.blocks("python")
+        self.assertTrue(found)
+        for f, line, body in found:
+            compile(body, f"{f}:{line}", "exec")
+
+    def test_documented_commands_exist_and_run_commands_plan(self):
+        import re
+        import shlex
+        import subprocess
+        with open(os.path.join(self.ROOT, "sipath", "__main__.py")) as fh:
+            main = fh.read()
+        known = set(re.findall(r'cmd == "([a-z-]+)"', main)) | {"draw", "render"}
+        planned = 0
+        for f, line, body in self.blocks("bash"):
+            for ln in body.replace("\\\n", " ").splitlines():
+                ln = ln.split("  #")[0].strip()
+                m = re.search(r"(?:python3 -m sipath|^sipath) ([a-z-]+)(.*)", ln)
+                if not m or ln.startswith("#"):
+                    continue
+                self.assertIn(m.group(1), known, f"{f}:{line}: `sipath {m.group(1)}` is not a command")
+                if m.group(1) != "run":
+                    continue
+                args = shlex.split(m.group(2))
+                design = args[0] if args else ""
+                path = design if os.path.isfile(os.path.join(self.ROOT, design)) else \
+                    os.path.join(self.ROOT, "sipath", "examples", design + ".yaml")
+                if not os.path.isfile(os.path.join(self.ROOT, path)):
+                    continue  # a design of the reader's (my.yaml)
+                keep = [a for a in args if a in ("--explore",)]
+                r = subprocess.run([sys.executable, "-m", "sipath", "run", path, os.path.join(self.ROOT, "runs", "_docplan"),
+                                    *keep, "--plan"], capture_output=True, text=True, cwd=self.ROOT, timeout=120)
+                self.assertEqual(r.returncode, 0, f"{f}:{line}: {ln}\n{r.stdout[-800:]}{r.stderr[-800:]}")
+                self.assertIn("plan for", r.stdout)
+                planned += 1
+        self.assertGreater(planned, 3)
+
+
 class Adaptive(unittest.TestCase):
     """Adaptive rounds: Flow.extend, designfile.adapt, the place adapter and its blockages."""
 
@@ -2916,6 +3000,26 @@ class Phase0Rules(unittest.TestCase):
             self.assertTrue(os.path.isfile(bad.checkpoint))  # kept for inspection
             ok = f.eco("eco_ok", r.selected, [], fn=self.metrics_step("drc 0 wns 0.98 whs 0.2 hpwl_um 100"))
             self.assertEqual(ok.selected.status, "selected")
+
+    def test_eco_compared_with_like_parasitics(self):
+        """A signoff head records the placement estimate; the ECO measures extracted parasitics: it is judged
+        against the nearest attempt measured the same way (extract), not against the estimate."""
+        def step(text, par):
+            def fn(ctx):
+                ctx.session.responses["::flow_metrics"] = text
+                ctx.metrics["parasitics"] = par
+            return fn
+        with tempfile.TemporaryDirectory() as td:
+            f = self.flow(td)
+            ex = f.step("extract", step("drc 0 wns 4.34 whs 0.11 hpwl_um 100", "rcx"), score="auto")
+            so = f.step("signoff", step("drc 0 wns 4.47 whs 0.12 hpwl_um 100", "placement"), parent=ex.selected,
+                        score="auto")
+            r = f.eco("eco1", so.selected, [], fn=step("drc 0 wns 4.339 whs 0.11 hpwl_um 100", "rcx"))
+            self.assertEqual(r.selected.status, "selected")  # 0.001 ns from extract, not 0.13 from the estimate
+            self.assertEqual(r.selected.outputs["eco_baseline"], {"attempt": "extract.0", "parasitics": "rcx",
+                                                                  "same_parasitics": True})
+            with self.assertRaisesRegex(StepFailed, "vs eco1.0 4.339 ns .*rcx parasitics on both sides"):
+                f.eco("eco2", r.selected, [], fn=step("drc 0 wns 4.2 whs 0.11 hpwl_um 100", "rcx"))
 
     def test_unconstrained_design_selects_by_wirelength(self):
         with tempfile.TemporaryDirectory() as td:

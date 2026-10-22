@@ -794,14 +794,27 @@ class Flow:
             self.save_graph()
             raise StepCancelled(f"ECO {name} cancelled")
         if a.status == "ok" and max_slack_loss is not None:
+            # like with like: the nearest attempt of the chain measured with the ECO's parasitics (a signoff or
+            # fill head records the placement estimate; the ECO, extracted parasitics: extract's are the baseline)
+            base, x = parent, parent
+            while x is not None and x.metrics.get("parasitics") != a.metrics.get("parasitics"):
+                x = x.parent
+            if x is not None:
+                base = x
+            a.outputs["eco_baseline"] = {"attempt": base.id, "parasitics": base.metrics.get("parasitics"),
+                                         "same_parasitics": x is not None}
             lost = []
             for k, label in (("wns", "setup"), ("whs", "hold")):  # each checked on its own
-                b, c = parent.metrics.get(k), a.metrics.get(k)
+                b, c = base.metrics.get(k), a.metrics.get(k)
                 if isinstance(b, (int, float)) and isinstance(c, (int, float)) and c < b - max_slack_loss:
-                    lost.append(f"{label} {c:.3f} ns vs parent {b:.3f} ns")
+                    lost.append(f"{label} {c:.3f} ns vs {base.id} {b:.3f} ns")
             if lost:
                 a.status = "rejected"
-                a.error = f"ECO regressed timing: {'; '.join(lost)} (allowed loss {max_slack_loss} ns)"
+                a.error = (f"ECO regressed timing: {'; '.join(lost)} (allowed loss {max_slack_loss} ns, "
+                           f"{a.metrics.get('parasitics')} parasitics on both sides)" if x is not None else
+                           f"ECO regressed timing: {'; '.join(lost)} (allowed loss {max_slack_loss} ns; no attempt "
+                           f"of the chain measured with {a.metrics.get('parasitics')} parasitics: compared with "
+                           f"{base.id}'s {base.metrics.get('parasitics')})")
         return self._select(name, [a], score, score_mod.get(score), parent=parent, variants=[params],
                             fingerprint=efp)
 

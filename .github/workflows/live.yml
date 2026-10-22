@@ -32,7 +32,7 @@ jobs:
           - group: blocks
             classes: >-
               LiveRtl LiveSoftMacro LiveHs LiveResume LiveMcp LiveIhp LiveIhpRing
-              LiveScale OpenRoad LiveMacroPlacers LiveAdaptive
+              LiveScale OpenRoad LiveMacroPlacers LiveAdaptive LiveCancel LiveBudget LiveFork LiveDocs
     env:
       SIPATH_LIMITS_IGNORE: max_runtime_s
       PDK_ROOT: /home/runner/pdk
@@ -100,3 +100,31 @@ jobs:
             live-runs/**/signoff.json
           retention-days: 14
           if-no-files-found: ignore
+
+  # the tutorial as a reader runs it, on the native path (no Docker): its first part, through gcd8 to signoff and
+  # explore mode (notebooks/smoke.py runs the notebook's own cells in an IPython shell)
+  tutorial:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      SIPATH_TUTORIAL_NATIVE: "1"
+      PDK_ROOT: /home/runner/pdk
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup \
+                      /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          df -h /
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: IPython (the shell the notebook's cells run in)
+        run: python -m pip install ipython pandas pyyaml
+
+      - name: Tutorial, first part
+        run: python notebooks/smoke.py --until 13
+

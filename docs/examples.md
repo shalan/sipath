@@ -413,11 +413,12 @@ run_step      {"run_id": R, "step": "fill", "parent": "route_repair.0"}         
 run_step      {"run_id": R, "step": "extract", "parent": "fill.0"}                  -> extract.0
 run_step      {"run_id": R, "step": "signoff", "parent": "extract.0"}               -> signoff.0
 run_eco       {"run_id": R, "parent": "signoff.0",
-               "ops": [{"op": "resize", "inst": "u1", "master": "sky130_fd_sc_hd__nand2_4"}]}
+               "ops": [{"op": "resize", "inst": "_152_", "master": "sky130_fd_sc_hd__nand2_4"}]}   (a NAND2 of gcd8's netlist)
 ```
 
 An ECO continues from the head of the run: a selected attempt nothing has
-continued from yet (here `signoff.0`). The attempt numbers are what this run
+continued from yet (here `signoff.0`). The live tests run this session as
+printed (`LiveDocs`), so it stays true. The attempt numbers are what this run
 gives; a retried attempt is numbered after the others, so read each one from
 the result rather than assuming `.0`.
 

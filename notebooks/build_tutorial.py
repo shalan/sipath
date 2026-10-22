@@ -92,7 +92,8 @@ code("""
 # Tools. With Docker: the locked images (as the CI). Without (Colab): the locked ORFS image's
 # OpenROAD, Yosys and KLayout, downloaded and unpacked by `sipath install-tools` (1.6 GB download, 4 GB on disk).
 import json
-DOCKER = shutil.which("docker") is not None and subprocess.run(["docker", "info"], capture_output=True).returncode == 0
+DOCKER = (shutil.which("docker") is not None and not os.environ.get("SIPATH_TUTORIAL_NATIVE")  # CI: the native path
+          and subprocess.run(["docker", "info"], capture_output=True).returncode == 0)
 if DOCKER:
     ref = json.load(open("sipath/toolchain.json"))["images"]["orfs"]["ref"]
     !docker pull -q --platform linux/amd64 {ref}

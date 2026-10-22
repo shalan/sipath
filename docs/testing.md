@@ -13,6 +13,15 @@ Part of the [SiPath documentation](../README.md#documentation).
   runs of the examples through OpenROAD, Yosys, KLayout and Magic, one process
   per test class, in parallel, with each class's time.
   `python3 -m unittest sipath.tests.test_sipath` runs everything in one process.
+- **Executable docs.** The documentation's code is tested, not only read:
+  every YAML block validates as a design file or a flow (step names,
+  parameters, prerequisites), every Python block compiles, every documented
+  `sipath run` makes a plan and every other documented command exists (unit
+  tests, `ExecutableDocs`); the MCP session of
+  [recipe 13](examples.md#13-driving-a-run-from-an-agent-mcp) runs as printed
+  on gcd8, through signoff and its ECO (live, `LiveDocs`); and the tutorial
+  notebook's first part runs on the native tools, without Docker, in the
+  nightly CI (`notebooks/smoke.py`, which runs the notebook's own cells).
 - **Benchmarks** (`bench/`): against OpenROAD-flow-scripts both ways, the
   synthesis bench, amd64 against arm64, and configurations × repeats
   (`bench/repeat_compare.py`); results in [benchmarks](benchmarks.md).
