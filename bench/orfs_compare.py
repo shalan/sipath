@@ -261,7 +261,12 @@ def sipath_result(w: str, tag: str = "sipath", typical: str = "tt_nom") -> dict:
     if os.path.isfile(graph):
         g = json.load(open(graph))
         atts = {a["step"]: a for a in g["attempts"] if a.get("status") == "selected"}
+        by_id = {a["id"]: a for a in g["attempts"]}
         so, ex = atts.get("signoff", {}), atts.get("extract", {})
+        a = by_id.get(so.get("parent")) if so else None  # signoff's own chain: after a bounded search the
+        while a is not None and not a["step"].startswith("extract"):  # winner may be a branch's extract
+            a = by_id.get(a.get("parent"))
+        ex = a or ex
         if not so:  # no signoff (IHP): the extracted checkpoint; its DEF is written by the measurement
             so = {"checkpoint": ex.get("checkpoint"), "outputs": {}}
         r.update(odb=so.get("checkpoint"), spef=(ex.get("outputs", {}).get("spef_corners") or {}).get(typical),

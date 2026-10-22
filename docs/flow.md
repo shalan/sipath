@@ -290,6 +290,13 @@ capabilities in `graph.json`.
   53%). The round lost and the rounds stopped; the run then reproduced the
   baseline exactly (all 244 metric values). So far, on both designs,
   blockages move congestion rather than remove it.
+- **Judged by the final result** ([strategies](benchmarks.md#strategies-judged-by-the-final-result)):
+  on crowded gcd8, two rounds ended with 0.2 ns less slack at the typical
+  corner, 0.4 ns at the worst one and 11 slew violations, against the defaults.
+  Adaptive rounds therefore stay opt-in (`adapt:`), and are meant to run with
+  a bounded search to extraction (`keep: 2`, `decide_at: extract`), where the
+  baseline competes on the routed result and wins when the rounds did not
+  help.
 
 ## Sweeps and ECOs
 - `variants=[...]`, `parallel=N`, `score="<name>"` (default `auto`: setup slack

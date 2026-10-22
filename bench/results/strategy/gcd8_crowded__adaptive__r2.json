@@ -1,0 +1,121 @@
+{
+ "backfilled": false,
+ "design": "gcd8_crowded",
+ "flow": "adaptive",
+ "inputs": {
+  "sipath/examples/rtl/gcd8.sdc": "9632479ac45b94ab",
+  "sipath/examples/rtl/gcd8.v": "90f3152c1285920e"
+ },
+ "kind": "strategy",
+ "machine": {
+  "arch": "arm64",
+  "cores": 18,
+  "cpu": "Apple M5 Max",
+  "emulated": true,
+  "image_platform": "linux/amd64",
+  "os": "Darwin 25.6.0",
+  "python": "3.14.7"
+ },
+ "measured": "2026-10-22",
+ "metrics": {
+  "cell_area_um2": 1656.6,
+  "cells": 202,
+  "core_seconds": 1099.2,
+  "drc_klayout": 0,
+  "drv_slew": 11,
+  "exit": 0,
+  "instances": 344.0,
+  "routed_wirelength_um": 3696,
+  "synth_area_um2": 1435.1264,
+  "synth_recipe": "area_map",
+  "tns_tt_ns": 0.0,
+  "wall_s": 92.1,
+  "wns_ss_max_ns": 3.8122657221184966,
+  "wns_tt_ns": 6.78,
+  "wns_worst_ns": 3.812
+ },
+ "overrides": {
+  "place": [
+   {
+    "step": "synth"
+   },
+   {
+    "step": "floorplan"
+   },
+   {
+    "step": "physical"
+   },
+   {
+    "adapt": {
+     "rounds": 2
+    },
+    "step": "place"
+   },
+   {
+    "step": "cts"
+   },
+   {
+    "step": "route_analog"
+   },
+   {
+    "step": "route_digital"
+   },
+   {
+    "step": "route_repair"
+   },
+   {
+    "step": "fill"
+   },
+   {
+    "step": "extract"
+   },
+   {
+    "step": "signoff",
+    "variants": [
+     {
+      "fail_on_violation": false
+     }
+    ]
+   }
+  ]
+ },
+ "repeat": 2,
+ "seeds": null,
+ "sipath": {
+  "commit": "dd0899a45a78-dirty",
+  "version": "0.1.0"
+ },
+ "source": "runs/bench_strategy/gcd8_crowded/adaptive_r2/run",
+ "steps": {
+  "cts": 10.4,
+  "extract": 2.1,
+  "fill": 1.6,
+  "floorplan": 1.8,
+  "physical": 1.8,
+  "place": 7.5,
+  "route_analog": 1.6,
+  "route_digital": 35.5,
+  "route_repair": 2.2,
+  "signoff": 16.8,
+  "synth": 10.2
+ },
+ "toolchain": {
+  "orfs": "openroad/orfs@sha256:751a77afcade9882b51427e6d9d079b8e270e7a8f4aa66df2d0659457d1c29fd",
+  "pdk": {
+   "sky130": "8afc8346a57fe1ab7934ba5a6056ea8b43078e71"
+  }
+ },
+ "verification": {
+  "execution": "completed",
+  "failed": [
+   "drv"
+  ],
+  "inconclusive": [],
+  "notes": [
+   "signoff.0: failed checks did not fail the step (fail_on_violation: false)",
+   "density: informational for an embedded macro (judged in its parent)"
+  ],
+  "omitted": [],
+  "verification": "failed"
+ }
+}

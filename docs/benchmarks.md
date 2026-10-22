@@ -266,6 +266,51 @@ after the other on an idle 18-core Apple M5 Max, 12 threads (wall seconds):
   a step can take its own, e.g. `step_defaults: {place: {threads: 8}}`);
   12 threads also made the amd64 runs 3–34% faster than 18.
 
+## Strategies, judged by the final result
+
+`python3 bench/strategy_compare.py gcd8_crowded dp8 aes --repeats 2` runs each
+design to signoff five ways and measures the end, not the step a strategy
+changes: `defaults` (the reference flow), `sweep` (the default placement and
+two densities in parallel, chosen at placement by `routability_then_wns`),
+`adaptive` (two adaptive placement rounds), `search` (the sweep with `keep: 2`,
+decided after extraction) and `adaptive_search` (adaptive rounds, then the
+best two and the baseline carried to extraction). Measured as the other
+benchmarks are (typical-corner slack, cells, cell area and routed wirelength
+from the final DEF), plus the worst signoff corner's slack, slew violations,
+DRC, wall time and the core-seconds the scheduler allocated. Runs went one at
+a time; gcd8_crowded is gcd8 at 65% core utilization and placement density
+0.8, the setting the adaptive rounds were first measured on.
+
+<!-- table:strategies -->
+| design | strategy | runs | WNS tt (ns) | WNS worst corner (ns) | cell area (µm²) | wirelength (µm) | DRC | slew viol. | wall (s) | core-s |
+|---|---|---|---|---|---|---|---|---|---|---|
+| gcd8_crowded | defaults | 2 of 2 | 6.981 | 4.213 | 1,672 | 3,438 | 0 | 0 | 70 | 833 |
+| gcd8_crowded | sweep | 2 of 2 | 6.981 | 4.213 | 1,672 | 3,438 | 0 | 0 | 71 | 846 |
+| gcd8_crowded | adaptive | 2 of 2 | 6.780 | 3.812 | 1,657 | 3,696 | 0 | 11 | 93 | 1,109 |
+| gcd8_crowded | search | 2 of 2 | 6.981 | 4.213 | 1,672 | 3,438 | 0 | 0 | 110 | 1,309 |
+| gcd8_crowded | adaptive_search | 2 of 2 | 6.981 | 4.213 | 1,672 | 3,438 | 0 | 0 | 170 | 2,027 |
+| dp8 | defaults | 2 of 2 | 5.812 | 0.831 | 1,790 | 7,230 | 0 | 0 | 66 | 789 |
+| dp8 | sweep | 2 of 2 | 5.812 | 0.831 | 1,790 | 7,230 | 0 | 0 | 66 | 783 |
+| dp8 | adaptive | 2 of 2 | 5.812 | 0.831 | 1,790 | 7,230 | 0 | 0 | 70 | 839 |
+| dp8 | search | 2 of 2 | 5.812 | 0.831 | 1,790 | 7,230 | 0 | 0 | 107 | 1,276 |
+| dp8 | adaptive_search | 2 of 2 | 5.812 | 0.831 | 1,790 | 7,230 | 0 | 0 | 111 | 1,320 |
+<!-- /table -->
+
+- **Every repeat gave the same result,** to the last digit: the variation is
+  in wall time only (two runs that the machine's sleep stretched were run
+  again).
+- **No strategy beat the defaults on these two designs.** On gcd8_crowded the
+  sweep's placement score picked the default placement; on dp8 every strategy
+  ended with the same layout.
+- **Adaptive rounds alone made gcd8_crowded worse at the end:** 0.2 ns less
+  slack at the typical corner, 0.4 ns at the worst one, 11 slew violations
+  against none, for a placement that looked better by its heatmaps. Carried
+  to extraction with the baseline kept (`adaptive_search`), the baseline won
+  and the final result was the defaults', at 2.4 times the core-seconds.
+- **The bounded search costs** 1.5-1.6 times the defaults' core-seconds with
+  one extra branch, and returns the defaults' result when the baseline is
+  best: it is insurance, not a gain, on these designs.
+
 ## Exploration mode
 
 Measured 2026-10-19. `--explore` on gcd8 (ORFS image, Rosetta): 20 s from RTL

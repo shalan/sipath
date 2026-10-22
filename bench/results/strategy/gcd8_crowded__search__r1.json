@@ -1,0 +1,134 @@
+{
+ "backfilled": false,
+ "design": "gcd8_crowded",
+ "flow": "search",
+ "inputs": {
+  "sipath/examples/rtl/gcd8.sdc": "9632479ac45b94ab",
+  "sipath/examples/rtl/gcd8.v": "90f3152c1285920e"
+ },
+ "kind": "strategy",
+ "machine": {
+  "arch": "arm64",
+  "cores": 18,
+  "cpu": "Apple M5 Max",
+  "emulated": true,
+  "image_platform": "linux/amd64",
+  "os": "Darwin 25.6.0",
+  "python": "3.14.7"
+ },
+ "measured": "2026-10-22",
+ "metrics": {
+  "cell_area_um2": 1671.6,
+  "cells": 204,
+  "core_seconds": 1316.5,
+  "drc_klayout": 0,
+  "drv_slew": 0,
+  "exit": 0,
+  "instances": 337.0,
+  "routed_wirelength_um": 3438,
+  "synth_area_um2": 1435.1264,
+  "synth_recipe": "area_map",
+  "tns_tt_ns": 0.0,
+  "wall_s": 110.3,
+  "wns_ss_max_ns": 4.213399970401453,
+  "wns_tt_ns": 6.981,
+  "wns_worst_ns": 4.213
+ },
+ "overrides": {
+  "place": [
+   {
+    "step": "synth"
+   },
+   {
+    "step": "floorplan"
+   },
+   {
+    "step": "physical"
+   },
+   {
+    "decide_at": "extract",
+    "keep": 2,
+    "parallel": 3,
+    "score": "routability_then_wns",
+    "step": "place",
+    "variants": [
+     {},
+     {
+      "density": 0.65
+     },
+     {
+      "density": 0.7
+     }
+    ]
+   },
+   {
+    "step": "cts"
+   },
+   {
+    "step": "route_analog"
+   },
+   {
+    "step": "route_digital"
+   },
+   {
+    "step": "route_repair"
+   },
+   {
+    "step": "fill"
+   },
+   {
+    "step": "extract"
+   },
+   {
+    "step": "signoff",
+    "variants": [
+     {
+      "fail_on_violation": false
+     }
+    ]
+   }
+  ]
+ },
+ "repeat": 1,
+ "seeds": null,
+ "sipath": {
+  "commit": "dd0899a45a78-dirty",
+  "version": "0.1.0"
+ },
+ "source": "runs/bench_strategy/gcd8_crowded/search_r1/run",
+ "steps": {
+  "cts": 10.4,
+  "cts@place.1": 10.2,
+  "extract": 2.2,
+  "extract@place.1": 2.2,
+  "fill": 1.6,
+  "fill@place.1": 1.6,
+  "floorplan": 1.7,
+  "physical": 1.7,
+  "place": 8.3,
+  "route_analog": 1.6,
+  "route_analog@place.1": 1.6,
+  "route_digital": 20.1,
+  "route_digital@place.1": 20.0,
+  "route_repair": 2.2,
+  "route_repair@place.1": 2.2,
+  "signoff": 17.5,
+  "synth": 10.1
+ },
+ "toolchain": {
+  "orfs": "openroad/orfs@sha256:751a77afcade9882b51427e6d9d079b8e270e7a8f4aa66df2d0659457d1c29fd",
+  "pdk": {
+   "sky130": "8afc8346a57fe1ab7934ba5a6056ea8b43078e71"
+  }
+ },
+ "verification": {
+  "execution": "completed",
+  "failed": [],
+  "inconclusive": [],
+  "notes": [
+   "density: informational for an embedded macro (judged in its parent)"
+  ],
+  "omitted": [],
+  "verification": "passed"
+ }
+}

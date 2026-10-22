@@ -20,7 +20,7 @@ sys.path.insert(0, ROOT)
 import records  # noqa: E402
 
 DOCS = {"orfs": "docs/benchmarks.md", "orfs_readme": "README.md", "aes_steps": "docs/benchmarks.md",
-        "sipath_designs": "docs/benchmarks.md", "fallback": "docs/synthesis.md"}
+        "sipath_designs": "docs/benchmarks.md", "fallback": "docs/synthesis.md", "strategies": "docs/benchmarks.md"}
 
 
 def _num(v, nd=0, sign=False):
@@ -177,8 +177,33 @@ def table_fallback() -> str:
     return "\n".join(lines)
 
 
+STRATEGIES = ("defaults", "sweep", "adaptive", "search", "adaptive_search")
+
+
+def table_strategies() -> str:
+    """Each design × strategy: completed runs, and the medians of what they ended with."""
+    recs = _by("strategy")
+    lines = ["| design | strategy | runs | WNS tt (ns) | WNS worst corner (ns) | cell area (µm²) | wirelength (µm) | "
+             "DRC | slew viol. | wall (s) | core-s |", "|---|---|---|---|---|---|---|---|---|---|---|"]
+    for design in sorted({r["design"] for r in recs}, key=lambda d: ["gcd8_crowded", "dp8", "aes"].index(d)
+                         if d in ("gcd8_crowded", "dp8", "aes") else 9):
+        for s in STRATEGIES:
+            runs = [r for r in recs if r["design"] == design and r["flow"] == s]
+            if not runs:
+                continue
+            done = [r for r in runs if not r["metrics"].get("exit")]
+
+            def med(k, nd=0, sign=False):
+                vals = [r["metrics"][k] for r in done if isinstance(r["metrics"].get(k), (int, float))]
+                return _num(statistics.median(vals), nd, sign) if vals else "–"
+            lines.append(f"| {design} | {s} | {_runs_cell(done, runs)} | {med('wns_tt_ns', 3)} | {med('wns_worst_ns', 3)} | "
+                         f"{med('cell_area_um2')} | {med('routed_wirelength_um')} | {med('drc_klayout')} | "
+                         f"{med('drv_slew')} | {med('wall_s')} | {med('core_seconds')} |")
+    return "\n".join(lines)
+
+
 TABLES = {"orfs": lambda: table_orfs(False), "orfs_readme": lambda: table_orfs(True), "aes_steps": table_aes_steps,
-          "sipath_designs": table_sipath_designs, "fallback": table_fallback}
+          "sipath_designs": table_sipath_designs, "fallback": table_fallback, "strategies": table_strategies}
 
 
 def render(text: str, only: str | None = None) -> str:
