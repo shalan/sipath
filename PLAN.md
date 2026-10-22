@@ -545,3 +545,53 @@ week or more. "Owner" marks items that need a decision or approval first.
 
 Suggested order: P0.1 → P0.2 → P1.2 → P0.3 → P1.1 → P1.3/P1.7 → P0.4 → P2.1 → P2.2. P1.2 and
 P0.3 are small and lift every later iteration; P1.1 needs the runtime decision.
+
+---
+
+## Review 2 (2026-10-22): four batches of about ten days each
+
+A second review proposed twelve changes. Checked against the code: resume reuses a step when its parent,
+variants and score match, without looking at the inputs (a changed SDC is silently reused; a bug); cancel
+reaches OpenROAD sessions only; only a selected attempt can be continued; no stage prerequisites; no run-level
+verification verdict; benchmark records lack the commit, toolchain and input hashes. Partly done already:
+`equiv_timeout` (the time, not the policy), the generated config/env reference, `toolchain --check`, layers
+phase 2 (`steps/` only).
+
+Sizes in working days. Every batch ends the same way: unit tests, the live blocks subset, CI green, docs and
+README updated, committed as shalan, and a push only when the owner says so. Order inside a batch is the order
+listed; batch 2 needs batch 1 (prerequisites, verdicts), batch 3 needs batch 2 (budgets, forks).
+
+### Batch 1. Runs you can trust (10 days)
+
+| # | Item | Days | Done when |
+|---|------|------|-----------|
+| B1.1 | **Input-aware resume** (review 1). Every attempt records a fingerprint: hashes of the inputs its step reads (RTL, netlist, SDC, floorplan DEF, macro LEF/Liberty/GDS, extra views), its resolved parameters (with `step_defaults` and PDK defaults), the PDK description and release, the toolchain refs and tool versions, the SiPath commit, the config keys that change results (not threads or timeouts). On resume a step whose fingerprint differs runs again, and so does everything after it; the old attempts stay, marked `stale` with the reason, and `--resume` prints what will run again and why. | 3 | unit tests: an edited SDC re-runs from the first step reading it, an edited macro LEF from floorplan, changed threads re-run nothing; live: LiveResume with an edited clock period re-runs and its WNS changes |
+| B1.2 | **Stage prerequisites** (review 2). Steps declare what they need and give (netlist, floorplan, rows and pins, power grid, placed, clock tree, routed, parasitics, fill, GDS, powered netlist); an attempt carries its parent's capabilities plus its own. `Flow.step`, the design-file check and MCP refuse a step whose parent lacks one, before any tool starts, naming what is missing. Any order that satisfies them stays allowed; plugins declare theirs (undeclared plugin steps: a warning, not a refusal, for one release). | 3 | unit tests: `place` on a floorplan without `physical` refused naming `power_grid`; `precheck` without GDS refused; every example flow passes; the old broken doc sequence (synth then place) is refused |
+| B1.3 | **Verification verdict** (review 3, with review 8's policy part). A run and each attempt get a status: `completed` (no checks ran), `passed`, `failed`, `inconclusive`, `omitted`; per check its status; coverage notes: black-box and abstract macros, unconstrained endpoints, the equivalence result, checks not required or skipped, `fail_on_violation: false`. At the top of the report, in `graph.json`, `metrics.json`, MCP and the CLI's last line. `equiv_on_timeout: pass / warn / fail` (default warn: inconclusive in the verdict). | 2.5 | unit tests per status; live: gcd8 `passed`; aes-like timeout `inconclusive`; a design with a black-box macro lists it; the CLI prints the verdict, not just "done" |
+| B1.4 | **`sipath doctor`** (review 11). Architecture and OS, the runtime chosen and why, images present and matching the lock, the native tools tree, the PDK release and each required view, Magic and precheck images, Verilator, the placer venv, optional SDKs; exit 1 on a required failure. One supported setup path per runtime (macOS Docker, Linux native, Colab), with the full Magic then precheck build (or pull, once published). | 1.5 | unit tests with stand-in environments; run on this Mac, in the ORFS image, on a CI runner |
+
+### Batch 2. Control over execution (10 days)
+
+| # | Item | Days | Done when |
+|---|------|------|-----------|
+| B2.1 | **One process manager** (review 4). Every child process (Yosys, KLayout, Magic, Netgen, precheck, CD-LNS, full LVS, pictures; OpenROAD sessions register with it): its own process group or container name, timeout, cancel kills the tree (`docker kill` for containers), one log format (command, exit, duration, peak memory), owned by an attempt. `run_tool`, `synth`, `macroplace`, `lvs_full`, `viz` go through it; `Flow.cancel` and MCP `cancel_job` reach everything. | 3 | live: cancel during synthesis, KLayout DRC and CD-LNS leaves no process or container behind and the attempts end `cancelled`; timeouts the same |
+| B2.2 | **Compute budgets** (review 7). Config: run wall time, step wall time, attempt count, cores and memory. Admission control counts nested parallelism (an attempt's threads, signoff's parallel checks, KLayout threads); `sipath run --plan` shows the allocation before anything runs; a budget stop ends attempts `budget` and the run is resumable. | 3 | unit tests of admission; live: a 3-way sweep under a 6-core budget runs within it; a wall budget stops cleanly and `--resume` finishes |
+| B2.3 | **Fork from any attempt** (review 5, first half). `Flow.fork(attempt, workdir)` and MCP `fork_run`: a new run that references the original's checkpoints read-only and may continue from any finished attempt, rejected ones included; the original graph is never written. | 1.5 | live: fork from a rejected `place` attempt, route it; the original `graph.json` byte-identical |
+| B2.4 | **Executable docs** (review 10). Doc snippets tagged as tests: every design-file block validates with stand-in inputs; the MCP walkthrough runs on gcd8 in the live suite (parents, prerequisites); the CLI recipes smoke-run; a reduced tutorial notebook runs in CI on the native tools tree. | 2.5 | a broken snippet fails CI; the walkthrough and the notebook smoke test pass in CI |
+
+### Batch 3. Search judged by the final result (10.5 days)
+
+| # | Item | Days | Done when |
+|---|------|------|-----------|
+| B3.1 | **Reproducible benchmark records** (review 9). Every result stores input hashes, the SiPath commit (and whether the tree was dirty), the toolchain lock, overrides, machine (CPU, cores, OS, emulation), seeds, the verification verdict (B1.3). The tables in `docs/benchmarks.md` and the README are generated from the records (a test fails when stale); metric names separate quick HPWL from routed wirelength and typical-corner from worst-corner timing. | 2.5 | the ORFS and repeat tables regenerated from records; editing a table by hand fails the test |
+| B3.2 | **Bounded search** (review 5, second half). A step may carry its best `keep: k` attempts forward through later steps to a decision step (`decide_at: extract`, scored there); the baseline (default parameters) is always one of them; within the budget (B2.2). | 3 | gcd8 and dp8 with `keep: 2` through routing: the graph shows both branches, the choice is made on extracted timing |
+| B3.3 | **Strategies compared on final results** (review 6). A bench driver runs strategies (defaults, a sweep, adaptive rounds, the bounded search) with repeats and records routed WNS (typical and worst corner), area, routed wirelength, DRC and DRV, CPU-seconds and wall time; adaptive rounds measured again with the baseline kept (B3.2). | 2.5 | table from records (B3.1) on crowded gcd8, dp8 and aes; adaptive rounds kept, changed or dropped on that evidence |
+| B3.4 | **Library Tcl into operations, part 1** (review 12). `eco`, `macroplace`, `congestion`, `minarea` call `tools/openroad/ops`; the Layers test covers them; verified by the same transcript diff as phase 2. | 2.5 | transcripts identical against a baseline; the test fails on a new inline command in these modules |
+
+### Batch 4. Deeper verification, separation finished (9.5 days)
+
+| # | Item | Days | Done when |
+|---|------|------|-----------|
+| B4.1 | **Sequential equivalence where practical** (review 8). Register correspondence from synthesis (names kept, matched registers) for an unbounded proof (Yosys `equiv_*` with induction); the bounded check stays the fallback; the verdict says `proven`, `bounded N` or `inconclusive`. | 3 | gcd8, dp8 and apb_timer proven; an injected mismatch caught; aes reported honestly |
+| B4.2 | **Full-device LVS regression corpus** (review 8). Small layouts: a sample of each standard-cell family, tap, endcap, tie, decap, diode and fill cells, one device per primitive, a macro interface stub, and the `o211ai_4` pairing case; expected results for `lvs_full` and Netgen. | 3 | the corpus runs in the live suite; each known deck or netlist disagreement isolated to one case and documented |
+| B4.3 | **Library Tcl into operations, part 2, and a versioned plugin contract** (review 12). `chip`, `padplan`, `powerconnect`, `analog`, `shield`, `datapath` and the signoff-side OpenROAD Tcl into `ops`; `PLUGIN_API = (1, 0)`: the stable surface (registry decorators, `Ctx` fields, `ops`), plugins declare what they need, a mismatch is refused, a deprecation rule. | 3.5 | no inline OpenROAD Tcl outside `tools/`; transcripts identical; the plugin example declares its API and an incompatible one is refused |
