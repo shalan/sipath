@@ -3415,6 +3415,105 @@ class RunHeadFollowUp(unittest.TestCase):
             self.assertEqual(f.verification()["execution"], "failed")
 
 
+class RunHeadThirdReview(unittest.TestCase):
+    """Third review: a reused decision needs the same candidate results; old handled failures do not hide a new
+    cancellation; a named picture is the result's step; a single failed run is labeled; layouts carry digests."""
+
+    RESULT: dict = {}
+    items = RunHead.items
+    place = staticmethod(RunHead.place)
+
+    @staticmethod
+    def route(ctx):
+        a = ctx.parent
+        while not a.step.startswith("place"):
+            a = a.parent
+        d = a.params.get("d", 0)
+        if d in ctx.params.get("fail", []):
+            raise RuntimeError("router gave up")
+        ctx.metrics["wns"] = RunHeadThirdReview.RESULT.get(d, -float(d))
+
+    def flow(self, td, resume=False, **cfg):
+        return RunHead.flow(self, td, resume=resume, **cfg)
+
+    def setUp(self):
+        RunHeadThirdReview.RESULT = {}
+
+    def test_a_rebuilt_candidate_is_decided_again(self):
+        from sipath import designfile
+        with tempfile.TemporaryDirectory() as td:
+            f = self.flow(td)
+            designfile.run_items(f, self.items())
+            win = f.decisions[-1]["winner"]
+            self.assertEqual(win, "route@place.0.0")
+            os.remove(next(a for a in f.attempts if a.id == win).checkpoint)  # lost: rebuilt on resume ...
+            RunHeadThirdReview.RESULT[0] = -100.0  # ... with a far worse result
+            f2 = self.flow(td, resume=True)
+            designfile.run_items(f2, self.items())
+            self.assertEqual(f2.decisions[-1]["winner"], "route@place.2.0")
+            self.assertEqual(f2.head.id, "route@place.2.0")
+
+    def test_an_old_handled_failure_does_not_hide_a_new_cancellation(self):
+        from sipath import designfile
+        from sipath.scheduler import StepCancelled
+        with tempfile.TemporaryDirectory() as td:
+            designfile.run_items(self.flow(td), self.items({"fail": [0]}))  # handled: the search decided
+            f2 = self.flow(td, resume=True)
+
+            def cancelled(ctx):
+                f2.cancel()
+                raise RuntimeError("killed")
+            it = self.items({"fail": [0]})
+            it[1] = ("route", "route", cancelled, it[1][3])
+            with self.assertRaises(StepCancelled):
+                designfile.run_items(f2, it)
+            self.assertEqual(f2.verification()["execution"], "cancelled")
+
+    def test_a_named_picture_is_the_results_step(self):
+        from sipath import designfile, viz
+        with tempfile.TemporaryDirectory() as td:
+            f = self.flow(td)
+            designfile.run_items(f, self.items())  # route.0 (the selected placement's) loses to a kept branch
+            self.assertEqual(f.head.id, "route@place.0.0")
+            self.assertEqual(viz.checkpoints(td, "route")[0][0], "route@place.0.0")
+
+    def test_a_single_failed_run_is_labeled(self):
+        from unittest import mock
+        sys.path.insert(0, os.path.join(ArchivesAndEligibility.ROOT, "bench"))
+        import tables
+        recs = [{"kind": "strategy", "design": "dp8", "flow": "defaults", "outcome": "measurement_failed",
+                 "metrics": {"exit": 0, "wall_s": 9}}]
+        with mock.patch.object(tables, "_by", lambda kind: recs if kind == "strategy" else []):
+            row = next(ln for ln in tables.table_strategies().splitlines() if "| dp8 | defaults |" in ln)
+        self.assertIn("0 of 1 (measurement failed)", row)
+
+    def test_the_cost_column_is_against_the_defaults(self):
+        from unittest import mock
+        sys.path.insert(0, os.path.join(ArchivesAndEligibility.ROOT, "bench"))
+        import tables
+        base = {"kind": "strategy", "design": "dp8", "outcome": "completed", "verification": {"verification": "passed"}}
+        recs = [dict(base, flow="defaults", metrics={"exit": 0, "wns_tt_ns": 1.0, "core_seconds": 100.0}),
+                dict(base, flow="search", metrics={"exit": 0, "wns_tt_ns": 1.0, "core_seconds": 265.0})]
+        with mock.patch.object(tables, "_by", lambda kind: recs if kind == "strategy" else []):
+            row = next(ln for ln in tables.table_strategies().splitlines() if "| dp8 | search |" in ln)
+        self.assertTrue(row.endswith("| 2.65 |"), row)
+
+    def test_records_carry_the_final_layouts_digest(self):
+        import hashlib
+        sys.path.insert(0, os.path.join(ArchivesAndEligibility.ROOT, "bench"))
+        import records
+        with tempfile.TemporaryDirectory() as td:
+            d = os.path.join(td, "final.def")
+            with open(d, "w") as fh:
+                fh.write("DESIGN x ;\n")
+            g = {"head": "signoff.0", "attempts": [
+                {"id": "extract.0", "step": "extract", "parent": None, "outputs": {"def_": "/missing.def"}},
+                {"id": "signoff.0", "step": "signoff", "parent": "extract.0", "outputs": {"def_": d}}]}
+            self.assertEqual(records.final_def_digest(g), hashlib.sha256(b"DESIGN x ;\n").hexdigest()[:16])
+            g["attempts"][1]["outputs"] = {}
+            self.assertIsNone(records.final_def_digest(g))  # extraction's is missing: no digest, not a guess
+
+
 class ArchivesAndEligibility(unittest.TestCase):
     ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 

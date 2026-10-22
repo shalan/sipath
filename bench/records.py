@@ -165,7 +165,21 @@ def run_metrics(run_dir: str) -> dict:
             "instances": (routed.get("metrics") or {}).get("insts"),
             "synth_area_um2": (_selected(g, "synth").get("metrics") or {}).get("synth_area_um2"),
             "synth_recipe": (_selected(g, "synth").get("metrics") or {}).get("abc_recipe"),
-            "drv_slew": tim.get("drv_slew")}
+            "drv_slew": tim.get("drv_slew"), "final_def_sha256": final_def_digest(g)}
+
+
+def final_def_digest(g) -> str | None:
+    """The layout the run ended with: sha256 (16 hex) of the result chain's final DEF (signoff's, else
+    extraction's), so two results can be told to be the same layout, not only the same numbers."""
+    import hashlib
+    from sipath.scheduler import in_chain, run_chain
+    ch = run_chain(g)
+    for step in ("signoff", "extract"):
+        p = (in_chain(ch, step).get("outputs") or {}).get("def_")
+        if p and os.path.isfile(p):
+            with open(p, "rb") as f:
+                return hashlib.sha256(f.read()).hexdigest()[:16]
+    return None
 
 
 def from_design_run(run_dir: str, kind: str, design: str, flow: str, backfilled: bool = False, **extra) -> dict:

@@ -25,6 +25,7 @@
   "drc_klayout": 0,
   "drv_slew": 0,
   "exit": 0,
+  "final_def_sha256": "d0e4d5b1363121a4",
   "instances": 2176.0,
   "routed_wirelength_um": 7230,
   "synth_area_um2": null,
@@ -37,7 +38,8 @@
   "wns_worst_ns": 0.831
  },
  "notes_export": [
-  "core_seconds and tool_seconds recomputed at export from the run graph (one formula for every record: per-attempt threads, else the step's allocation)"
+  "core_seconds and tool_seconds recomputed at export from the run graph (one formula for every record: per-attempt threads, else the step's allocation)",
+  "final_def_sha256 computed at export from the run's own final DEF"
  ],
  "overrides": {
   "place": [

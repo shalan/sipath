@@ -140,7 +140,9 @@ def checkpoints(workdir: str, which: str | None = None) -> list[tuple[str, str]]
             raise ValueError(f"attempt {which} {st}: no checkpoint" if st in ("failed", "cancelled") else
                              f"attempt {which} has no layout database (only steps after synthesis do)")
     else:
-        hits = [a for a in result if a["step"] == which] or [a for a in sel if a["step"] == which]
+        from .scheduler import in_chain  # a step name: its attempt on the result chain (a branch's step@... too)
+        on = in_chain(result, which)
+        hits = [on] if on else [a for a in sel if a["step"] == which]
         if not hits:
             steps = sorted({a["step"] for a in sel}, key=[a["step"] for a in sel].index)
             raise ValueError(f"no selected {which!r} checkpoint in {workdir}; steps with one: {', '.join(steps)}"

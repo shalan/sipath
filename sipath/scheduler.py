@@ -825,11 +825,13 @@ class Flow:
         fn = score_mod.get(score)
         if getattr(fn, "selector", False):  # a rule over attempts, not a value per attempt: rank by auto
             score, fn = "auto", score_mod.get("auto")
-        ids = sorted(a.id for a in candidates)
-        # reused only for the same place, the same candidates and the same scoring policy; another policy decides
-        # again over the same (reused) candidates, and the new decision replaces the old one
-        rec = next((d for d in self.decisions if d["at"] == at and sorted(c["attempt"] for c in d["candidates"]) == ids
-                    and d.get("complete") and d.get("score") == score), None)
+        # reused only for the same place, scoring policy and candidate results: each candidate's id, fingerprint and
+        # finish time (an attempt rebuilt under the same id has another finish time); anything else decides again
+        # (over the reused candidates when only the policy changed) and replaces the old decision
+        now = sorted((a.id, a.fingerprint, a.finished_at) for a in candidates)
+        rec = next((d for d in self.decisions if d["at"] == at and d.get("complete") and d.get("score") == score
+                    and sorted((c["attempt"], c.get("fingerprint"), c.get("finished_at"))
+                               for c in d["candidates"]) == now), None)
         if rec is not None:
             best = next(a for a in candidates if a.id == rec["winner"])
             if self.head is not best:
@@ -844,7 +846,8 @@ class Flow:
         best = max(ok, key=lambda x: x[0])[1]
         self.decisions.append({"at": at, "score": score, "winner": best.id, "complete": True,
                                "candidates": [{"attempt": a.id, "score": s if isinstance(s, (int, float, type(None)))
-                                               else list(s)} for s, a in scored],
+                                               else list(s), "fingerprint": a.fingerprint,
+                                               "finished_at": a.finished_at} for s, a in scored],
                                **({"failed_branches": failed} if failed else {})})
         self.head = best
         self.save_graph()

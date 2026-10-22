@@ -38,6 +38,7 @@
   "drc_klayout": 0,
   "drv_slew": 34,
   "exit": 0,
+  "final_def_sha256": "48dea2851a6c913c",
   "instances": 39108.0,
   "routed_wirelength_um": 583437,
   "synth_area_um2": 81107.7888,
@@ -49,6 +50,9 @@
   "wns_tt_ns": 0.233,
   "wns_worst_ns": -2.383
  },
+ "notes_export": [
+  "final_def_sha256 computed at export from the run's own final DEF"
+ ],
  "outcome": "completed",
  "overrides": {
   "place": [

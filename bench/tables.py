@@ -70,20 +70,21 @@ def completed(r) -> bool:
                                   or r["kind"] not in ("strategy",))
 
 
+def _why(r) -> str:
+    """Why a run does not count: a measurement failure, the tool's error code, a timeout, else 'failed'."""
+    if r.get("outcome") == "measurement_failed":
+        return "measurement failed"
+    f = r.get("failure") or ""
+    m = re.search(r"[A-Z]+-\d+", f)
+    return m.group(0) if m else ("timeout" if "timeout" in f else "failed")
+
+
 def _runs_cell(done, runs) -> str:
-    if len(runs) <= 1:
-        return "1"
-    out = f"{len(done)} of {len(runs)}"
+    """'1' or 'n' when every run counts; otherwise 'k of n (reasons)', a single run included ('0 of 1 (...)')."""
     fails = [r for r in runs if r not in done]
-    if fails:
-        def why(r):
-            if r.get("outcome") == "measurement_failed":
-                return "measurement failed"
-            f = r.get("failure") or ""
-            m = re.search(r"[A-Z]+-\d+", f)
-            return m.group(0) if m else ("timeout" if "timeout" in f else "failed")
-        out += f" ({', '.join(sorted({why(r) for r in fails}))})"
-    return out
+    if not fails:
+        return str(len(runs))
+    return f"{len(done)} of {len(runs)} ({', '.join(sorted({_why(r) for r in fails}))})"
 
 
 def _verdict_counts(runs) -> str:
@@ -213,7 +214,8 @@ def table_strategies() -> str:
     """Each design × strategy: completed runs, and the medians of what they ended with."""
     recs = _by("strategy")
     lines = ["| design | strategy | runs | verification | WNS tt (ns) | WNS worst corner (ns) | cell area (µm²) | "
-             "wirelength (µm) | DRC | slew viol. | wall (s) | core-s |", "|---|---|---|---|---|---|---|---|---|---|---|---|"]
+             "wirelength (µm) | DRC | slew viol. | wall (s) | core-s | core-s × defaults |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for design in sorted({r["design"] for r in recs}, key=lambda d: ["gcd8_crowded", "dp8", "aes"].index(d)
                          if d in ("gcd8_crowded", "dp8", "aes") else 9):
         for s in STRATEGIES:
@@ -225,10 +227,14 @@ def table_strategies() -> str:
             def med(k, nd=0, sign=False):
                 vals = [r["metrics"][k] for r in done if isinstance(r["metrics"].get(k), (int, float))]
                 return _num(statistics.median(vals), nd, sign) if vals else "–"
+            base = [r["metrics"]["core_seconds"] for r in recs if r["design"] == design and r["flow"] == "defaults"
+                    and completed(r) and isinstance(r["metrics"].get("core_seconds"), (int, float))]
+            mine = [r["metrics"]["core_seconds"] for r in done if isinstance(r["metrics"].get("core_seconds"), (int, float))]
+            ratio = (f"{statistics.median(mine) / statistics.median(base):.2f}" if base and mine else "–")
             lines.append(f"| {design} | {s} | {_runs_cell(done, runs)} | {_verdict_counts(done)} | "
                          f"{med('wns_tt_ns', 3)} | {med('wns_worst_ns', 3)} | "
                          f"{med('cell_area_um2')} | {med('routed_wirelength_um')} | {med('drc_klayout')} | "
-                         f"{med('drv_slew')} | {med('wall_s')} | {med('core_seconds')} |")
+                         f"{med('drv_slew')} | {med('wall_s')} | {med('core_seconds')} | {ratio} |")
     return "\n".join(lines)
 
 

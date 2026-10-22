@@ -44,13 +44,18 @@ def _chain(g: dict) -> tuple[list[dict], str, list[str]]:
     execution, notes = "completed", []
     # a branch that failed and that a complete search decision lists (failed_branches) was handled: evidence,
     # not the run's end; cancellation, a budget and every branch failing are not handled (no complete decision)
+    # handled: the very failed executions the decision lists (id and finish time); a later execution of that step
+    # (a resume that cancelled it, a budget) is not handled and decides the run's status as usual
+    handled_runs = {(x["id"], x.get("finished_at")) for d in g.get("decisions") or [] if d.get("complete")
+                    for fb in d.get("failed_branches") or [] for x in fb.get("attempts") or []}
+    handled_ids = {a["id"] for a in by_id.values()
+                   if a.get("status") == "failed" and (a["id"], a.get("finished_at")) in handled_runs}
     handled = set()
-    for d in g.get("decisions") or []:
-        if d.get("complete"):
-            for fb in d.get("failed_branches") or []:
-                handled.add(fb["at"] if fb.get("branch") == "selected" else f"{fb['at']}@{fb['branch']}")
-    for s in sorted(handled):
-        notes.append(f"{s}: a search branch that failed; the search decided among the others")
+    for s in {a["step"] for a in by_id.values() if a["id"] in handled_ids}:
+        mine = [a for a in by_id.values() if a.get("step") == s and a.get("status") != "stale"]
+        if all(a["id"] in handled_ids for a in mine):
+            handled.add(s)
+            notes.append(f"{s}: a search branch that failed; the search decided among the others")
     names = [n for n in steps if n not in handled] or list(steps)
     last = names[-1]
     if not steps[last].get("selected"):
@@ -67,7 +72,7 @@ def _chain(g: dict) -> tuple[list[dict], str, list[str]]:
                          f"({'; '.join((a.get('error') or 'by its score')[:120] for a in mine)})")
     # a step stopped before it selected (cancelled, a run budget, every attempt failed by an exception) has no entry
     loose = {a.get("status") for a in by_id.values()
-             if a.get("step") not in steps and a.get("step") not in handled and a.get("status") != "stale"}
+             if a.get("step") not in steps and a["id"] not in handled_ids and a.get("status") != "stale"}
     if execution == "completed" and loose & {"cancelled", "budget", "failed", "interrupted", "running", "pending"}:
         execution = ("cancelled" if "cancelled" in loose else "budget" if "budget" in loose and
                      not loose & {"failed", "interrupted"} else "failed")

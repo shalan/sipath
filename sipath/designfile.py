@@ -376,7 +376,10 @@ def run_items(flow, items, cfg=None):
             except StepFailed as e:
                 log.warning("bounded search: branch %s ended at %s: %s", suffix or "selected", name,
                             str(e).splitlines()[0])
-                failed.append({"branch": suffix or "selected", "at": name, "reason": str(e).splitlines()[0][:200]})
+                failed.append({"branch": suffix or "selected", "at": name, "reason": str(e).splitlines()[0][:200],
+                               # the exact executions this decision handled (a later run of the step is not them)
+                               "attempts": [{"id": a.id, "finished_at": a.finished_at} for a in flow.attempts
+                                            if a.step == bname and a.status == "failed"]})
                 continue
             alive.append((suffix, br.selected))
         if not alive:
