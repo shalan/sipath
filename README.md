@@ -181,9 +181,9 @@ corner):
 | design | flow | WNS (ns) | TNS (ns) | wirelength (µm) | cell area (µm²) | DRC | wall (s) | runs | signoff |
 |---|---|---|---|---|---|---|---|---|---|
 | gcd (1.1 ns) | ORFS | −1.465 | −65.09 | 11,786 | 5,319 | 0 | 321 | 1 | — |
-| gcd (1.1 ns) | SiPath | −1.083 | −46.62 | 8,061 | 4,975 | 0 | 369 | 1 | fails: setup |
+| gcd (1.1 ns) | SiPath | −1.083 | −46.62 | 8,061 | 4,975 | 0 | 369 | 1 | failed 1/1: setup |
 | aes | ORFS | −0.196 | −0.67 | 588,211 | 124,637 | 0 | 2,724 | 1 | — |
-| aes | SiPath | +0.233 | 0.00 | 583,437 | 136,273 | 0 | 4,207 | 1 of 2 (DRT-0206) | fails: drv, setup |
+| aes | SiPath | +0.233 | 0.00 | 583,437 | 136,273 | 0 | 4,207 | 1 of 2 (DRT-0206) | failed 1/1: drv, setup |
 <!-- /table -->
 
 SiPath's wall time includes signoff (DRC, LVS, nine-corner STA), which ORFS's
