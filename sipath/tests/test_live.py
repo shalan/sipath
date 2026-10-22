@@ -869,6 +869,49 @@ class LiveResume(unittest.TestCase):
         for k in ("floorplan", "physical"):
             self.assertTrue(os.path.isfile(f.steps[k].selected.checkpoint))
 
+    def test_an_edited_clock_is_never_reused(self):
+        """B1.1: resume after the SDC's clock period changed: every step runs again (the old attempts stay,
+        stale, with the reason) and the setup slack follows the new clock."""
+        import shutil
+        from sipath import designfile
+        from sipath.examples import dp8
+        wd = _workdir("resume_sdc")
+        if not KEEP:
+            self.addCleanup(_rmtree, wd)
+        steps = [{"step": "floorplan"}, {"step": "physical"}, {"step": "place"}]
+        sdc = os.path.join(wd, "inputs", "dp8.sdc")
+        os.makedirs(os.path.dirname(sdc), exist_ok=True)
+        shutil.copy(dp8.make_design().sdc, sdc)
+
+        def mk():  # a fresh design each run, on the copied SDC
+            d = dp8.make_design()
+            d.sdc = sdc
+            return d
+        f1 = designfile.run(mk(), os.path.join(wd, "run"), RUNNER, flow_steps=steps)
+        wns1 = f1.steps["place"].selected.metrics["wns"]
+        f2 = designfile.run(mk(), os.path.join(wd, "run"), RUNNER, flow_steps=steps, resume=True)
+        self.assertEqual(f2.stale, [])  # unchanged: nothing ran again
+        self.assertTrue(f2.steps["place"].selected.resumed)
+        with open(sdc) as fh:
+            text = fh.read()
+        import re
+        m = re.search(r"-period\s+([0-9.]+)", text)
+        self.assertIsNotNone(m, "dp8.sdc names no -period")
+        period = float(m.group(1))
+        with open(sdc, "w") as fh:
+            fh.write(text.replace(m.group(0), f"-period {period / 2:g}", 1))
+        f3 = designfile.run(mk(), os.path.join(wd, "run"), RUNNER, flow_steps=steps, resume=True)
+        self.assertEqual(f3.input_changes, ["dp8.sdc changed"])
+        self.assertEqual([s["step"] for s in f3.stale], ["floorplan", "physical", "place"])
+        sel = f3.steps["place"].selected
+        self.assertFalse(sel.resumed)
+        self.assertLess(sel.metrics["wns"], wns1 - period / 4)  # half the period: far less slack
+        g = _read_json(os.path.join(wd, "run", "graph.json"))
+        old = [a for a in g["attempts"] if a["status"] == "stale"]
+        self.assertEqual({a["step"] for a in old}, {"floorplan", "physical", "place"})
+        self.assertTrue(all("dp8.sdc changed" in a["stale_reason"] or "parent changed" in a["stale_reason"]
+                            for a in old))
+
 
 @LIVE
 class LiveMcp(unittest.TestCase):

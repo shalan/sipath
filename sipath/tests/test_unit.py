@@ -974,7 +974,7 @@ class Layers(unittest.TestCase):
     """The layers (docs/modules.md): core knows no tool, tools know no step, nothing below flows imports a
     flow, and library code imports the moved modules from sipath.tools (not their compatibility aliases)."""
     ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    CORE = {"scheduler", "params", "scores", "registry", "config", "report", "recipes", "toolchain"}
+    CORE = {"scheduler", "params", "scores", "registry", "config", "report", "recipes", "toolchain", "fingerprint"}
     MODEL = {"design", "pdk", "netlist", "lef", "heatmap", "sdc"}
     FLOWS = {"designfile", "mcp_server", "__main__", ""}  # "": the package's __init__ (its public API)
     ALIASES = {"session", "tcl", "tclquote", "nativetools"}  # = sipath.tools.openroad.*, sipath.tools.native
@@ -2820,6 +2820,139 @@ class ResumeAndCancel(unittest.TestCase):
             c = f2.step("c", demo.fake_step(), parent=b2.selected, score="setup_wns")  # continues from it
             self.assertEqual(len(made), 1)
             self.assertIs(c.selected.parent, b2.selected)
+
+    def inputs(self, td):
+        """A fake design over real files, so a test can edit them between runs."""
+        files = {}
+        for n, text in (("x.v", "module fake; endmodule\n"), ("x.sdc", "create_clock -period 10 [get_ports clk]\n"),
+                        ("x.def", "VERSION 5.8 ;\n")):
+            files[n] = os.path.join(td, "in", n)
+            os.makedirs(os.path.dirname(files[n]), exist_ok=True)
+            with open(files[n], "w") as fh:
+                fh.write(text)
+        return files
+
+    def make_real(self, td, files, **kw):
+        d = Design("fake", "fake", files["x.v"], files["x.sdc"], "macro", floorplan_def=files["x.def"])
+        made = []
+
+        def fac(w):
+            s = demo.fake_factory()(w)
+            made.append(s)
+            return s
+        return Flow(d, sky130hd("/p"), os.path.join(td, "run"), fac, validate_inputs=False, **kw), made
+
+    def chain(self, f):
+        a = f.step("a", demo.fake_step(), variants=[{"k": 0}, {"k": 1}], score="setup_wns")
+        b = f.step("b", demo.fake_step(), parent=a.selected, score="setup_wns")
+        return a, b
+
+    def test_resume_reruns_after_an_input_changes(self):
+        """An edited SDC is never silently reused: every step after it runs again, the old attempts stay
+        as stale with the reason; an unchanged resume runs nothing."""
+        with tempfile.TemporaryDirectory() as td:
+            files = self.inputs(td)
+            f, _ = self.make_real(td, files)
+            a, b = self.chain(f)
+            f2, made = self.make_real(td, files, resume=True)
+            self.chain(f2)
+            self.assertEqual((made, f2.stale, f2.input_changes), ([], [], []))  # nothing changed: nothing ran
+            with open(files["x.sdc"], "w") as fh:
+                fh.write("create_clock -period 5 [get_ports clk]\n")
+            f3, made = self.make_real(td, files, resume=True)
+            self.assertEqual(f3.input_changes, ["x.sdc changed"])
+            a3, b3 = self.chain(f3)
+            self.assertEqual(len(made), 3)  # a's two variants and b
+            self.assertEqual([s["step"] for s in f3.stale], ["a", "b"])
+            self.assertIn("x.sdc changed", f3.stale[0]["reason"])
+            self.assertIn("parent changed", f3.stale[1]["reason"])
+            self.assertEqual(sorted(x.id for x in a3.attempts), ["a.2", "a.3"])  # new ids after the stale ones
+            g = _read_json(os.path.join(td, "run", "graph.json"))
+            st = {x["id"]: (x["status"], x.get("stale_reason")) for x in g["attempts"]}
+            self.assertEqual(st["a.0"][0], "stale")
+            self.assertEqual(st[a.selected.id][0], "stale")
+            self.assertTrue(os.path.isfile(a.selected.checkpoint))  # kept, never reused
+            self.assertNotEqual(g["steps"]["a"]["fingerprint"], None)
+            f4, made = self.make_real(td, files, resume=True)  # and the re-run is itself resumable
+            self.chain(f4)
+            self.assertEqual(made, [])
+
+    def test_resume_ignores_what_only_changes_speed(self):
+        from sipath.config import Config
+        with tempfile.TemporaryDirectory() as td:
+            files = self.inputs(td)
+            f, _ = self.make_real(td, files, config=Config(threads=2, command_timeout=100))
+            self.chain(f)
+            f2, made = self.make_real(td, files, resume=True, config=Config(threads=7, command_timeout=900))
+            self.chain(f2)
+            self.assertEqual((made, f2.stale), ([], []))
+            f3, made = self.make_real(td, files, resume=True,
+                                      config=Config(image="other/orfs@sha256:" + "1" * 64))  # a result-changing key
+            self.assertEqual(f3.input_changes, ["configuration changed: image"])
+            self.chain(f3)
+            self.assertEqual(len(made), 3)
+
+    def test_resume_reruns_a_step_whose_variants_changed(self):
+        with tempfile.TemporaryDirectory() as td:
+            files = self.inputs(td)
+            f, _ = self.make_real(td, files)
+            self.chain(f)
+            f2, made = self.make_real(td, files, resume=True)
+            a2 = f2.step("a", demo.fake_step(), variants=[{"k": 0}, {"k": 1}], score="setup_wns")  # reused
+            b2 = f2.step("b", demo.fake_step(), parent=a2.selected, variants=[{"k": 5}], score="setup_wns")
+            self.assertEqual(len(made), 1)
+            self.assertEqual(f2.stale, [{"step": "b", "reason": "its variants or score changed"}])
+            self.assertEqual(b2.selected.id, "b.1")
+            with self.assertRaises(ValueError):  # asked again in the same session: an error, as before
+                f2.step("a", demo.fake_step(), variants=[{"k": 9}], score="setup_wns")
+
+    def test_resume_of_an_interrupted_sweep_checks_the_inputs(self):
+        with tempfile.TemporaryDirectory() as td:
+            files = self.inputs(td)
+            f, _ = self.make_real(td, files)
+            f.step("a", demo.fake_step(), variants=[{"k": 0}, {"k": 1}], score="setup_wns")
+            path = os.path.join(td, "run", "graph.json")
+            g = _read_json(path)
+            g["steps"] = {}
+            g["attempts"][0]["status"] = "ok"
+            g["attempts"][1].update(status="running", checkpoint=None)
+            _write_json(path, g)
+            with open(files["x.v"], "a") as fh:
+                fh.write("// edited\n")
+            f2, made = self.make_real(td, files, resume=True)
+            r = f2.step("a", demo.fake_step(), variants=[{"k": 0}, {"k": 1}], score="setup_wns")
+            self.assertEqual(len(made), 2)  # the finished a.0 is not reused either
+            self.assertEqual(sorted(x.id for x in r.attempts), ["a.1", "a.2"])
+            self.assertEqual([s["step"] for s in f2.stale], ["a"])
+
+    def test_resume_of_a_graph_without_fingerprints_reuses_with_a_warning(self):
+        with tempfile.TemporaryDirectory() as td:
+            files = self.inputs(td)
+            f, _ = self.make_real(td, files)
+            self.chain(f)
+            path = os.path.join(td, "run", "graph.json")
+            g = _read_json(path)
+            g.pop("inputs")
+            for s in g["steps"].values():
+                s.pop("fingerprint")
+            _write_json(path, g)
+            with self.assertLogs("sipath", "WARNING") as logs:
+                f2, made = self.make_real(td, files, resume=True)
+            self.assertIn("without input fingerprints", " ".join(logs.output))
+            self.chain(f2)
+            self.assertEqual(made, [])
+
+    def test_input_fingerprint_is_stable_across_processes(self):
+        import subprocess
+        import sys
+        code = ("from sipath.examples import dp8; from sipath import fingerprint; from sipath.pdk import load; "
+                "from sipath.config import Config; d = dp8.make_design(); p = load('sky130hd', platforms='/p'); "
+                "d.resolve(p); print(fingerprint.inputs(d, p, Config(), {'kind': 'x'})['digest'])")
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        out = {subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, cwd=root).stdout.strip()
+               for _ in range(2)}
+        self.assertEqual(len(out), 1, out)
+        self.assertEqual(len(out.pop()), 16)
 
     def test_resume_after_interruption_runs_only_unfinished(self):
         with tempfile.TemporaryDirectory() as td:

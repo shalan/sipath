@@ -240,6 +240,7 @@ def build(d: Design, workdir: str, runner, config=None, resume: bool = False, ex
     os.makedirs(workdir, exist_ok=True)  # a runner mounts only what exists: a new runs/x/y would be left out
     runner.mount(workdir, *d.input_files(), *d.rtl_includes, *pdk.files())
     prov = runner.provenance() if hasattr(runner, "provenance") else {}
+    prov = dict(prov, sipath=sipath_identity())  # recorded; not part of the input fingerprint
     from . import toolchain
     release = toolchain.require_pdk(pdk, cfg)
     if release:
@@ -254,6 +255,24 @@ def build(d: Design, workdir: str, runner, config=None, resume: bool = False, ex
         prov = dict(prov, plugins=ext)
     return Flow(d, pdk, workdir, lambda w: OpenRoadSession(w, runner, timeout=cfg.command_timeout),
                 runner_prefixes=runner.runner_prefixes(), config=cfg, resume=resume, provenance=prov, runner=runner)
+
+
+def sipath_identity() -> dict:
+    """SiPath's version, and its git commit (with ``-dirty`` for local changes) when run from a checkout."""
+    import subprocess
+    from . import __version__
+    out = {"version": __version__}
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    try:
+        head = subprocess.run(["git", "-C", root, "rev-parse", "--short=12", "HEAD"], capture_output=True, text=True,
+                              timeout=10)
+        if head.returncode == 0:
+            dirty = subprocess.run(["git", "-C", root, "status", "--porcelain", "--untracked-files=no"],
+                                   capture_output=True, text=True, timeout=10).stdout.strip()
+            out["commit"] = head.stdout.strip() + ("-dirty" if dirty else "")
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return out
 
 
 def resolve_srams(d, pdk) -> None:

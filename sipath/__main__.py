@@ -203,6 +203,8 @@ def main(argv) -> int:
         for k in ("def_", "spef"):
             if k in last.outputs:
                 print(f"{k.rstrip('_').upper():4}:", last.outputs[k])
+        for s in flow.stale:  # a resume that did not reuse a recorded step says why
+            print(f"ran again: {s['step']}: {s['reason']}")
         print("graph:", os.path.join(wd, "graph.json"))
         return 0
     if cmd == "harden":

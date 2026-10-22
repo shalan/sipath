@@ -50,7 +50,7 @@ def collect(workdir: str) -> dict:
         by_step.setdefault(a["step"], []).append(a)
     steps = []
     for name, info in (g.get("steps") or {}).items():
-        atts = by_step.get(name, [])
+        atts = [a for a in by_step.get(name, []) if a.get("status") != "stale"]  # stale: listed apart
         sel = next((a for a in atts if a["id"] == info.get("selected")), None)
         steps.append({"name": name, "selected": info.get("selected"), "attempts": atts, "sel": sel})
     signoff = None
@@ -93,7 +93,7 @@ def collect(workdir: str) -> dict:
         order.index(os.path.basename(p)[:-4]) if os.path.basename(p)[:-4] in order else len(order), p))
     return {"design": g.get("design", {}), "pdk": g.get("pdk"), "provenance": g.get("provenance", {}),
             "steps": steps, "signoff": signoff, "ppa": ppa, "files": files, "pictures": pictures,
-            "heatmaps": heatmaps}
+            "heatmaps": heatmaps, "stale": g.get("stale") or []}
 
 
 def markdown(workdir: str, r: dict) -> str:
@@ -111,6 +111,9 @@ def markdown(workdir: str, r: dict) -> str:
         key = ", ".join(f"{k} {_fmt(mets[k])}" for k in KEY_METRICS if k in mets)
         out.append(f"| {s['name']} | {ok}/{len(s['attempts'])} | {s['selected'] or 'none'} | "
                    f"{_fmt(sel.get('seconds')) if sel else '-'} | {key or '-'} |")
+    if r.get("stale"):
+        out += ["", "## Ran again on resume", "", "Recorded results not reused; their attempts are kept as `stale`.", ""]
+        out += [f"- {s['step']}: {s['reason']}" for s in r["stale"]]
     fails = [a for s in r["steps"] for a in s["attempts"] if a.get("error")]
     if fails:
         out += ["", "## Failures", ""]

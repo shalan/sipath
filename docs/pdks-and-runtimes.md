@@ -114,9 +114,30 @@ PDK release.
 status, checkpoint, metrics, process, timing (phases and slowest Tcl
 commands), the OpenROAD transcript tail of a failed attempt, the run
 configuration and provenance. `--resume` rebuilds the graph: a step asked
-again with the same parent, variants and score returns its recorded result;
-attempts of an interrupted sweep that finished are kept and only the rest
-run. A selected attempt's directory is never deleted, and no attempt
+again with the same parent, variants and score, on the same inputs, returns its
+recorded result; attempts of an interrupted sweep that finished are kept and
+only the rest run.
+
+**A resume never reuses an obsolete result.** Every run records what its
+results depend on (`fingerprint.py`, `inputs` in `graph.json`): the content of
+every input file (RTL and its include directories, netlist, SDC, floorplan
+DEF, macro LEF, Liberty, GDS and CDL, extra views), the resolved design
+description (design-file keys and the PDK defaults they take), the PDK
+description and release, the tools (image digests, binaries, native tool
+versions, plugin code) and the configuration keys that change results
+(images, binaries, runtime, the placer's Python). Threads, timeouts and
+container limits are left out: they change how long a run takes, not what it
+produces. Every attempt's fingerprint chains these with its step, parameters,
+the step's declared defaults and its parent's fingerprint. On `--resume`, a
+step whose fingerprint differs runs again, and so does every step after it;
+its recorded attempts stay in `graph.json` as `stale`, with the reason (`x.sdc
+changed`, `its parent changed`, `its variants or score changed`), and the run
+report and the CLI list them. Every step reads the SDC, the Liberty and the
+LEF views, so any input change re-runs the flow from its first step; a change
+to a step's variants re-runs from that step. A graph written before
+fingerprints is resumed as before, with a warning that its inputs were not
+checked. SiPath's own version is recorded in the provenance but does not
+invalidate a run. A selected attempt's directory is never deleted, and no attempt
 directory is reused. The library logs to the `sipath` logger and is silent
 unless the caller configures logging.
 
