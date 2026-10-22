@@ -72,8 +72,11 @@ def install_pdk(argv) -> int:
     if "--dry-run" in argv:
         return 0
     if not shutil.which("ciel"):
-        print("ciel is not installed: `python3 -m pip install ciel`, then run this again", file=sys.stderr)
-        return 1
+        import importlib.util
+        if importlib.util.find_spec("ciel") is None:
+            print("ciel is not installed: `python3 -m pip install ciel`, then run this again", file=sys.stderr)
+            return 1
+        cmd = [sys.executable, "-m", "ciel", *cmd[1:]]  # installed, its command not on PATH (pip --user)
     return subprocess.run(cmd).returncode
 
 
