@@ -1366,9 +1366,14 @@ class SynthUnits(unittest.TestCase):
         self.assertEqual([x["step"] for x in steps][:2], ["synth", "floorplan"])
         self.assertIsNone(d.netlist)
         self.assertEqual(designfile.default_flow(d)[0], {"step": "synth"})
-        # the reference flow ends in signoff on a PDK with signoff decks (sky130A), as gcd8.yaml spells it out
-        self.assertEqual([s["step"] for s in designfile.default_flow(d)], [s["step"] for s in steps])
-        self.assertEqual([s["step"] for s in designfile.default_flow(d)][-3:], ["fill", "extract", "signoff"])
+        # the reference flow ends in signoff on a PDK with signoff decks (sky130A), as gcd8.yaml spells it out;
+        # the PDK is given, so the chain does not depend on a PDK tree being installed here
+        from types import SimpleNamespace
+        decks = SimpleNamespace(signoff={"fill_rules": "fill.drc", "drc": "drc.lydrc"})
+        self.assertEqual([s["step"] for s in designfile.default_flow(d, decks)], [s["step"] for s in steps])
+        self.assertEqual([s["step"] for s in designfile.default_flow(d, decks)][-3:], ["fill", "extract", "signoff"])
+        self.assertEqual([s["step"] for s in designfile.default_flow(d, SimpleNamespace(signoff={}))][-2:],
+                         ["route_repair", "extract"])  # without signoff decks it ends at extraction
         with self.assertRaisesRegex(ValueError, "netlist or rtl: one is required"):
             schema.validate({"name": "t", "top": "t", "mode": "macro", "pdk": "sky130A", "sdc": "s.sdc"})
         bad = Design(name="t", top="t", netlist=None, sdc=d.sdc, mode="macro")
