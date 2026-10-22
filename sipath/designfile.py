@@ -262,18 +262,29 @@ def build(d: Design, workdir: str, runner, config=None, resume: bool = False, ex
 
 
 def sipath_identity() -> dict:
-    """SiPath's version, and its git commit (with ``-dirty`` for local changes) when run from a checkout."""
+    """SiPath as it runs: its version, its code digest (fingerprint.code_identity) and, from a checkout, the git
+    commit; when the tree has changes, ``-dirty`` with the digest of the uncommitted diff and of each untracked
+    source file (bench/records.py archives the diff itself under that digest), so the run's source is known."""
+    import hashlib
     import subprocess
-    from . import __version__
-    out = {"version": __version__}
+    from . import fingerprint
+    code = fingerprint.code_identity()
+    out = {"version": code["version"], "code_digest": code["digest"]}
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    def git(*args):
+        return subprocess.run(["git", "-C", root, *args], capture_output=True, text=True, timeout=30)
     try:
-        head = subprocess.run(["git", "-C", root, "rev-parse", "--short=12", "HEAD"], capture_output=True, text=True,
-                              timeout=10)
+        head = git("rev-parse", "--short=12", "HEAD")
         if head.returncode == 0:
-            dirty = subprocess.run(["git", "-C", root, "status", "--porcelain", "--untracked-files=no"],
-                                   capture_output=True, text=True, timeout=10).stdout.strip()
-            out["commit"] = head.stdout.strip() + ("-dirty" if dirty else "")
+            diff = git("diff", "HEAD", "--binary").stdout
+            untracked = [p for p in git("ls-files", "--others", "--exclude-standard", "sipath", "bench").stdout.split()
+                         if p.endswith((".py", ".tcl", ".json", ".yaml"))]
+            out["commit"] = head.stdout.strip() + ("-dirty" if diff else "")
+            if diff:
+                out["diff_sha256"] = hashlib.sha256(diff.encode()).hexdigest()[:16]
+            if untracked:
+                out["untracked"] = {p: fingerprint.file_hash(os.path.join(root, p)) for p in sorted(untracked)}
     except (OSError, subprocess.TimeoutExpired):
         pass
     return out

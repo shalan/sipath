@@ -72,6 +72,21 @@ def _runs_cell(done, runs) -> str:
     return out
 
 
+def _verdict_counts(runs) -> str:
+    """Every run's verification verdict, counted (not the last repeat's): 'passed 2/2', 'failed 2/2: setup, drv',
+    'passed 1, failed 1 of 2'; runs without a verdict (no graph) are counted as unknown."""
+    if not runs:
+        return "—"
+    from collections import Counter
+    c = Counter(((r.get("verification") or {}).get("verification") or "unknown") for r in runs)
+    failed = sorted({x for r in runs for x in ((r.get("verification") or {}).get("failed") or [])})
+    if len(c) == 1:
+        (k, n), = c.items()
+        return f"{k} {n}/{len(runs)}" + (f": {', '.join(failed)}" if failed else "")
+    return ", ".join(f"{k} {n}" for k, n in sorted(c.items())) + f" of {len(runs)}" + \
+        (f" ({', '.join(failed)})" if failed else "")
+
+
 def _verdict(r) -> str:
     v = (r or {}).get("verification")
     if not v:
@@ -97,7 +112,7 @@ def table_orfs(short: bool = False) -> str:
             rows.append(("ORFS", o["measured"][5:], om, "1", "—"))
         if runs:
             rows.append(("SiPath", (done or runs)[-1]["measured"][5:], m, _runs_cell(done, runs),
-                         _verdict(done[-1] if done else None)))
+                         _verdict_counts(done)))
         for flow, when, x, nruns, ver in rows:
             wns, tns = _num(x.get("wns_tt_ns"), 3, sign=True), _num(x.get("tns_tt_ns"), 2)
             if short:
@@ -183,8 +198,8 @@ STRATEGIES = ("defaults", "sweep", "adaptive", "search", "adaptive_search")
 def table_strategies() -> str:
     """Each design × strategy: completed runs, and the medians of what they ended with."""
     recs = _by("strategy")
-    lines = ["| design | strategy | runs | WNS tt (ns) | WNS worst corner (ns) | cell area (µm²) | wirelength (µm) | "
-             "DRC | slew viol. | wall (s) | core-s |", "|---|---|---|---|---|---|---|---|---|---|---|"]
+    lines = ["| design | strategy | runs | verification | WNS tt (ns) | WNS worst corner (ns) | cell area (µm²) | "
+             "wirelength (µm) | DRC | slew viol. | wall (s) | core-s |", "|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for design in sorted({r["design"] for r in recs}, key=lambda d: ["gcd8_crowded", "dp8", "aes"].index(d)
                          if d in ("gcd8_crowded", "dp8", "aes") else 9):
         for s in STRATEGIES:
@@ -196,7 +211,8 @@ def table_strategies() -> str:
             def med(k, nd=0, sign=False):
                 vals = [r["metrics"][k] for r in done if isinstance(r["metrics"].get(k), (int, float))]
                 return _num(statistics.median(vals), nd, sign) if vals else "–"
-            lines.append(f"| {design} | {s} | {_runs_cell(done, runs)} | {med('wns_tt_ns', 3)} | {med('wns_worst_ns', 3)} | "
+            lines.append(f"| {design} | {s} | {_runs_cell(done, runs)} | {_verdict_counts(done)} | "
+                         f"{med('wns_tt_ns', 3)} | {med('wns_worst_ns', 3)} | "
                          f"{med('cell_area_um2')} | {med('routed_wirelength_um')} | {med('drc_klayout')} | "
                          f"{med('drv_slew')} | {med('wall_s')} | {med('core_seconds')} |")
     return "\n".join(lines)

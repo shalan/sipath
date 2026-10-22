@@ -103,6 +103,16 @@ def from_run(run_dir: str) -> dict:
             **({"failure": _failure(g)} if v["execution"] != "completed" else {})}
 
 
+def _repeat_inputs(run_dir: str, run: dict, export_hashes: dict) -> dict:
+    """A repeat's inputs: as its run recorded them; without a graph of its own, hashed at export, said so."""
+    g = os.path.join(run_dir, "graph.json")
+    if run.get("verification") and os.path.isfile(g):
+        with open(g) as f:
+            ins, note = run_inputs(json.load(f))
+        return {"inputs_": ins, **({"inputs_note": note} if note else {})}
+    return {"inputs_": export_hashes, "inputs_note": "hashed at export: no graph of this run to read them from"}
+
+
 def _log_failure(log: str) -> str | None:
     """A failed run's reason from its own log: the last tool error, else the exception's last line."""
     if not os.path.isfile(log):
@@ -163,9 +173,10 @@ def from_design_run(run_dir: str, kind: str, design: str, flow: str, backfilled:
     run = from_run(run_dir)
     with open(os.path.join(run_dir, "graph.json")) as f:
         g = json.load(f)
+    ins, note = run_inputs(g)
     return make(kind, design, flow, run_metrics(run_dir), run=run, source=run_dir, backfilled=backfilled,
                 measured=_mtime_date(os.path.join(run_dir, "graph.json")), image_platform=run["image_platform"],
-                toolchain_=run["toolchain"], inputs_=inputs([f for f in (g.get("inputs") or {}).get("files", {})]),
+                toolchain_=run["toolchain"], inputs_=ins, **({"inputs_note": note} if note else {}),
                 **({"failure": run["failure"]} if run.get("failure") else {}), **extra)
 
 
@@ -217,11 +228,15 @@ def from_orfs_compare(design_dir: str, backfilled: bool = False) -> list[dict]:
             out.append(make("orfs_compare", design, "orfs", metrics, stages=stages,
                             measured=_mtime_date(when) if os.path.isfile(when) else None,
                             source=os.path.join(design_dir, "orfs"), inputs_=ins, backfilled=backfilled,
+                            inputs_note="hashed at export: ORFS's run records no input hashes",
                             toolchain_={"orfs": c.get("orfs_image") or toolchain()["orfs"]}))
         elif os.path.isfile(os.path.join(run_dir, "graph.json")):
             run = from_run(run_dir)
             metrics.update(drc_router=run["router_drc"], wns_worst_ns=run["worst_setup"])
-            out.append(make("orfs_compare", design, "sipath", metrics, run=run, source=run_dir, inputs_=ins,
+            with open(os.path.join(run_dir, "graph.json")) as f:
+                rins, rnote = run_inputs(json.load(f))
+            out.append(make("orfs_compare", design, "sipath", metrics, run=run, source=run_dir, inputs_=rins,
+                            **({"inputs_note": rnote} if rnote else {}),
                             measured=_mtime_date(os.path.join(run_dir, "graph.json")), backfilled=backfilled,
                             overrides={"flow": cfg.get("flow")} if cfg.get("flow") else {},
                             image_platform=run["image_platform"], toolchain_=run["toolchain"]))
@@ -266,7 +281,8 @@ def from_repeat(design_dir: str, backfilled: bool = False) -> list[dict]:
             src = run_dir if run and not run.get("graph_not_this_result") else os.path.join(design_dir, tag)
             when = os.path.join(design_dir, tag, "time.json")
             out.append(make("repeat", design, cfg, metrics, run=run if "verification" in run else None, repeat=i,
-                            source=src, **extra, inputs_=ins, overrides=overrides, backfilled=backfilled,
+                            source=src, **extra, overrides=overrides, backfilled=backfilled,
+                            **_repeat_inputs(run_dir, run, ins),
                             measured=_mtime_date(when) if os.path.isfile(when) else None,
                             image_platform=run.get("image_platform", "linux/amd64"),
                             toolchain_=run.get("toolchain")))
@@ -281,9 +297,48 @@ def make(kind: str, design: str, flow: str, metrics: dict, *, measured: str | No
     return {"kind": kind, "design": design, "flow": flow, "measured": measured or time.strftime("%Y-%m-%d"),
             "metrics": metrics, "verification": run.get("verification"), "steps": run.get("steps"),
             "sipath": run.get("sipath") if flow != "orfs" else None, "toolchain": toolchain_ or toolchain(),
-            "machine": machine(image_platform), "inputs": inputs_ or {}, "overrides": overrides or {},
+            "machine": machine(image_platform), "inputs": inputs_, "overrides": overrides or {},
             "seeds": seeds, "source": os.path.relpath(source, ROOT) if source else None, "backfilled": backfilled,
+            "exported": {"at": time.strftime("%Y-%m-%d %H:%M"), "by": _exporter()},  # not the run's own identity
             **({"notes": notes} if notes else {}), **extra}
+
+
+def _exporter() -> dict:
+    from sipath.designfile import sipath_identity
+    return sipath_identity()
+
+
+def run_inputs(g: dict) -> tuple[dict | None, str | None]:
+    """The input hashes the run recorded when it ran (graph.json "inputs"), never hashed again at export: a file
+    changed or deleted since would otherwise lend its new identity to old measurements."""
+    files = (g.get("inputs") or {}).get("files")
+    if files is None:
+        return None, "unknown: the run predates recorded input hashes"
+    return {os.path.relpath(k, ROOT) if k.startswith(ROOT) else k: v for k, v in files.items()}, None
+
+
+def archive_source() -> dict:
+    """The working tree's identity now (before a benchmark runs); with uncommitted changes, the diff and the
+    untracked sources are archived under bench/results/sources/<diff digest> so the results stay reproducible."""
+    import shutil
+    import subprocess
+    from sipath.designfile import sipath_identity
+    ident = sipath_identity()
+    if not (ident.get("diff_sha256") or ident.get("untracked")):
+        return ident
+    key = ident.get("diff_sha256") or "untracked"
+    d = os.path.join(RESULTS, "sources", key)
+    os.makedirs(d, exist_ok=True)
+    if ident.get("diff_sha256"):
+        diff = subprocess.run(["git", "-C", ROOT, "diff", "HEAD", "--binary"], capture_output=True, text=True).stdout
+        with open(os.path.join(d, "diff.patch"), "w") as f:
+            f.write(diff)
+    for rel in ident.get("untracked") or {}:
+        dst = os.path.join(d, "untracked", rel)
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.copyfile(os.path.join(ROOT, rel), dst)
+    ident["archive"] = os.path.relpath(d, ROOT)
+    return ident
 
 
 def write(rec: dict, tag: str = "") -> str:

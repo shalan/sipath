@@ -40,9 +40,9 @@ completed, and the median of those that did.
 | design | flow | measured | WNS (ns) | TNS (ns) | wirelength (µm) | cells | cell area (µm²) | DRC (router / KLayout) | wall (s) | runs | signoff |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | gcd (1.1 ns) | ORFS | 10-15 | −1.465 | −65.09 | 11,786 | 473 | 5,319 | 0 / 0 | 321 | 1 | — |
-| gcd (1.1 ns) | SiPath | 10-21 | −1.083 | −46.62 | 8,061 | 473 | 4,975 | 0 / 0 | 369 | 1 | fails: setup |
+| gcd (1.1 ns) | SiPath | 10-21 | −1.083 | −46.62 | 8,061 | 473 | 4,975 | 0 / 0 | 369 | 1 | failed 1/1: setup |
 | aes | ORFS | 10-15 | −0.196 | −0.67 | 588,211 | 15,396 | 124,637 | 0 / 0 | 2,724 | 1 | — |
-| aes | SiPath | 10-21 | +0.233 | 0.00 | 583,437 | 19,123 | 136,273 | 0 / 0 | 4,207 | 1 of 2 (DRT-0206) | fails: drv, setup |
+| aes | SiPath | 10-21 | +0.233 | 0.00 | 583,437 | 19,123 | 136,273 | 0 / 0 | 4,207 | 1 of 2 (DRT-0206) | failed 1/1: drv, setup |
 <!-- /table -->
 
 - **gcd** (a 1.1 ns clock, beyond what sky130 HD closes): SiPath ends 0.38 ns
@@ -282,18 +282,18 @@ a time; gcd8_crowded is gcd8 at 65% core utilization and placement density
 0.8, the setting the adaptive rounds were first measured on.
 
 <!-- table:strategies -->
-| design | strategy | runs | WNS tt (ns) | WNS worst corner (ns) | cell area (µm²) | wirelength (µm) | DRC | slew viol. | wall (s) | core-s |
-|---|---|---|---|---|---|---|---|---|---|---|
-| gcd8_crowded | defaults | 2 of 2 | 6.981 | 4.213 | 1,672 | 3,438 | 0 | 0 | 70 | 833 |
-| gcd8_crowded | sweep | 2 of 2 | 6.981 | 4.213 | 1,672 | 3,438 | 0 | 0 | 71 | 846 |
-| gcd8_crowded | adaptive | 2 of 2 | 6.780 | 3.812 | 1,657 | 3,696 | 0 | 11 | 93 | 1,109 |
-| gcd8_crowded | search | 2 of 2 | 6.981 | 4.213 | 1,672 | 3,438 | 0 | 0 | 110 | 1,309 |
-| gcd8_crowded | adaptive_search | 2 of 2 | 6.981 | 4.213 | 1,672 | 3,438 | 0 | 0 | 170 | 2,027 |
-| dp8 | defaults | 2 of 2 | 5.812 | 0.831 | 1,790 | 7,230 | 0 | 0 | 66 | 789 |
-| dp8 | sweep | 2 of 2 | 5.812 | 0.831 | 1,790 | 7,230 | 0 | 0 | 66 | 783 |
-| dp8 | adaptive | 2 of 2 | 5.812 | 0.831 | 1,790 | 7,230 | 0 | 0 | 70 | 839 |
-| dp8 | search | 2 of 2 | 5.812 | 0.831 | 1,790 | 7,230 | 0 | 0 | 107 | 1,276 |
-| dp8 | adaptive_search | 2 of 2 | 5.812 | 0.831 | 1,790 | 7,230 | 0 | 0 | 111 | 1,320 |
+| design | strategy | runs | verification | WNS tt (ns) | WNS worst corner (ns) | cell area (µm²) | wirelength (µm) | DRC | slew viol. | wall (s) | core-s |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| gcd8_crowded | defaults | 2 of 2 | passed 2/2 | 6.981 | 4.213 | 1,672 | 3,438 | 0 | 0 | 70 | 833 |
+| gcd8_crowded | sweep | 2 of 2 | passed 2/2 | 6.981 | 4.213 | 1,672 | 3,438 | 0 | 0 | 71 | 846 |
+| gcd8_crowded | adaptive | 2 of 2 | failed 2/2: drv | 6.780 | 3.812 | 1,657 | 3,696 | 0 | 11 | 93 | 1,109 |
+| gcd8_crowded | search | 2 of 2 | passed 2/2 | 6.981 | 4.213 | 1,672 | 3,438 | 0 | 0 | 110 | 1,309 |
+| gcd8_crowded | adaptive_search | 2 of 2 | passed 2/2 | 6.981 | 4.213 | 1,672 | 3,438 | 0 | 0 | 170 | 2,027 |
+| dp8 | defaults | 2 of 2 | passed 2/2 | 5.812 | 0.831 | 1,790 | 7,230 | 0 | 0 | 66 | 789 |
+| dp8 | sweep | 2 of 2 | passed 2/2 | 5.812 | 0.831 | 1,790 | 7,230 | 0 | 0 | 66 | 783 |
+| dp8 | adaptive | 2 of 2 | passed 2/2 | 5.812 | 0.831 | 1,790 | 7,230 | 0 | 0 | 70 | 839 |
+| dp8 | search | 2 of 2 | passed 2/2 | 5.812 | 0.831 | 1,790 | 7,230 | 0 | 0 | 107 | 1,276 |
+| dp8 | adaptive_search | 2 of 2 | passed 2/2 | 5.812 | 0.831 | 1,790 | 7,230 | 0 | 0 | 111 | 1,320 |
 <!-- /table -->
 
 - **Every repeat gave the same result,** to the last digit: the variation is
@@ -304,7 +304,9 @@ a time; gcd8_crowded is gcd8 at 65% core utilization and placement density
   ended with the same layout.
 - **Adaptive rounds alone made gcd8_crowded worse at the end:** 0.2 ns less
   slack at the typical corner, 0.4 ns at the worst one, 11 slew violations
-  against none, for a placement that looked better by its heatmaps. Carried
+  against none, for a placement that looked better by its heatmaps; both
+  runs fail verification on those slew violations (the table counts each
+  row's verdicts over all its runs). Carried
   to extraction with the baseline kept (`adaptive_search`), the baseline won
   and the final result was the defaults', at 2.4 times the core-seconds.
 - **The bounded search costs** 1.5-1.6 times the defaults' core-seconds with

@@ -3178,6 +3178,113 @@ class ResolvedParameters(unittest.TestCase):
             self.assertEqual(f2.stale[0]["step"], "a")
 
 
+class BenchmarkRobustness(unittest.TestCase):
+    """Review of 04ee8af, 4 and 5: every benchmark run leaves a record, the driver's exit says whether all completed,
+    and a record keeps what the run was (its inputs as hashed when it ran, its source)."""
+
+    ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+    def setUp(self):
+        sys.path.insert(0, os.path.join(self.ROOT, "bench"))
+
+    def graph(self, run_dir, signoff_fails=False, inputs=None):
+        os.makedirs(run_dir, exist_ok=True)
+        so = os.path.join(run_dir, "signoff.json")
+        _write_json(so, {"checks": ["setup"], "required": ["setup"], "pass": not signoff_fails,
+                         "failures": ["setup: worst -1.0 ns"] if signoff_fails else [],
+                         "timing": {"corners": {"ss_max": {"wns": -1.0 if signoff_fails else 0.5}}}})
+        g = {"design": "x", "head": "signoff.0", "provenance": {"sipath": {"version": "0.1.0", "commit": "abc"}},
+             "steps": {"signoff": {"selected": "signoff.0"}},
+             "attempts": [{"id": "signoff.0", "step": "signoff", "parent": None, "status": "selected",
+                           "kind": "step", "seconds": 1.0, "threads": 4, "dir": run_dir,
+                           "outputs": {"signoff": so}, "metrics": {}}]}
+        if inputs is not None:
+            g["inputs"] = {"files": inputs}
+        _write_json(os.path.join(run_dir, "graph.json"), g)
+
+    def drive(self, td, behaviour):
+        """strategy_compare.run with the sipath run and the measurement stubbed: behaviour(out_dir) -> exit code."""
+        from unittest import mock
+        import strategy_compare as sc
+
+        real = sc.subprocess.run
+
+        def fake_run(cmd, **kw):
+            if "-m" in cmd and "sipath" in cmd and "run" in cmd:  # the run itself: the behaviour under test
+                out = os.path.dirname(cmd[cmd.index("run") + 2])
+                return mock.Mock(returncode=behaviour(out))
+            return real(cmd, **kw)  # rm, git: as they are
+        with mock.patch.object(sc, "OUT", td), mock.patch.object(sc.subprocess, "run", fake_run), \
+                mock.patch.dict(sc.DENSITIES, {"x": [0.6]}), \
+                mock.patch.object(sc, "design", lambda n: ({"name": n, "sdc": "/x.sdc", "top": "t"}, ["place"])), \
+                mock.patch.object(sc.records, "RESULTS", os.path.join(td, "results")), \
+                mock.patch.object(sc.oc, "sipath_result", lambda w, tag: {}), \
+                mock.patch.object(sc.oc, "measure", self.measure), \
+                mock.patch("sipath.pdk.load", lambda *a, **k: types.SimpleNamespace(analysis_corners=lambda: [
+                    types.SimpleNamespace(name="tt_nom", liberty="/tt.lib")])):
+            return sc.run("x", "defaults", 1)
+
+    measure = staticmethod(lambda r, cfg, lib, tag, w: {"wns_ns": 1.0, "cells": 10, "cell_area_um2": 5.0,
+                                                         "wirelength_um": 100})
+
+    def test_every_failure_kind_leaves_a_record(self):
+        with tempfile.TemporaryDirectory() as td:
+            r = self.drive(td, lambda out: 1)  # failed before graph.json existed
+            self.assertEqual((r["outcome"], r["metrics"]["exit"]), ("execution_failed", 1))
+            self.assertTrue(r["failure"])
+            self.assertTrue(os.path.isfile(os.path.join(td, "results", "strategy", "x__defaults__r1.json")))
+        with tempfile.TemporaryDirectory() as td:
+            def fails_late(out):
+                self.graph(os.path.join(out, "run"))
+                with open(os.path.join(out, "run.log"), "w") as fh:
+                    fh.write("[ERROR DRT-0206] checkConnectivity error.\n")
+                return 1
+            r = self.drive(td, fails_late)
+            self.assertEqual((r["outcome"], r["failure"]), ("execution_failed", "[ERROR DRT-0206] checkConnectivity error."))
+        with tempfile.TemporaryDirectory() as td:
+            self.measure = staticmethod(lambda *a: {"error": "measurement failed (log)"})
+            r = self.drive(td, lambda out: (self.graph(os.path.join(out, "run")), 0)[1])
+            self.assertEqual(r["outcome"], "measurement_failed")
+        with tempfile.TemporaryDirectory() as td:
+            self.measure = BenchmarkRobustness.measure
+            r = self.drive(td, lambda out: (self.graph(os.path.join(out, "run"), signoff_fails=True), 0)[1])
+            self.assertEqual(r["outcome"], "completed")  # a signoff that fails its checks is a result...
+            self.assertEqual(r["verification"]["verification"], "failed")  # ... and its verdict says so
+
+    def test_the_driver_exits_nonzero_when_a_run_did_not_complete(self):
+        from unittest import mock
+        import strategy_compare as sc
+        outcomes = iter(["completed", "execution_failed"])
+        with mock.patch.object(sc, "run", lambda n, s, i: {"outcome": next(outcomes), "metrics": {}, "failure": "x"}), \
+                mock.patch.object(sc.records, "archive_source", lambda: {}):
+            self.assertEqual(sc.main(["d", "--strategies", "defaults,sweep"]), 1)
+        with mock.patch.object(sc, "run", lambda n, s, i: {"outcome": "completed", "metrics": {}}), \
+                mock.patch.object(sc.records, "archive_source", lambda: {}):
+            self.assertEqual(sc.main(["d", "--strategies", "defaults"]), 0)
+
+    def test_a_record_keeps_the_inputs_as_they_were_when_the_run_ran(self):
+        import records
+        with tempfile.TemporaryDirectory() as td:
+            src = os.path.join(td, "x.sdc")
+            with open(src, "w") as fh:
+                fh.write("create_clock -period 10\n")
+            from sipath.fingerprint import file_hash
+            h0 = file_hash(src)
+            self.graph(os.path.join(td, "run"), inputs={src: h0})
+            with open(src, "w") as fh:
+                fh.write("create_clock -period 5\n")  # changed after the run
+            r = records.from_design_run(os.path.join(td, "run"), "t", "x", "f")
+            self.assertEqual(list(r["inputs"].values()), [h0])
+            os.remove(src)  # deleted: still the run's hash
+            self.assertEqual(list(records.from_design_run(os.path.join(td, "run"), "t", "x", "f")["inputs"].values()), [h0])
+            self.graph(os.path.join(td, "old"))  # a run from before input hashes were recorded
+            r = records.from_design_run(os.path.join(td, "old"), "t", "x", "f")
+            self.assertIsNone(r["inputs"])
+            self.assertIn("unknown", r["inputs_note"])
+            self.assertIn("by", r["exported"])  # the exporter's identity, apart from the run's
+            self.assertEqual(r["sipath"]["commit"], "abc")  # the run's, from its provenance
+
+
 class Adaptive(unittest.TestCase):
     """Adaptive rounds: Flow.extend, designfile.adapt, the place adapter and its blockages."""
 

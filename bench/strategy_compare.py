@@ -27,6 +27,7 @@ ROOT = oc.ROOT
 OUT = os.path.join(ROOT, "runs", "bench_strategy")
 EX = os.path.join(ROOT, "sipath", "examples")
 DENSITIES = {"gcd8_crowded": [0.65, 0.7], "dp8": [0.45, 0.7], "aes": [0.5, 0.6]}
+SOURCE: dict = {}  # records.archive_source() at the start of main
 
 
 def _abs(d: dict, base: str) -> dict:
@@ -124,13 +125,26 @@ def run(name: str, strategy: str, repeat: int) -> dict:
     with open(os.path.join(out, "time.json"), "w") as f:
         json.dump({"exit": rc, "seconds": wall}, f)
     run_dir = os.path.join(out, "run")
-    rec = records.from_design_run(run_dir, "strategy", name, strategy, repeat=repeat, overrides={"place": d["flow"]})
+    log = os.path.join(out, "run.log")
+    if not os.path.isfile(os.path.join(run_dir, "graph.json")):  # it failed before the run had a graph
+        rec = records.make("strategy", name, strategy, {"exit": rc, "wall_s": wall}, repeat=repeat, source=out,
+                           overrides={"place": d["flow"]}, outcome="execution_failed",
+                           failure=records._log_failure(log) or f"exit {rc}, no graph.json", source_snapshot=SOURCE)
+        print("record:", records.write(rec, tag=f"r{repeat}"), flush=True)
+        return rec
+    rec = records.from_design_run(run_dir, "strategy", name, strategy, repeat=repeat, overrides={"place": d["flow"]},
+                                  source_snapshot=SOURCE)
     m = rec["metrics"]
-    m.update(exit=rc, wall_s=wall, core_seconds=core_seconds(run_dir))
+    m.update(exit=rc, wall_s=wall, core_seconds=core_seconds(run_dir), tool_seconds=tool_seconds(run_dir))
+    rec["outcome"] = "completed" if not rc else "execution_failed"
+    if rc and not rec.get("failure"):
+        rec["failure"] = records._log_failure(log) or f"exit {rc}"
     if not rc:
         from sipath.pdk import load
         lib = [c.liberty for c in load("sky130A").analysis_corners() if c.name == "tt_nom"][0]
         meas = oc.measure(oc.sipath_result(w, tag), {"sdc": d["sdc"], "top": d["top"], "drc_deck": None}, lib, tag, w)
+        if meas.get("error"):
+            rec["outcome"], rec["failure"] = "measurement_failed", meas["error"]
         m.update(wns_tt_ns=meas.get("wns_ns"), tns_tt_ns=meas.get("tns_ns"), cells=meas.get("cells"),
                  cell_area_um2=meas.get("cell_area_um2"), routed_wirelength_um=meas.get("wirelength_um")
                  or m.get("routed_wirelength_um"))
@@ -156,15 +170,27 @@ def main(argv) -> int:
                   ["defaults", "sweep", "adaptive", "search", "adaptive_search"])
     skip = {argv[argv.index(o) + 1] for o in ("--repeats", "--strategies") if o in argv}
     designs = [a for a in argv if not a.startswith("--") and a not in skip]
+    global SOURCE
+    SOURCE = records.archive_source()  # the source as it is now, archived when uncommitted
+    failed = []
     for i in range(1, reps + 1):  # repeat 1 of everything, then repeat 2: drift in the machine spreads evenly
         for name in designs:
             for s in strategies:
-                r = run(name, s, i)
+                try:
+                    r = run(name, s, i)
+                except Exception as e:  # noqa: BLE001  (one case failing does not stop the others)
+                    print(f"{name} {s} r{i}: driver error: {type(e).__name__}: {e}", flush=True)
+                    failed.append(f"{name} {s} r{i}")
+                    continue
                 m = r["metrics"]
-                print(f"{name} {s} r{i}: exit {m.get('exit')} wns_tt {m.get('wns_tt_ns')} worst {m.get('wns_worst_ns')} "
+                if r.get("outcome") != "completed":
+                    failed.append(f"{name} {s} r{i}: {r.get('outcome')}: {r.get('failure')}")
+                print(f"{name} {s} r{i}: {r.get('outcome')} wns_tt {m.get('wns_tt_ns')} worst {m.get('wns_worst_ns')} "
                       f"area {m.get('cell_area_um2')} wire {m.get('routed_wirelength_um')} {m.get('wall_s')} s",
                       flush=True)
-    return 0
+    for f in failed:
+        print("not completed:", f, flush=True)
+    return 1 if failed else 0  # a signoff that fails its checks is a result, not a failure (its verdict says so)
 
 
 if __name__ == "__main__":
