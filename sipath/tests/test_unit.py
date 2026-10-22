@@ -1141,6 +1141,11 @@ class Sky130Fidelity(unittest.TestCase):
         b = load_pdk("sky130B", platforms="/p")
         self.assertIn("/sky130B/", b.tech_lef)
         self.assertEqual(len(b.corners), 9)
+        # the release ships no Calibre RCX rules for sky130B: the PDK config's spef_extractor set
+        self.assertTrue(b.rcx_rules.endswith("rules.openrcx.sky130B.nom.spef_extractor"))
+        self.assertTrue({x.name: x for x in b.corners}["ff_min"].rcx_rules.endswith("sky130B.min.spef_extractor"))
+        self.assertTrue(all(os.path.isfile(f) for f in b.files()))
+        self.assertTrue(self.p.rcx_rules.endswith("rules.openrcx.sky130A.nom.calibre"))
 
     def test_rc_scaled_per_corner_from_tech_lefs(self):
         import re as _re

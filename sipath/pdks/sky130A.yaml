@@ -3,12 +3,16 @@
 # IO: sky130_ef_io; macros: sky130_sram_macros (OpenRAM).
 # Settings follow the PDK's own reference flow configuration
 # (libs.tech/openlane/config.tcl and sky130_fd_sc_hd/config.tcl).
-# Variables: ${pdk_root} ($PDK_ROOT, default ~/.ciel), ${variant} (sky130A).
+# Variables: ${pdk_root} ($PDK_ROOT, default ~/.ciel), ${variant} (sky130A),
+# ${rcx_source}: which of the variant's OpenRCX rule sets extraction reads
+# (rules.openrcx.<variant>.<rc>.<source>; calibre here, as the PDK's
+# libs.tech/openlane/config.tcl picks when the release ships it).
 name: sky130A
 vars:
   pdk_root: {env: PDK_ROOT, default: "~/.ciel"}
   variant: {default: sky130A, must_exist: false}
   scl: {default: sky130_fd_sc_hd, must_exist: false}
+  rcx_source: {default: calibre, must_exist: false}
 
 # the open_pdks release this tree is (its SOURCES file), checked against sipath/toolchain.json
 release: {family: sky130, tree: "${pdk_root}/${variant}"}
@@ -16,7 +20,7 @@ tech_lef: ${pdk_root}/${variant}/libs.ref/${scl}/techlef/${scl}__nom.tlef
 cell_lef: ["${pdk_root}/${variant}/libs.ref/${scl}/lef/sky130_fd_sc_hd.lef",
            "${pdk_root}/${variant}/libs.ref/${scl}/lef/sky130_ef_sc_hd.lef"]
 liberty: ${pdk_root}/${variant}/libs.ref/${scl}/lib/${scl}__tt_025C_1v80.lib
-rcx_rules: ${pdk_root}/${variant}/libs.tech/openlane/rules.openrcx.${variant}.nom.calibre
+rcx_rules: ${pdk_root}/${variant}/libs.tech/openlane/rules.openrcx.${variant}.nom.${rcx_source}
 site: unithd
 tracks_file: ${pdk_root}/${variant}/libs.tech/openlane/${scl}/tracks.info
 
@@ -132,15 +136,15 @@ typical_corner: tt_nom
 # view at every repair (aes placement: 148 s with all nine, 8 s with one)
 optimize_corners: [tt_nom, ss_max, ff_min]
 corners:
-  - {name: tt_nom, process: tt, rc: nom, liberty: "${pdk_root}/${variant}/libs.ref/${scl}/lib/${scl}__tt_025C_1v80.lib", rcx_rules: "${pdk_root}/${variant}/libs.tech/openlane/rules.openrcx.${variant}.nom.calibre"}
-  - {name: tt_min, process: tt, rc: min, liberty: "${pdk_root}/${variant}/libs.ref/${scl}/lib/${scl}__tt_025C_1v80.lib", rcx_rules: "${pdk_root}/${variant}/libs.tech/openlane/rules.openrcx.${variant}.min.calibre"}
-  - {name: tt_max, process: tt, rc: max, liberty: "${pdk_root}/${variant}/libs.ref/${scl}/lib/${scl}__tt_025C_1v80.lib", rcx_rules: "${pdk_root}/${variant}/libs.tech/openlane/rules.openrcx.${variant}.max.calibre"}
-  - {name: ss_nom, process: ss, rc: nom, liberty: "${pdk_root}/${variant}/libs.ref/${scl}/lib/${scl}__ss_100C_1v60.lib", rcx_rules: "${pdk_root}/${variant}/libs.tech/openlane/rules.openrcx.${variant}.nom.calibre"}
-  - {name: ss_min, process: ss, rc: min, liberty: "${pdk_root}/${variant}/libs.ref/${scl}/lib/${scl}__ss_100C_1v60.lib", rcx_rules: "${pdk_root}/${variant}/libs.tech/openlane/rules.openrcx.${variant}.min.calibre"}
-  - {name: ss_max, process: ss, rc: max, liberty: "${pdk_root}/${variant}/libs.ref/${scl}/lib/${scl}__ss_100C_1v60.lib", rcx_rules: "${pdk_root}/${variant}/libs.tech/openlane/rules.openrcx.${variant}.max.calibre"}
-  - {name: ff_nom, process: ff, rc: nom, liberty: "${pdk_root}/${variant}/libs.ref/${scl}/lib/${scl}__ff_n40C_1v95.lib", rcx_rules: "${pdk_root}/${variant}/libs.tech/openlane/rules.openrcx.${variant}.nom.calibre"}
-  - {name: ff_min, process: ff, rc: min, liberty: "${pdk_root}/${variant}/libs.ref/${scl}/lib/${scl}__ff_n40C_1v95.lib", rcx_rules: "${pdk_root}/${variant}/libs.tech/openlane/rules.openrcx.${variant}.min.calibre"}
-  - {name: ff_max, process: ff, rc: max, liberty: "${pdk_root}/${variant}/libs.ref/${scl}/lib/${scl}__ff_n40C_1v95.lib", rcx_rules: "${pdk_root}/${variant}/libs.tech/openlane/rules.openrcx.${variant}.max.calibre"}
+  - {name: tt_nom, process: tt, rc: nom, liberty: "${pdk_root}/${variant}/libs.ref/${scl}/lib/${scl}__tt_025C_1v80.lib", rcx_rules: "${pdk_root}/${variant}/libs.tech/openlane/rules.openrcx.${variant}.nom.${rcx_source}"}
+  - {name: tt_min, process: tt, rc: min, liberty: "${pdk_root}/${variant}/libs.ref/${scl}/lib/${scl}__tt_025C_1v80.lib", rcx_rules: "${pdk_root}/${variant}/libs.tech/openlane/rules.openrcx.${variant}.min.${rcx_source}"}
+  - {name: tt_max, process: tt, rc: max, liberty: "${pdk_root}/${variant}/libs.ref/${scl}/lib/${scl}__tt_025C_1v80.lib", rcx_rules: "${pdk_root}/${variant}/libs.tech/openlane/rules.openrcx.${variant}.max.${rcx_source}"}
+  - {name: ss_nom, process: ss, rc: nom, liberty: "${pdk_root}/${variant}/libs.ref/${scl}/lib/${scl}__ss_100C_1v60.lib", rcx_rules: "${pdk_root}/${variant}/libs.tech/openlane/rules.openrcx.${variant}.nom.${rcx_source}"}
+  - {name: ss_min, process: ss, rc: min, liberty: "${pdk_root}/${variant}/libs.ref/${scl}/lib/${scl}__ss_100C_1v60.lib", rcx_rules: "${pdk_root}/${variant}/libs.tech/openlane/rules.openrcx.${variant}.min.${rcx_source}"}
+  - {name: ss_max, process: ss, rc: max, liberty: "${pdk_root}/${variant}/libs.ref/${scl}/lib/${scl}__ss_100C_1v60.lib", rcx_rules: "${pdk_root}/${variant}/libs.tech/openlane/rules.openrcx.${variant}.max.${rcx_source}"}
+  - {name: ff_nom, process: ff, rc: nom, liberty: "${pdk_root}/${variant}/libs.ref/${scl}/lib/${scl}__ff_n40C_1v95.lib", rcx_rules: "${pdk_root}/${variant}/libs.tech/openlane/rules.openrcx.${variant}.nom.${rcx_source}"}
+  - {name: ff_min, process: ff, rc: min, liberty: "${pdk_root}/${variant}/libs.ref/${scl}/lib/${scl}__ff_n40C_1v95.lib", rcx_rules: "${pdk_root}/${variant}/libs.tech/openlane/rules.openrcx.${variant}.min.${rcx_source}"}
+  - {name: ff_max, process: ff, rc: max, liberty: "${pdk_root}/${variant}/libs.ref/${scl}/lib/${scl}__ff_n40C_1v95.lib", rcx_rules: "${pdk_root}/${variant}/libs.tech/openlane/rules.openrcx.${variant}.max.${rcx_source}"}
 
 io:
   lef_dir: ${pdk_root}/${variant}/libs.ref/sky130_fd_io/lef
