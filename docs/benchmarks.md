@@ -279,29 +279,40 @@ benchmarks are (typical-corner slack, cells, cell area and routed wirelength
 from the final DEF), plus the worst signoff corner's slack, slew violations,
 DRC, wall time and the core-seconds the scheduler allocated. Runs went one at
 a time; gcd8_crowded is gcd8 at 65% core utilization and placement density
-0.8, the setting the adaptive rounds were first measured on.
+0.8, the setting the adaptive rounds were first measured on; aes is the ORFS
+benchmark's aes (one run each; the sweep twice).
 
 <!-- table:strategies -->
 | design | strategy | runs | verification | WNS tt (ns) | WNS worst corner (ns) | cell area (µm²) | wirelength (µm) | DRC | slew viol. | wall (s) | core-s |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| gcd8_crowded | defaults | 2 of 2 | passed 2/2 | 6.981 | 4.213 | 1,672 | 3,438 | 0 | 0 | 70 | 833 |
-| gcd8_crowded | sweep | 2 of 2 | passed 2/2 | 6.981 | 4.213 | 1,672 | 3,438 | 0 | 0 | 71 | 846 |
-| gcd8_crowded | adaptive | 2 of 2 | failed 2/2: drv | 6.780 | 3.812 | 1,657 | 3,696 | 0 | 11 | 93 | 1,109 |
-| gcd8_crowded | search | 2 of 2 | passed 2/2 | 6.981 | 4.213 | 1,672 | 3,438 | 0 | 0 | 110 | 1,309 |
-| gcd8_crowded | adaptive_search | 2 of 2 | passed 2/2 | 6.981 | 4.213 | 1,672 | 3,438 | 0 | 0 | 170 | 2,027 |
+| gcd8_crowded | defaults | 2 of 2 | passed 2/2 | 6.981 | 4.213 | 1,672 | 3,438 | 0 | 0 | 70 | 722 |
+| gcd8_crowded | sweep | 2 of 2 | passed 2/2 | 6.981 | 4.213 | 1,672 | 3,438 | 0 | 0 | 71 | 734 |
+| gcd8_crowded | adaptive | 2 of 2 | failed 2/2: drv | 6.780 | 3.812 | 1,657 | 3,696 | 0 | 11 | 93 | 982 |
+| gcd8_crowded | search | 2 of 2 | passed 2/2 | 6.981 | 4.213 | 1,672 | 3,438 | 0 | 0 | 110 | 1,192 |
+| gcd8_crowded | adaptive_search | 2 of 2 | passed 2/2 | 6.981 | 4.213 | 1,672 | 3,438 | 0 | 0 | 170 | 1,910 |
 | dp8 | defaults | 2 of 2 | passed 2/2 | 5.812 | 0.831 | 1,790 | 7,230 | 0 | 0 | 66 | 789 |
 | dp8 | sweep | 2 of 2 | passed 2/2 | 5.812 | 0.831 | 1,790 | 7,230 | 0 | 0 | 66 | 783 |
 | dp8 | adaptive | 2 of 2 | passed 2/2 | 5.812 | 0.831 | 1,790 | 7,230 | 0 | 0 | 70 | 839 |
 | dp8 | search | 2 of 2 | passed 2/2 | 5.812 | 0.831 | 1,790 | 7,230 | 0 | 0 | 107 | 1,276 |
 | dp8 | adaptive_search | 2 of 2 | passed 2/2 | 5.812 | 0.831 | 1,790 | 7,230 | 0 | 0 | 111 | 1,320 |
+| aes | defaults | 1 | failed 1/1: drv, setup | 0.233 | −2.383 | 136,273 | 583,437 | 0 | 34 | 3,807 | 37,420 |
+| aes | sweep | 1 of 2 (timeout) | failed 1/1: drv, setup | 0.233 | −2.383 | 136,273 | 583,437 | 0 | 34 | 3,794 | 37,237 |
+| aes | adaptive | 1 | failed 1/1: drv, setup | 0.233 | −2.383 | 136,273 | 583,437 | 0 | 34 | 5,269 | 39,031 |
+| aes | search | 1 | failed 1/1: drv, setup | 0.233 | −2.383 | 136,273 | 583,437 | 0 | 34 | 5,931 | 62,816 |
+| aes | adaptive_search | 1 | failed 1/1: drv, setup | 0.233 | −2.383 | 136,273 | 583,437 | 0 | 34 | 5,254 | 54,787 |
 <!-- /table -->
 
 - **Every repeat gave the same result,** to the last digit: the variation is
   in wall time only (two runs that the machine's sleep stretched were run
   again).
-- **No strategy beat the defaults on these two designs.** On gcd8_crowded the
-  sweep's placement score picked the default placement; on dp8 every strategy
-  ended with the same layout.
+- **No strategy beat the defaults on any of the three designs.** On
+  gcd8_crowded the sweep's placement score picked the default placement; on
+  dp8 every strategy ended with the same layout; on aes (one run each) every
+  strategy that completed ended with the defaults' layout to the last digit
+  (+0.233 ns at the typical corner, −2.383 ns at the slowest, 583,437 µm):
+  the sweep's score picked the default placement, the adaptive rounds changed
+  nothing they kept, and both searches carried a second placement to
+  extraction where the baseline won (−2.383 against −2.473 ns at ss_max).
 - **Adaptive rounds alone made gcd8_crowded worse at the end:** 0.2 ns less
   slack at the typical corner, 0.4 ns at the worst one, 11 slew violations
   against none, for a placement that looked better by its heatmaps; both
@@ -309,9 +320,16 @@ a time; gcd8_crowded is gcd8 at 65% core utilization and placement density
   row's verdicts over all its runs). Carried
   to extraction with the baseline kept (`adaptive_search`), the baseline won
   and the final result was the defaults', at 2.4 times the core-seconds.
-- **The bounded search costs** 1.5-1.6 times the defaults' core-seconds with
-  one extra branch, and returns the defaults' result when the baseline is
-  best: it is insurance, not a gain, on these designs.
+- **The bounded search costs** 1.5-1.7 times the defaults' core-seconds with
+  one extra branch (aes: 62,816 against 37,420), and returns the defaults'
+  result when the baseline is best: it is insurance, not a gain, on these
+  designs. Core-seconds are the scheduler's allocation (each attempt's
+  seconds times its threads), not measured CPU; synthesis is apart.
+- **One aes run stalled.** The first sweep run's detailed router stopped
+  progressing at 31 violations and ran into the 4-hour command timeout, on
+  the same placement and clock tree that the defaults run routed in 857 s;
+  the second sweep run, from the same inputs, completed. The stall is in the
+  router, not in the strategy, and is counted as a failed run.
 
 ## Exploration mode
 

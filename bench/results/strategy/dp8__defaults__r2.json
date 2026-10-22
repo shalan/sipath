@@ -30,11 +30,15 @@
   "synth_area_um2": null,
   "synth_recipe": null,
   "tns_tt_ns": 0.0,
+  "tool_seconds": 0,
   "wall_s": 65.8,
   "wns_ss_max_ns": 0.8314575929764625,
   "wns_tt_ns": 5.812,
   "wns_worst_ns": 0.831
  },
+ "notes_export": [
+  "core_seconds and tool_seconds recomputed at export from the run graph (one formula for every record: per-attempt threads, else the step's allocation)"
+ ],
  "overrides": {
   "place": [
    {

@@ -20,7 +20,7 @@
  "metrics": {
   "cell_area_um2": 1656.6,
   "cells": 202,
-  "core_seconds": 1099.2,
+  "core_seconds": 976.3,
   "drc_klayout": 0,
   "drv_slew": 11,
   "exit": 0,
@@ -29,11 +29,15 @@
   "synth_area_um2": 1435.1264,
   "synth_recipe": "area_map",
   "tns_tt_ns": 0.0,
+  "tool_seconds": 10.2,
   "wall_s": 92.1,
   "wns_ss_max_ns": 3.8122657221184966,
   "wns_tt_ns": 6.78,
   "wns_worst_ns": 3.812
  },
+ "notes_export": [
+  "core_seconds and tool_seconds recomputed at export from the run graph (one formula for every record: per-attempt threads, else the step's allocation)"
+ ],
  "overrides": {
   "place": [
    {

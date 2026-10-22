@@ -81,7 +81,7 @@ def _runs_cell(done, runs) -> str:
                 return "measurement failed"
             f = r.get("failure") or ""
             m = re.search(r"[A-Z]+-\d+", f)
-            return m.group(0) if m else "failed"
+            return m.group(0) if m else ("timeout" if "timeout" in f else "failed")
         out += f" ({', '.join(sorted({why(r) for r in fails}))})"
     return out
 
