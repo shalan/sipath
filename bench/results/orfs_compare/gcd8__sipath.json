@@ -1,0 +1,104 @@
+{
+ "backfilled": true,
+ "design": "gcd8",
+ "flow": "sipath",
+ "inputs": {
+  "sipath/examples/gcd8.yaml": "93b3a83f2ee35d1f",
+  "sipath/examples/rtl/gcd8.sdc": "9632479ac45b94ab"
+ },
+ "kind": "orfs_compare",
+ "machine": {
+  "arch": "arm64",
+  "cores": 18,
+  "cpu": "Apple M5 Max",
+  "emulated": true,
+  "image_platform": "linux/amd64",
+  "os": "Darwin 25.6.0",
+  "python": "3.14.7"
+ },
+ "measured": "2026-10-19",
+ "metrics": {
+  "cell_area_um2": 1666.6,
+  "cells": 202,
+  "drc_klayout": 0,
+  "drc_router": 0,
+  "exit": 0,
+  "routed_wirelength_um": 3460,
+  "tns_tt_ns": 0.0,
+  "wall_s": 64.0,
+  "wns_tt_ns": 7.154,
+  "wns_worst_ns": 4.528
+ },
+ "overrides": {
+  "flow": [
+   {
+    "step": "synth"
+   },
+   {
+    "step": "floorplan"
+   },
+   {
+    "step": "physical"
+   },
+   {
+    "step": "place"
+   },
+   {
+    "step": "cts"
+   },
+   {
+    "step": "route_analog"
+   },
+   {
+    "step": "route_digital"
+   },
+   {
+    "step": "route_repair"
+   },
+   {
+    "step": "fill"
+   },
+   {
+    "step": "extract"
+   },
+   {
+    "step": "signoff"
+   }
+  ]
+ },
+ "seeds": null,
+ "sipath": {
+  "commit": null,
+  "version": null
+ },
+ "source": "runs/bench/gcd8/sipath/run",
+ "steps": {
+  "cts": 10.3,
+  "extract": 2.1,
+  "fill": 1.7,
+  "floorplan": 1.7,
+  "physical": 1.7,
+  "place": 2.4,
+  "route_analog": 1.7,
+  "route_digital": 13.3,
+  "route_repair": 2.3,
+  "signoff": 17.1,
+  "synth": 9.5
+ },
+ "toolchain": {
+  "orfs": "openroad/orfs@sha256:751a77afcade9882b51427e6d9d079b8e270e7a8f4aa66df2d0659457d1c29fd",
+  "pdk": {
+   "sky130": "8afc8346a57fe1ab7934ba5a6056ea8b43078e71"
+  }
+ },
+ "verification": {
+  "execution": "completed",
+  "failed": [],
+  "inconclusive": [],
+  "notes": [
+   "density: informational for an embedded macro (judged in its parent)"
+  ],
+  "omitted": [],
+  "verification": "passed"
+ }
+}

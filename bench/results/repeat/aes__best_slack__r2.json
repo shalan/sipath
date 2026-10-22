@@ -1,0 +1,95 @@
+{
+ "backfilled": true,
+ "design": "aes",
+ "flow": "best_slack",
+ "inputs": {
+  "runs/bench/aes/cfg/constraint.sdc": "d87b13b726bd0f89",
+  "runs/bench/aes/src/aes_cipher_top.v": "ab39a4a094dc8cfd",
+  "runs/bench/aes/src/aes_inv_cipher_top.v": "2f629dab66518aac",
+  "runs/bench/aes/src/aes_inv_sbox.v": "ce684a8941f3bd0a",
+  "runs/bench/aes/src/aes_key_expand_128.v": "bf06921c6fe80a69",
+  "runs/bench/aes/src/aes_rcon.v": "1e8a0d1f8c3da8d3",
+  "runs/bench/aes/src/aes_sbox.v": "7f4fe4173d58017e",
+  "runs/bench/aes/src/timescale.v": "0833b736793bc11f"
+ },
+ "kind": "repeat",
+ "machine": {
+  "arch": "arm64",
+  "cores": 18,
+  "cpu": "Apple M5 Max",
+  "emulated": true,
+  "image_platform": "linux/amd64",
+  "os": "Darwin 25.6.0",
+  "python": "3.14.7"
+ },
+ "measured": "2026-10-21",
+ "metrics": {
+  "cell_area_um2": 136273.2,
+  "cells": 19123,
+  "drc_klayout": 0,
+  "drc_router": 0,
+  "drv_slew": 34,
+  "exit": 0,
+  "instances": 39108.0,
+  "lvs_match": true,
+  "netlist_sha": "8464ae81953b",
+  "routed_wirelength_um": 583437,
+  "synth_area_um2": 81107.7888,
+  "synth_recipe": "delay_map_resyn",
+  "tns_tt_ns": 0.0,
+  "wall_s": 4207.0,
+  "whs_min_ns": 0.252,
+  "wns_ss_max_ns": -2.383,
+  "wns_tt_ns": 0.233,
+  "wns_worst_ns": -2.383
+ },
+ "overrides": {
+  "signoff": {
+   "fail_on_violation": false
+  },
+  "synth": {
+   "synth_fallback": "best_slack"
+  }
+ },
+ "repeat": 2,
+ "seeds": null,
+ "sipath": {
+  "commit": null,
+  "version": null
+ },
+ "source": "runs/bench_repeat/aes/best_slack_r2/run",
+ "steps": {
+  "cts": 71.5,
+  "extract": 25.9,
+  "fill": 6.5,
+  "floorplan": 2.8,
+  "physical": 3.0,
+  "place": 115.2,
+  "route_analog": 4.6,
+  "route_digital": 967.2,
+  "route_repair": 1419.1,
+  "signoff": 908.1,
+  "synth": 683.0
+ },
+ "toolchain": {
+  "orfs": "openroad/orfs@sha256:751a77afcade9882b51427e6d9d079b8e270e7a8f4aa66df2d0659457d1c29fd",
+  "pdk": {
+   "sky130": "8afc8346a57fe1ab7934ba5a6056ea8b43078e71"
+  }
+ },
+ "verification": {
+  "execution": "completed",
+  "failed": [
+   "drv",
+   "setup"
+  ],
+  "inconclusive": [
+   "equivalence"
+  ],
+  "notes": [
+   "signoff.0: failed checks did not fail the step (fail_on_violation: false)"
+  ],
+  "omitted": [],
+  "verification": "failed"
+ }
+}

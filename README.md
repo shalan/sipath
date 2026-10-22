@@ -177,18 +177,22 @@ Against OpenROAD-flow-scripts on its own reference designs (same RTL, SDC and
 utilization; both layouts measured by the same code; WNS at the typical
 corner):
 
-| design | flow | WNS (ns) | TNS (ns) | wirelength (µm) | cell area (µm²) | DRC | wall (s) | signoff |
-|---|---|---|---|---|---|---|---|---|
-| gcd (1.1 ns) | ORFS | −1.465 | −65.1 | 11,786 | 5,319 | 0 | 321 | — |
-| gcd (1.1 ns) | SiPath | **−1.083** | **−46.6** | **8,061** | **4,975** | 0 | **252** | fails: setup |
-| aes | ORFS | −0.196 | −0.67 | 588,211 | **124,637** | 0 | **2,724** | — |
-| aes | SiPath | **+0.233** | **0.00** | **583,437** | 136,273 | 0 | 4,207 | fails: setup at ss, slew |
+<!-- table:orfs_readme -->
+| design | flow | WNS (ns) | TNS (ns) | wirelength (µm) | cell area (µm²) | DRC | wall (s) | runs | signoff |
+|---|---|---|---|---|---|---|---|---|---|
+| gcd (1.1 ns) | ORFS | −1.465 | −65.09 | 11,786 | 5,319 | 0 | 321 | 1 | — |
+| gcd (1.1 ns) | SiPath | −1.083 | −46.62 | 8,061 | 4,975 | 0 | 369 | 1 | fails: setup |
+| aes | ORFS | −0.196 | −0.67 | 588,211 | 124,637 | 0 | 2,724 | 1 | — |
+| aes | SiPath | +0.233 | 0.00 | 583,437 | 136,273 | 0 | 4,207 | 1 of 2 (DRT-0206) | fails: drv, setup |
+<!-- /table -->
 
 SiPath's wall time includes signoff (DRC, LVS, nine-corner STA), which ORFS's
 make does not run. The benchmark runs signoff without failing the run
 (`fail_on_violation: false`), so both SiPath runs completed although their
 signoff failed: gcd's 1.1 ns clock is out of reach, and aes misses setup at
 the slow corners and has 34 slew violations (DRC 0 and LVS match in both).
+One of aes's two runs failed in routing (`DRT-0206`). The table is written
+from the records in `bench/results/` ([benchmarks](docs/benchmarks.md)).
 
 | benchmark | result |
 |---|---|

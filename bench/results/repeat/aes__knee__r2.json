@@ -1,0 +1,92 @@
+{
+ "backfilled": true,
+ "design": "aes",
+ "flow": "knee",
+ "inputs": {
+  "runs/bench/aes/cfg/constraint.sdc": "d87b13b726bd0f89",
+  "runs/bench/aes/src/aes_cipher_top.v": "ab39a4a094dc8cfd",
+  "runs/bench/aes/src/aes_inv_cipher_top.v": "2f629dab66518aac",
+  "runs/bench/aes/src/aes_inv_sbox.v": "ce684a8941f3bd0a",
+  "runs/bench/aes/src/aes_key_expand_128.v": "bf06921c6fe80a69",
+  "runs/bench/aes/src/aes_rcon.v": "1e8a0d1f8c3da8d3",
+  "runs/bench/aes/src/aes_sbox.v": "7f4fe4173d58017e",
+  "runs/bench/aes/src/timescale.v": "0833b736793bc11f"
+ },
+ "kind": "repeat",
+ "machine": {
+  "arch": "arm64",
+  "cores": 18,
+  "cpu": "Apple M5 Max",
+  "emulated": true,
+  "image_platform": "linux/amd64",
+  "os": "Darwin 25.6.0",
+  "python": "3.14.7"
+ },
+ "measured": "2026-10-20",
+ "metrics": {
+  "cell_area_um2": 148638.8,
+  "cells": 17924,
+  "drc_klayout": 0,
+  "drc_router": 0,
+  "drv_slew": 127,
+  "exit": 0,
+  "instances": 34392.0,
+  "lvs_match": true,
+  "netlist_sha": "4408874f8deb",
+  "routed_wirelength_um": 650995,
+  "synth_area_um2": 77743.312,
+  "synth_recipe": "delay_syn2",
+  "tns_tt_ns": -0.02,
+  "wall_s": 5614.0,
+  "whs_min_ns": 0.265,
+  "wns_ss_max_ns": -3.46,
+  "wns_tt_ns": -0.01,
+  "wns_worst_ns": -3.46
+ },
+ "overrides": {
+  "signoff": {
+   "fail_on_violation": false
+  }
+ },
+ "repeat": 2,
+ "seeds": null,
+ "sipath": {
+  "commit": null,
+  "version": null
+ },
+ "source": "runs/bench_repeat/aes/knee_r2/run",
+ "steps": {
+  "cts": 50.1,
+  "extract": 26.5,
+  "fill": 6.5,
+  "floorplan": 3.1,
+  "physical": 3.7,
+  "place": 163.6,
+  "route_analog": 4.6,
+  "route_digital": 1940.4,
+  "route_repair": 1990.7,
+  "signoff": 725.8,
+  "synth": 698.4
+ },
+ "toolchain": {
+  "orfs": "openroad/orfs@sha256:751a77afcade9882b51427e6d9d079b8e270e7a8f4aa66df2d0659457d1c29fd",
+  "pdk": {
+   "sky130": "8afc8346a57fe1ab7934ba5a6056ea8b43078e71"
+  }
+ },
+ "verification": {
+  "execution": "completed",
+  "failed": [
+   "drv",
+   "setup"
+  ],
+  "inconclusive": [
+   "equivalence"
+  ],
+  "notes": [
+   "signoff.0: failed checks did not fail the step (fail_on_violation: false)"
+  ],
+  "omitted": [],
+  "verification": "failed"
+ }
+}

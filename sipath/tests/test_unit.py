@@ -2870,6 +2870,45 @@ class ExecutableDocs(unittest.TestCase):
         self.assertGreater(planned, 3)
 
 
+class BenchmarkRecords(unittest.TestCase):
+    """B3.1: the documentation's benchmark tables are written from records, and each record says where its numbers
+    came from (metrics under names that say what they measure, verdict, toolchain, machine, inputs)."""
+
+    ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+    def setUp(self):
+        sys.path.insert(0, os.path.join(self.ROOT, "bench"))
+
+    def test_tables_match_their_records(self):
+        import tables
+        for doc in sorted(set(tables.DOCS.values())):
+            with open(os.path.join(self.ROOT, doc)) as fh:
+                text = fh.read()
+            self.assertEqual(text, tables.render(text), f"{doc}: a generated table is stale (python3 bench/tables.py)")
+        for name, doc in tables.DOCS.items():  # every table is in its document
+            with open(os.path.join(self.ROOT, doc)) as fh:
+                self.assertIn(f"<!-- table:{name} -->", fh.read(), name)
+
+    def test_every_record_is_complete(self):
+        import records
+        recs = records.load()
+        self.assertGreater(len(recs), 20)
+        for r in recs:
+            for k in ("kind", "design", "flow", "measured", "metrics", "toolchain", "machine", "inputs", "backfilled"):
+                self.assertIn(k, r, r["_file"])
+            self.assertTrue(r["toolchain"].get("orfs", "").count("@sha256:"), r["_file"])  # pinned
+            self.assertTrue(r["machine"].get("cores"), r["_file"])
+            self.assertFalse({"wns_ns", "wirelength_um", "hpwl"} & set(r["metrics"]), r["_file"])  # say what it is
+            if r["flow"] != "orfs" and (r.get("source") or "").endswith(("/run",)) or r["kind"] == "fallback":
+                self.assertIn(r["verification"]["execution"], ("completed", "failed", "cancelled", "budget"),
+                              r["_file"])  # a run graph backs it: its verdict is recorded
+                self.assertIn("commit", r["sipath"], r["_file"])
+            elif r["flow"] != "orfs":  # no graph of its own (a directory resumed later): said so
+                self.assertTrue(r["metrics"].get("note"), r["_file"])
+            if r["metrics"].get("exit"):  # a run that failed says why
+                self.assertTrue(r.get("failure"), r["_file"])
+
+
 class Adaptive(unittest.TestCase):
     """Adaptive rounds: Flow.extend, designfile.adapt, the place adapter and its blockages."""
 

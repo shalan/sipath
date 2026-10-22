@@ -362,6 +362,14 @@ def drt_count(rpt: str) -> int | None:
     return len(re.findall(r"violation type:", open(rpt).read()))
 
 
+def _records(design_dir: str):
+    """The benchmark records of this design's results (bench/results; bench/tables.py writes the docs' tables)."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import records
+    for r in records.from_orfs_compare(design_dir):
+        print("record:", records.write(r))
+
+
 def main_sipath_designs(paths: list[str], argv) -> list:
     rows = []
     for path in paths:
@@ -377,6 +385,7 @@ def main_sipath_designs(paths: list[str], argv) -> list:
             res[tag]["measured"] = measure(res[tag], cfg, cfg["lib"], tag, w)
         with open(os.path.join(w, "compare.json"), "w") as f:
             json.dump({"config": cfg, **res}, f, indent=1)
+        _records(w)
         rows.append((d, cfg, res))
     return rows
 
@@ -410,6 +419,7 @@ def main(argv):
             res["orfs"]["drt_drc"] = drt_count(res["orfs"].get("drt_rpt", ""))
         with open(os.path.join(w, "compare.json"), "w") as f:
             json.dump({"config": cfg, **res}, f, indent=1)
+        _records(w)
         rows.append((d, cfg, res))
     lines = ["| design | flow | WNS (ns) | TNS (ns) | wirelength (um) | cells | cell area (um2) | DRT DRC | KLayout DRC | wall (s) |",
              "|---|---|---|---|---|---|---|---|---|---|"]

@@ -1,0 +1,79 @@
+{
+ "backfilled": true,
+ "design": "aes",
+ "flow": "sipath",
+ "inputs": {
+  "runs/bench/aes/cfg/constraint.sdc": "d87b13b726bd0f89",
+  "runs/bench/aes/src/aes_cipher_top.v": "ab39a4a094dc8cfd",
+  "runs/bench/aes/src/aes_inv_cipher_top.v": "2f629dab66518aac",
+  "runs/bench/aes/src/aes_inv_sbox.v": "ce684a8941f3bd0a",
+  "runs/bench/aes/src/aes_key_expand_128.v": "bf06921c6fe80a69",
+  "runs/bench/aes/src/aes_rcon.v": "1e8a0d1f8c3da8d3",
+  "runs/bench/aes/src/aes_sbox.v": "7f4fe4173d58017e",
+  "runs/bench/aes/src/timescale.v": "0833b736793bc11f"
+ },
+ "kind": "orfs_compare",
+ "machine": {
+  "arch": "arm64",
+  "cores": 18,
+  "cpu": "Apple M5 Max",
+  "emulated": true,
+  "image_platform": "linux/amd64",
+  "os": "Darwin 25.6.0",
+  "python": "3.14.7"
+ },
+ "measured": "2026-10-19",
+ "metrics": {
+  "cell_area_um2": 148638.8,
+  "cells": 17924,
+  "drc_klayout": 0,
+  "drc_router": 0,
+  "exit": 0,
+  "routed_wirelength_um": 650995,
+  "tns_tt_ns": -0.02,
+  "wall_s": 4602.2,
+  "wns_tt_ns": -0.01,
+  "wns_worst_ns": -3.46
+ },
+ "overrides": {},
+ "seeds": null,
+ "sipath": {
+  "commit": null,
+  "version": null
+ },
+ "source": "runs/bench/aes/sipath/run",
+ "steps": {
+  "cts": 43.8,
+  "extract": 24.8,
+  "fill": 6.2,
+  "floorplan": 2.6,
+  "physical": 2.7,
+  "place": 111.8,
+  "route_analog": 4.3,
+  "route_digital": 1471.6,
+  "route_repair": 1587.9,
+  "signoff": 656.7,
+  "synth": 689.5
+ },
+ "toolchain": {
+  "orfs": "openroad/orfs@sha256:751a77afcade9882b51427e6d9d079b8e270e7a8f4aa66df2d0659457d1c29fd",
+  "pdk": {
+   "sky130": "8afc8346a57fe1ab7934ba5a6056ea8b43078e71"
+  }
+ },
+ "verification": {
+  "execution": "completed",
+  "failed": [
+   "drv",
+   "setup"
+  ],
+  "inconclusive": [
+   "equivalence"
+  ],
+  "notes": [
+   "signoff.0: failed checks did not fail the step (fail_on_violation: false)"
+  ],
+  "omitted": [],
+  "verification": "failed"
+ }
+}

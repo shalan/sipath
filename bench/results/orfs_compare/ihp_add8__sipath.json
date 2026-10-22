@@ -1,0 +1,105 @@
+{
+ "backfilled": true,
+ "design": "ihp_add8",
+ "flow": "sipath",
+ "inputs": {
+  "sipath/examples/ihp_add8.yaml": "a1f130ce1be4302f",
+  "sipath/examples/inputs/ihp_add8.sdc": "66f961044651d46e"
+ },
+ "kind": "orfs_compare",
+ "machine": {
+  "arch": "arm64",
+  "cores": 18,
+  "cpu": "Apple M5 Max",
+  "emulated": true,
+  "image_platform": "linux/amd64",
+  "os": "Darwin 25.6.0",
+  "python": "3.14.7"
+ },
+ "measured": "2026-10-19",
+ "metrics": {
+  "cell_area_um2": 2053.9,
+  "cells": 89,
+  "drc_klayout": null,
+  "drc_router": 0,
+  "exit": 0,
+  "routed_wirelength_um": 2743,
+  "tns_tt_ns": 0.0,
+  "wall_s": 19.4,
+  "wns_tt_ns": 8.487,
+  "wns_worst_ns": null
+ },
+ "overrides": {
+  "flow": [
+   {
+    "step": "floorplan"
+   },
+   {
+    "step": "physical"
+   },
+   {
+    "parallel": 2,
+    "score": "routability_then_wns",
+    "step": "place",
+    "variants": [
+     {
+      "density": 0.5,
+      "seed": 1
+     },
+     {
+      "density": 0.65,
+      "seed": 2
+     }
+    ]
+   },
+   {
+    "step": "cts"
+   },
+   {
+    "step": "route_analog"
+   },
+   {
+    "score": "drc_then_slack",
+    "step": "route_digital"
+   },
+   {
+    "step": "route_repair"
+   },
+   {
+    "step": "extract"
+   }
+  ]
+ },
+ "seeds": null,
+ "sipath": {
+  "commit": null,
+  "version": null
+ },
+ "source": "runs/bench/ihp_add8/sipath/run",
+ "steps": {
+  "cts": 4.9,
+  "extract": 1.2,
+  "floorplan": 0.8,
+  "physical": 0.9,
+  "place": 3.0,
+  "route_analog": 3.2,
+  "route_digital": 5.3,
+  "route_repair": 1.3
+ },
+ "toolchain": {
+  "orfs": "openroad/orfs@sha256:751a77afcade9882b51427e6d9d079b8e270e7a8f4aa66df2d0659457d1c29fd",
+  "pdk": {
+   "pdk": null
+  }
+ },
+ "verification": {
+  "execution": "completed",
+  "failed": [],
+  "inconclusive": [],
+  "notes": [],
+  "omitted": [
+   "signoff (no signoff or check step in the chain)"
+  ],
+  "verification": "completed"
+ }
+}

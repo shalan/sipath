@@ -1,0 +1,49 @@
+{
+ "backfilled": true,
+ "design": "dp8",
+ "flow": "orfs",
+ "inputs": {
+  "sipath/examples/dp8.yaml": "66e1ba7756c2a248",
+  "sipath/examples/inputs/dp8.sdc": "eba84fa1c670894b"
+ },
+ "kind": "orfs_compare",
+ "machine": {
+  "arch": "arm64",
+  "cores": 18,
+  "cpu": "Apple M5 Max",
+  "emulated": true,
+  "image_platform": "linux/amd64",
+  "os": "Darwin 25.6.0",
+  "python": "3.14.7"
+ },
+ "measured": "2026-10-16",
+ "metrics": {
+  "cell_area_um2": 2184.6,
+  "cells": 151,
+  "drc_klayout": 0,
+  "drc_router": 0,
+  "exit": 0,
+  "routed_wirelength_um": 5576,
+  "tns_tt_ns": 0.0,
+  "wall_s": 146.8,
+  "wns_tt_ns": 5.984
+ },
+ "overrides": {},
+ "seeds": null,
+ "sipath": null,
+ "source": "runs/bench/dp8/orfs",
+ "stages": {
+  "cts": 1.8,
+  "finish": 11.6,
+  "floorplan": 3.1,
+  "place": 5.3,
+  "route": 20.7,
+  "synth": 1.4,
+  "tools": 43.9
+ },
+ "steps": null,
+ "toolchain": {
+  "orfs": "openroad/orfs@sha256:751a77afcade9882b51427e6d9d079b8e270e7a8f4aa66df2d0659457d1c29fd"
+ },
+ "verification": null
+}

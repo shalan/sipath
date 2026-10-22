@@ -1,0 +1,64 @@
+{
+ "backfilled": true,
+ "design": "aes",
+ "failure": "[ERROR GRT-0229] Vertical edge usage exceeds the maximum allowed. (51, 9) usage=65534 limit=2200",
+ "flow": "map_typical",
+ "inputs": {
+  "runs/bench/aes/cfg/constraint.sdc": "d87b13b726bd0f89",
+  "runs/bench/aes/src/aes_cipher_top.v": "ab39a4a094dc8cfd",
+  "runs/bench/aes/src/aes_inv_cipher_top.v": "2f629dab66518aac",
+  "runs/bench/aes/src/aes_inv_sbox.v": "ce684a8941f3bd0a",
+  "runs/bench/aes/src/aes_key_expand_128.v": "bf06921c6fe80a69",
+  "runs/bench/aes/src/aes_rcon.v": "1e8a0d1f8c3da8d3",
+  "runs/bench/aes/src/aes_sbox.v": "7f4fe4173d58017e",
+  "runs/bench/aes/src/timescale.v": "0833b736793bc11f"
+ },
+ "kind": "repeat",
+ "machine": {
+  "arch": "arm64",
+  "cores": 18,
+  "cpu": "Apple M5 Max",
+  "emulated": true,
+  "image_platform": "linux/amd64",
+  "os": "Darwin 25.6.0",
+  "python": "3.14.7"
+ },
+ "measured": "2026-10-20",
+ "metrics": {
+  "cell_area_um2": null,
+  "cells": null,
+  "drc_klayout": null,
+  "drv_slew": null,
+  "exit": 1,
+  "lvs_match": null,
+  "netlist_sha": "961047496657",
+  "note": "run directory resumed after this result; its graph describes the later run",
+  "routed_wirelength_um": null,
+  "synth_recipe": "delay_syn2",
+  "tns_tt_ns": null,
+  "wall_s": 3454.3,
+  "whs_min_ns": null,
+  "wns_ss_max_ns": null,
+  "wns_tt_ns": null
+ },
+ "overrides": {
+  "signoff": {
+   "fail_on_violation": false
+  },
+  "synth": {
+   "map_corner": "typical"
+  }
+ },
+ "repeat": 1,
+ "seeds": null,
+ "sipath": null,
+ "source": "runs/bench_repeat/aes/map_typical_r1",
+ "steps": null,
+ "toolchain": {
+  "orfs": "openroad/orfs@sha256:751a77afcade9882b51427e6d9d079b8e270e7a8f4aa66df2d0659457d1c29fd",
+  "pdk": {
+   "sky130": "8afc8346a57fe1ab7934ba5a6056ea8b43078e71"
+  }
+ },
+ "verification": null
+}

@@ -1,0 +1,83 @@
+{
+ "backfilled": true,
+ "design": "gcd",
+ "flow": "knee",
+ "inputs": {
+  "runs/bench/gcd/cfg/constraint.sdc": "7dc2766d530b78c9",
+  "runs/bench/gcd/src/gcd.v": "5009f224876d39e5"
+ },
+ "kind": "repeat",
+ "machine": {
+  "arch": "arm64",
+  "cores": 18,
+  "cpu": "Apple M5 Max",
+  "emulated": true,
+  "image_platform": "linux/amd64",
+  "os": "Darwin 25.6.0",
+  "python": "3.14.7"
+ },
+ "measured": "2026-10-20",
+ "metrics": {
+  "cell_area_um2": 4974.8,
+  "cells": 473,
+  "drc_klayout": 0,
+  "drc_router": 0,
+  "drv_slew": 0,
+  "exit": 0,
+  "instances": 940.0,
+  "lvs_match": true,
+  "netlist_sha": "109228824324",
+  "routed_wirelength_um": 8061,
+  "synth_area_um2": 2760.1472,
+  "synth_recipe": "delay_map",
+  "tns_tt_ns": -46.618,
+  "wall_s": 251.0,
+  "whs_min_ns": 0.289,
+  "wns_ss_max_ns": -3.079,
+  "wns_tt_ns": -1.083,
+  "wns_worst_ns": -3.079
+ },
+ "overrides": {
+  "signoff": {
+   "fail_on_violation": false
+  }
+ },
+ "repeat": 1,
+ "seeds": null,
+ "sipath": {
+  "commit": null,
+  "version": null
+ },
+ "source": "runs/bench_repeat/gcd/knee_r1/run",
+ "steps": {
+  "cts": 15.2,
+  "extract": 2.3,
+  "fill": 1.8,
+  "floorplan": 1.7,
+  "physical": 1.8,
+  "place": 8.3,
+  "route_analog": 1.7,
+  "route_digital": 25.1,
+  "route_repair": 49.2,
+  "signoff": 20.2,
+  "synth": 123.3
+ },
+ "toolchain": {
+  "orfs": "openroad/orfs@sha256:751a77afcade9882b51427e6d9d079b8e270e7a8f4aa66df2d0659457d1c29fd",
+  "pdk": {
+   "sky130": "8afc8346a57fe1ab7934ba5a6056ea8b43078e71"
+  }
+ },
+ "verification": {
+  "execution": "completed",
+  "failed": [
+   "setup"
+  ],
+  "inconclusive": [],
+  "notes": [
+   "signoff.0: failed checks did not fail the step (fail_on_violation: false)"
+  ],
+  "omitted": [],
+  "verification": "failed"
+ }
+}

@@ -104,14 +104,19 @@ fails and the message names the macros and the ways out.
 
 Measured 2026-10-21, each design to signoff with each fallback (`least_area`
 was worst on timing everywhere, and is not shown). The default changed from
-`knee` to `best_slack` on these results.
+`knee` to `best_slack` on these results. Written from the records in
+`bench/results/`: the synthesized netlist's area, and for the ORFS designs
+also the final cell area after repair (they move in opposite directions on
+aes: the faster netlist is 4% larger, and needs less repair).
 
-| design | slack at ss_max: knee | best_slack | cell area | wirelength | slew violations |
-|---|---|---|---|---|---|
-| aes (ORFS) | −3.460 ns | **−2.383 ns** | −8% | −10% | 127 → 34 |
-| gcd (ORFS, 1.1 ns) | −3.079 ns | −3.079 ns | same netlist | same | same |
-| alu32 (10 ns) | −1.990 ns | **−1.209 ns** | +15% | +27% | 25 → 42 |
-| apb_timer (10 ns) | −0.970 ns | **−0.234 ns** | +3% | +7% | 0 → 14 |
+<!-- table:fallback -->
+| design | slack at ss_max: knee | best_slack | synthesized area (µm²) | final cell area (µm²) | routed wirelength (µm) | slew violations |
+|---|---|---|---|---|---|---|
+| aes (ORFS) | −3.460 ns | −2.383 ns | 77,743 → 81,108 | 148,639 → 136,273 | 650,995 → 583,437 | 127 → 34 |
+| gcd (ORFS, 1.1 ns) | −3.079 ns | −3.079 ns | same | same | same | same |
+| alu32 (10 ns) | −1.990 ns | −1.209 ns | 10,723 → 12,314 | – | 58,270 → 74,224 | 25 → 42 |
+| apb_timer (10 ns) | −0.970 ns | −0.234 ns | 11,321 → 11,627 | – | 35,813 → 38,187 | 0 → 14 |
+<!-- /table -->
 
 `best_slack` gives the better slow-corner slack on three designs and ties on
 the fourth; its cost in area, wire and slew violations depends on the design

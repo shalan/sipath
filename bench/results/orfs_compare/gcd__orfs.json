@@ -1,0 +1,49 @@
+{
+ "backfilled": true,
+ "design": "gcd",
+ "flow": "orfs",
+ "inputs": {
+  "runs/bench/gcd/cfg/constraint.sdc": "7dc2766d530b78c9",
+  "runs/bench/gcd/src/gcd.v": "5009f224876d39e5"
+ },
+ "kind": "orfs_compare",
+ "machine": {
+  "arch": "arm64",
+  "cores": 18,
+  "cpu": "Apple M5 Max",
+  "emulated": true,
+  "image_platform": "linux/amd64",
+  "os": "Darwin 25.6.0",
+  "python": "3.14.7"
+ },
+ "measured": "2026-10-15",
+ "metrics": {
+  "cell_area_um2": 5318.9,
+  "cells": 473,
+  "drc_klayout": 0,
+  "drc_router": 0,
+  "exit": 0,
+  "routed_wirelength_um": 11786,
+  "tns_tt_ns": -65.093,
+  "wall_s": 321.0,
+  "wns_tt_ns": -1.465
+ },
+ "overrides": {},
+ "seeds": null,
+ "sipath": null,
+ "source": "runs/bench/gcd/orfs",
+ "stages": {
+  "cts": 8.5,
+  "finish": 14.8,
+  "floorplan": 7.6,
+  "place": 14.0,
+  "route": 114.2,
+  "synth": 8.1,
+  "tools": 167.2
+ },
+ "steps": null,
+ "toolchain": {
+  "orfs": "openroad/orfs@sha256:751a77afcade9882b51427e6d9d079b8e270e7a8f4aa66df2d0659457d1c29fd"
+ },
+ "verification": null
+}

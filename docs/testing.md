@@ -25,6 +25,12 @@ Part of the [SiPath documentation](../README.md#documentation).
 - **Benchmarks** (`bench/`): against OpenROAD-flow-scripts both ways, the
   synthesis bench, amd64 against arm64, and configurations × repeats
   (`bench/repeat_compare.py`); results in [benchmarks](benchmarks.md).
+  `orfs_compare.py` and `repeat_compare.py` write one record per result into
+  `bench/results/` (`bench/records.py`: metrics named for what they measure,
+  the run's verdict, step times, SiPath commit, image digest and open_pdks
+  release, machine, input hashes, overrides, the run directory, and why a
+  failed run failed); `bench/tables.py` writes the documentation's tables
+  from those records only, and a unit test fails when a table is stale.
 
 ## Regression limits
 

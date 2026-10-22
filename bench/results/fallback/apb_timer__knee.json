@@ -1,0 +1,69 @@
+{
+ "backfilled": true,
+ "design": "apb_timer",
+ "failure": "signoff.0: SignoffError: signoff failed (/Users/shalan/work/claude/flow/runs/item1/apb_timer_knee/signoff/0/signoff.json):",
+ "flow": "knee",
+ "inputs": {},
+ "kind": "fallback",
+ "machine": {
+  "arch": "arm64",
+  "cores": 18,
+  "cpu": "Apple M5 Max",
+  "emulated": true,
+  "image_platform": "linux/amd64",
+  "os": "Darwin 25.6.0",
+  "python": "3.14.7"
+ },
+ "measured": "2026-10-21",
+ "metrics": {
+  "drv_slew": 0,
+  "instances": 3711.0,
+  "routed_wirelength_um": 35813,
+  "synth_area_um2": 11320.8576,
+  "synth_recipe": "delay_syn2",
+  "wns_ss_max_ns": -0.9697118937862925,
+  "wns_worst_ns": -0.97
+ },
+ "overrides": {
+  "synth": {
+   "synth_fallback": "knee"
+  }
+ },
+ "seeds": null,
+ "sipath": {
+  "commit": null,
+  "version": null
+ },
+ "source": "runs/item1/apb_timer_knee",
+ "steps": {
+  "cts": 34.0,
+  "extract": 5.6,
+  "fill": 2.9,
+  "floorplan": 6.9,
+  "physical": 6.0,
+  "place": 46.3,
+  "route_analog": 2.7,
+  "route_digital": 142.1,
+  "route_repair": 47.5,
+  "signoff": 39.7,
+  "synth": 643.6
+ },
+ "toolchain": {
+  "orfs": "openroad/orfs@sha256:751a77afcade9882b51427e6d9d079b8e270e7a8f4aa66df2d0659457d1c29fd",
+  "pdk": {
+   "sky130": "8afc8346a57fe1ab7934ba5a6056ea8b43078e71"
+  }
+ },
+ "verification": {
+  "execution": "failed",
+  "failed": [],
+  "inconclusive": [
+   "equivalence"
+  ],
+  "notes": [],
+  "omitted": [
+   "signoff (no signoff or check step in the chain)"
+  ],
+  "verification": "inconclusive"
+ }
+}

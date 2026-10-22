@@ -1,0 +1,124 @@
+{
+ "backfilled": true,
+ "design": "dp8",
+ "flow": "sipath",
+ "inputs": {
+  "sipath/examples/dp8.yaml": "66e1ba7756c2a248",
+  "sipath/examples/inputs/dp8.sdc": "eba84fa1c670894b"
+ },
+ "kind": "orfs_compare",
+ "machine": {
+  "arch": "arm64",
+  "cores": 18,
+  "cpu": "Apple M5 Max",
+  "emulated": true,
+  "image_platform": "linux/amd64",
+  "os": "Darwin 25.6.0",
+  "python": "3.14.7"
+ },
+ "measured": "2026-10-19",
+ "metrics": {
+  "cell_area_um2": 1790.5,
+  "cells": 111,
+  "drc_klayout": 0,
+  "drc_router": 0,
+  "exit": 0,
+  "routed_wirelength_um": 7230,
+  "tns_tt_ns": 0.0,
+  "wall_s": 67.3,
+  "wns_tt_ns": 5.812,
+  "wns_worst_ns": 0.831
+ },
+ "overrides": {
+  "flow": [
+   {
+    "step": "floorplan"
+   },
+   {
+    "step": "physical"
+   },
+   {
+    "parallel": 2,
+    "score": "routability_then_wns",
+    "step": "place",
+    "variants": [
+     {
+      "density": 0.45,
+      "seed": 1
+     },
+     {
+      "density": 0.6,
+      "routability_driven": true,
+      "seed": 2
+     }
+    ]
+   },
+   {
+    "step": "cts"
+   },
+   {
+    "step": "route_analog"
+   },
+   {
+    "parallel": 2,
+    "score": "drc_then_slack",
+    "step": "route_digital",
+    "variants": [
+     {
+      "iters": 64
+     },
+     {
+      "iters": 32
+     }
+    ]
+   },
+   {
+    "step": "route_repair"
+   },
+   {
+    "step": "fill"
+   },
+   {
+    "step": "extract"
+   },
+   {
+    "step": "signoff"
+   }
+  ]
+ },
+ "seeds": null,
+ "sipath": {
+  "commit": null,
+  "version": null
+ },
+ "source": "runs/bench/dp8/sipath/run",
+ "steps": {
+  "cts": 10.3,
+  "extract": 2.1,
+  "fill": 1.8,
+  "floorplan": 1.8,
+  "physical": 1.9,
+  "place": 4.9,
+  "route_analog": 8.4,
+  "route_digital": 34.9,
+  "route_repair": 2.2,
+  "signoff": 18.7
+ },
+ "toolchain": {
+  "orfs": "openroad/orfs@sha256:751a77afcade9882b51427e6d9d079b8e270e7a8f4aa66df2d0659457d1c29fd",
+  "pdk": {
+   "sky130": "8afc8346a57fe1ab7934ba5a6056ea8b43078e71"
+  }
+ },
+ "verification": {
+  "execution": "completed",
+  "failed": [],
+  "inconclusive": [],
+  "notes": [
+   "timing: 4 unconstrained analog endpoints, e.g. ['ana_in[0]', 'ana_in[1]', 'ana_out[0]']",
+   "density: informational for an embedded macro (judged in its parent)"
+  ],
+  "omitted": [],
+  "verification": "passed"
+ }
+}
