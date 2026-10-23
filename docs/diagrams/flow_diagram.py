@@ -1,7 +1,7 @@
-"""The README's flow diagram, light and dark: python3 docs/diagrams/flow_diagram.py
+"""The README's flow diagram: python3 docs/diagrams/flow_diagram.py
 
-Writes docs/diagrams/flow-light.svg and flow-dark.svg (README.md shows the one matching the reader's theme).
-Edit the steps, loops and boxes here, not the SVG files.
+Writes docs/diagrams/flow.svg, on a white background whatever the reader's theme. Edit the steps, loops and
+boxes here, not the SVG file.
 """
 from __future__ import annotations
 
@@ -15,9 +15,6 @@ PALETTES = {
     "light": {"bg": "#ffffff", "panel": "#f6f8fa", "box": "#ffffff", "line": "#d0d7de", "text": "#1f2328",
               "muted": "#59636e", "flow": "#59636e", "adapt": "#0969da", "retry": "#9a6700", "eco": "#bc4c00",
               "keep": "#8250df", "ok": "#1a7f37"},
-    "dark": {"bg": "#0d1117", "panel": "#151b23", "box": "#0d1117", "line": "#3d444d", "text": "#f0f6fc",
-             "muted": "#9198a1", "flow": "#9198a1", "adapt": "#4493f8", "retry": "#d29922", "eco": "#db6d28",
-             "keep": "#ab7df8", "ok": "#3fb950"},
 }
 SANS = "-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif"
 MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
@@ -173,8 +170,7 @@ def svg(theme: str) -> str:
 
 
 if __name__ == "__main__":
-    for theme in PALETTES:
-        p = os.path.join(HERE, f"flow-{theme}.svg")
-        with open(p, "w") as f:
-            f.write(svg(theme))
-        print(p)
+    p = os.path.join(HERE, "flow.svg")
+    with open(p, "w") as f:
+        f.write(svg("light"))
+    print(p)

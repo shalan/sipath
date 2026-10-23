@@ -131,10 +131,7 @@ Magic, `precheck` in its image) run their tools instead, with no OpenROAD
 session. Every
 attempt is kept in `graph.json`.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/flow-dark.svg">
-  <img src="docs/diagrams/flow-light.svg" width="100%" alt="SiPath's flow: a design file, the Python API or an AI agent over MCP drives an attempt graph. The reference chain runs synth, floorplan, macros, physical, place, cts, then route_analog, route_digital, route_repair, fill, extract and signoff. Inside every step, variants run as attempts in parallel, a score selects one and the next step continues from it; others are kept as branches or rejected. Placement can run adaptive rounds, a failed repair patch is retried with a full re-route, and ECOs patch the signed-off result. A run gives its verdict, the layout and reports, hardened views and, for harness designs, precheck and chip integration.">
-</picture>
+<img src="docs/diagrams/flow.svg" width="100%" alt="SiPath's flow: a design file, the Python API or an AI agent over MCP drives an attempt graph. The reference chain runs synth, floorplan, macros, physical, place, cts, then route_analog, route_digital, route_repair, fill, extract and signoff. Inside every step, variants run as attempts in parallel, a score selects one and the next step continues from it; others are kept as branches or rejected. Placement can run adaptive rounds, a failed repair patch is retried with a full re-route, and ECOs patch the signed-off result. A run gives its verdict, the layout and reports, hardened views and, for harness designs, precheck and chip integration.">
 
 `fill` and `signoff` run when the PDK has fill rules and signoff decks; a
 netlist design starts at `floorplan`. Each box is a step with typed
