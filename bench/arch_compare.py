@@ -76,15 +76,19 @@ def result(out: str) -> dict | None:
     tj = os.path.join(out, "time.json")
     if not os.path.isfile(tj):
         return None
-    r = {**json.load(open(tj)), "steps": {}, "signoff": {}, "quality": {}, "failed": None}
+    with open(tj) as f:
+        r = {**json.load(f), "steps": {}, "signoff": {}, "quality": {}, "failed": None}
     graph = os.path.join(out, "run", "graph.json")
     if not os.path.isfile(graph):  # a missing graph is a failed run
         r["failed"] = "no graph.json"
         return r
-    g = json.load(open(graph))
+    with open(graph) as f:
+        g = json.load(f)
     r["provenance"] = g.get("provenance", {})
-    for a in g["attempts"]:
-        if a.get("status") == "selected":
+    from sipath.scheduler import run_chain
+    chain = {a["id"] for a in run_chain(g)}  # the result's chain, root first: a later step's value wins
+    for a in sorted(g["attempts"], key=lambda a: a["id"] not in chain):
+        if a["id"] in chain:
             r["steps"][a["step"]] = a.get("seconds")
             m = a.get("metrics", {})
             for k in ("synth_cells", "wns", "wirelength_um", "drc", "ppa_fmax_mhz", "ppa_std_area_um2", "signoff_pass"):
@@ -92,7 +96,8 @@ def result(out: str) -> dict | None:
                     r["quality"][k] = m[k]
             sj = (a.get("outputs") or {}).get("signoff")
             if isinstance(sj, str) and os.path.isfile(sj):
-                r["signoff"] = json.load(open(sj)).get("seconds") or {}
+                with open(sj) as f:
+                    r["signoff"] = json.load(f).get("seconds") or {}
         elif a.get("status") == "failed" and not r["failed"]:
             r["failed"] = f"{a['id']}: {(a.get('error') or '').strip().splitlines()[-1:]}"
     if r["exit"] and not r["failed"]:

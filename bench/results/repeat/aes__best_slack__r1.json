@@ -52,6 +52,10 @@
    "synth_fallback": "best_slack"
   }
  },
+ "provenance_gaps": [
+  "machine: the exporting machine, not necessarily the one that ran",
+  "sipath.commit: not recorded by the run (the code it ran is unknown)"
+ ],
  "repeat": 1,
  "seeds": null,
  "sipath": {

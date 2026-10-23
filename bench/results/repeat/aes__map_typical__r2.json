@@ -1,6 +1,9 @@
 {
  "backfilled": true,
  "design": "aes",
+ "effective": {
+  "synth.synth_fallback": "knee"
+ },
  "failure": "route_repair.0: [ERROR GRT-0229] Vertical edge usage exceeds the maximum allowed. (51, 9) usage=65534 limit=2200",
  "flow": "map_typical",
  "inputs": {
@@ -44,6 +47,9 @@
   "wns_tt_ns": null,
   "wns_worst_ns": null
  },
+ "notes_export": [
+  "synth.synth_fallback was not set by this configuration: knee, the default when it ran (best_slack became the default in c01c1c6, 2026-10-22)"
+ ],
  "overrides": {
   "signoff": {
    "fail_on_violation": false
@@ -52,6 +58,10 @@
    "map_corner": "typical"
   }
  },
+ "provenance_gaps": [
+  "machine: the exporting machine, not necessarily the one that ran",
+  "sipath.commit: not recorded by the run (the code it ran is unknown)"
+ ],
  "repeat": 2,
  "seeds": null,
  "sipath": {

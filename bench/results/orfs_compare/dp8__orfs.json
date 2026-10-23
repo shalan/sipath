@@ -29,6 +29,11 @@
   "wns_tt_ns": 5.984
  },
  "overrides": {},
+ "provenance_gaps": [
+  "toolchain: the lock at export, not recorded by the run",
+  "machine.image_platform: not recorded by the run",
+  "machine: the exporting machine, not necessarily the one that ran"
+ ],
  "seeds": null,
  "sipath": null,
  "source": "runs/bench/dp8/orfs",

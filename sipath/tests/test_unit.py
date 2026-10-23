@@ -2956,6 +2956,15 @@ class BenchmarkRecords(unittest.TestCase):
                 self.assertTrue(r["metrics"].get("note"), r["_file"])
             if r["metrics"].get("exit"):  # a run that failed says why
                 self.assertTrue(r.get("failure"), r["_file"])
+            gaps = r.get("provenance_gaps") or []
+            if r["flow"] != "orfs" and not (r.get("sipath") or {}).get("commit"):  # an unknown commit is said
+                self.assertTrue(any(g.startswith("sipath.commit") for g in gaps), r["_file"])
+            if r.get("inputs") == {} and "inputs_note" not in r:
+                self.assertIn("inputs: unknown", gaps, r["_file"])
+            if r["kind"] == "repeat":  # what the configuration set is recorded, not read from a later default
+                eff = {**(r.get("overrides") or {}).get("synth", {}),
+                       **{k.split(".", 1)[1]: v for k, v in (r.get("effective") or {}).items() if k.startswith("synth.")}}
+                self.assertIn("synth_fallback", eff, r["_file"])
 
 
 class BoundedSearch(unittest.TestCase):
@@ -3496,7 +3505,7 @@ class RunHeadThirdReview(unittest.TestCase):
                 dict(base, flow="search", metrics={"exit": 0, "wns_tt_ns": 1.0, "core_seconds": 265.0})]
         with mock.patch.object(tables, "_by", lambda kind: recs if kind == "strategy" else []):
             row = next(ln for ln in tables.table_strategies().splitlines() if "| dp8 | search |" in ln)
-        self.assertTrue(row.endswith("| 2.65 |"), row)
+        self.assertIn("| 2.65 |", row)
 
     def test_records_carry_the_final_layouts_digest(self):
         import hashlib
@@ -3848,6 +3857,145 @@ class ArchivesAndEligibility(unittest.TestCase):
         self.assertIn("2 of 3 (measurement failed)", row)
         self.assertIn("passed 2/2", row)
         self.assertIn("| 15 |", row)  # the median wall time of the two that count, not 999
+
+
+class BenchmarkIntegrity(unittest.TestCase):
+    """Project review, batch 2: a table shows only what a run completed and measured, says which code ran it,
+    and a record says what it could not take from the run."""
+    ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+    def setUp(self):
+        sys.path.insert(0, os.path.join(self.ROOT, "bench"))
+
+    def rec(self, **kw):
+        base = {"kind": "repeat", "design": "aes", "flow": "best_slack", "measured": "2026-10-20",
+                "verification": {"execution": "completed", "verification": "passed", "failed": []},
+                "sipath": {"commit": "abc1234def56"}, "metrics": {"exit": 0, "wns_tt_ns": 0.5, "wall_s": 100}}
+        return {**base, **kw}
+
+    def test_completed_needs_an_exit_status_a_verdict_and_a_measurement(self):
+        import tables
+        self.assertTrue(tables.completed(self.rec()))
+        for bad in (self.rec(metrics={"wall_s": 7000}),  # no exit status recorded
+                    self.rec(metrics={"exit": 0, "wall_s": 5000}),  # nothing measured
+                    self.rec(verification={"execution": "failed"}),  # the run's own verdict: it failed
+                    self.rec(kind="orfs_compare", flow="orfs", verification=None, metrics={"exit": 2, "wns_tt_ns": -9})):
+            self.assertFalse(tables.completed(bad), bad)
+
+    def test_a_failed_orfs_run_shows_why_not_numbers(self):
+        from unittest import mock
+        import tables
+        orfs = self.rec(kind="orfs_compare", flow="orfs", design="gcd", verification=None, sipath=None,
+                        metrics={"exit": 2, "wns_tt_ns": -9.0}, failure="exit 2")
+        with mock.patch.object(tables, "_by", lambda kind: [orfs] if kind == "orfs_compare" else []):
+            row = next(ln for ln in tables.table_orfs(False).splitlines() if "| ORFS |" in ln)
+        self.assertNotIn("9.000", row)
+        self.assertIn("0 of 1", row)
+
+    def test_fallback_rows_say_when_their_runs_failed(self):
+        from unittest import mock
+        import tables
+        fb = [self.rec(kind="fallback", design="alu32", flow=f, metrics={"wns_ss_max_ns": v}, failure="signoff.0: "
+                       "SignoffError: signoff failed", verification={"execution": "failed"}) for f, v in
+              (("knee", -1.99), ("best_slack", -1.21))]
+        with mock.patch.object(tables, "_by", lambda kind: fb if kind == "fallback" else []):
+            row = next(ln for ln in tables.table_fallback().splitlines() if ln.startswith("| alu32"))
+        self.assertTrue(row.endswith("| failed: signoff / failed: signoff |"), row)
+
+    def test_strategy_rows_name_their_code_and_partial_medians(self):
+        from unittest import mock
+        import tables
+        base = {"kind": "strategy", "design": "dp8", "outcome": "completed", "verification": {"verification": "passed"}}
+        recs = [dict(base, flow="defaults", sipath={"commit": "aaaaaaa11111"},
+                     metrics={"exit": 0, "wns_tt_ns": 1.0, "core_seconds": 100.0, "drc_klayout": 0}),
+                dict(base, flow="search", repeat=1, sipath={"commit": "bbbbbbb22222-dirty"},
+                     metrics={"exit": 0, "wns_tt_ns": 1.0, "core_seconds": 150.0, "drc_klayout": 0}),
+                dict(base, flow="search", repeat=2, sipath={"commit": "bbbbbbb22222-dirty"},
+                     metrics={"exit": 0, "wns_tt_ns": 1.0, "core_seconds": 150.0})]
+        with mock.patch.object(tables, "_by", lambda kind: recs if kind == "strategy" else []):
+            row = next(ln for ln in tables.table_strategies().splitlines() if "| dp8 | search |" in ln)
+        self.assertIn("| 1.50† |", row)  # against defaults that ran other code
+        self.assertTrue(row.endswith("| bbbbbbb* |"), row)
+        self.assertIn("| 0 (1 of 2) |", row)  # DRC from one of the row's two runs
+
+    def test_orfs_compare_records_carry_their_outcome(self):
+        import records
+        with tempfile.TemporaryDirectory() as td:
+            d = os.path.join(td, "gcd")
+            os.makedirs(os.path.join(d, "orfs"))
+            _write_json(os.path.join(d, "compare.json"), {
+                "config": {"rtl": [], "sdc": None, "orfs_unmapped": {"TNS_END_PERCENT": "100"}},
+                "orfs_image": "openroad/orfs@sha256:" + "0" * 64,
+                "orfs": {"exit": 0, "seconds": 9, "measured": {"error": "measurement failed (log)"}}})
+            r, = records.from_orfs_compare(d)
+        self.assertEqual((r["outcome"], r["failure"]), ("measurement_failed", "measurement failed (log)"))
+        self.assertEqual(r["orfs_unmapped"], {"TNS_END_PERCENT": "100"})
+        self.assertEqual(r["toolchain"]["orfs"], "openroad/orfs@sha256:" + "0" * 64)
+        self.assertNotIn("toolchain: the lock at export, not recorded by the run", r.get("provenance_gaps", []))
+        self.assertEqual(records._outcome(None, None), ("execution_failed", "no exit status recorded"))
+
+    def test_records_list_what_the_run_did_not_record(self):
+        import records
+        r = records.make("repeat", "aes", "knee", {"exit": 0}, run={"sipath": {"commit": None}}, inputs_={})
+        gaps = r["provenance_gaps"]
+        for want in ("toolchain:", "machine.image_platform:", "measured:", "sipath.commit:", "inputs: unknown"):
+            self.assertTrue(any(g.startswith(want) for g in gaps), (want, gaps))
+        self.assertNotIn("image_platform", r["machine"])  # not defaulted to linux/amd64
+
+    def test_a_measurement_never_reads_an_earlier_ones_files(self):
+        from unittest import mock
+        import orfs_compare as oc
+        with tempfile.TemporaryDirectory() as td:
+            for n in ("x.odb", "x.spef", "x.gds"):
+                open(os.path.join(td, n), "w").close()
+            with open(os.path.join(td, "drc_t.lyrdb"), "w") as fh:  # an earlier measurement's report
+                fh.write("<report-database/>")
+            with open(os.path.join(td, "final_t.def"), "w") as fh:
+                fh.write("stale")
+
+            def docker(args, mounts, log=None):
+                if log:
+                    open(log, "w").close()  # the tools ran but wrote nothing
+                return 0
+            r = {"odb": os.path.join(td, "x.odb"), "spef": os.path.join(td, "x.spef"), "gds": os.path.join(td, "x.gds")}
+            with mock.patch.object(oc, "docker", docker):
+                out = oc.measure(r, {"sdc": os.path.join(td, "x.sdc"), "top": "t", "drc_deck": "deck.drc"}, "lib", "t", td)
+        self.assertIn("error", out)
+        self.assertNotIn("klayout_drc", out)
+        self.assertIsNone(out["wirelength_um"])
+
+    def test_an_orfs_run_starts_from_an_empty_work_directory(self):
+        from unittest import mock
+        import orfs_compare as oc
+        with tempfile.TemporaryDirectory() as td:
+            old = os.path.join(td, "orfs", "results", "sky130hd", "gcd", "base", "6_final.odb")
+            os.makedirs(os.path.dirname(old))
+            open(old, "w").close()
+            with mock.patch.object(oc, "docker", lambda *a, **k: 2):
+                r = oc.run_orfs(td, "gcd")
+            self.assertFalse(os.path.exists(old))
+            self.assertEqual(r["exit"], 2)
+
+    def test_the_source_identity_leaves_out_results_and_prose(self):
+        import subprocess
+        from sipath.designfile import source_diff
+        with tempfile.TemporaryDirectory() as td:
+            def git(*a):
+                subprocess.run(["git", "-C", td, *a], check=True, capture_output=True)
+            git("init", "-q")
+            for rel in ("bench/results/r.json", "README.md", "sipath/x.py"):
+                os.makedirs(os.path.dirname(os.path.join(td, rel)) or td, exist_ok=True)
+                with open(os.path.join(td, rel), "w") as fh:
+                    fh.write("a\n")
+            git("add", "-A")
+            git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "x")
+            for rel in ("bench/results/r.json", "README.md"):
+                with open(os.path.join(td, rel), "w") as fh:
+                    fh.write("b\n")
+            self.assertEqual(source_diff(td), b"")
+            with open(os.path.join(td, "sipath", "x.py"), "w") as fh:
+                fh.write("b\n")
+            self.assertIn(b"sipath/x.py", source_diff(td))
 
 
 class PlanParity(unittest.TestCase):

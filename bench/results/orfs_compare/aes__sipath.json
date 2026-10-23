@@ -36,6 +36,10 @@
   "wns_worst_ns": -3.46
  },
  "overrides": {},
+ "provenance_gaps": [
+  "machine: the exporting machine, not necessarily the one that ran",
+  "sipath.commit: not recorded by the run (the code it ran is unknown)"
+ ],
  "seeds": null,
  "sipath": {
   "commit": null,

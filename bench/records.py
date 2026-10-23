@@ -236,25 +236,42 @@ def from_orfs_compare(design_dir: str, backfilled: bool = False) -> list[dict]:
                    "cell_area_um2": m.get("cell_area_um2"), "drc_klayout": m.get("klayout_drc"),
                    "drc_router": r.get("drt_drc"), "wall_s": r.get("seconds"), "exit": r.get("exit")}
         run_dir = os.path.join(design_dir, flow, "run")
+        outcome, failure = _outcome(r.get("exit"), m.get("error"))
         if flow == "orfs":
             stages = orfs_stages(os.path.join(design_dir, "orfs"))
             when = os.path.join(design_dir, "orfs", "time.json")
             out.append(make("orfs_compare", design, "orfs", metrics, stages=stages,
                             measured=_mtime_date(when) if os.path.isfile(when) else None,
                             source=os.path.join(design_dir, "orfs"), inputs_=ins, backfilled=backfilled,
-                            inputs_note="hashed at export: ORFS's run records no input hashes",
-                            toolchain_={"orfs": c.get("orfs_image") or toolchain()["orfs"]}))
+                            inputs_note="hashed at export: ORFS's run records no input hashes (these are SiPath's "
+                                        "copies of the image's design files, fetched once)",
+                            toolchain_={"orfs": c.get("orfs_image")} if c.get("orfs_image") else None,
+                            image_platform="linux/amd64", outcome=outcome, **({"failure": failure} if failure else {}),
+                            **({"orfs_unmapped": cfg["orfs_unmapped"]} if cfg.get("orfs_unmapped") else {})))
         elif os.path.isfile(os.path.join(run_dir, "graph.json")):
             run = from_run(run_dir)
             metrics.update(drc_router=run["router_drc"], wns_worst_ns=run["worst_setup"])
             with open(os.path.join(run_dir, "graph.json")) as f:
                 rins, rnote = run_inputs(json.load(f))
+            if outcome == "completed" and run["verification"]["execution"] != "completed":
+                outcome, failure = "execution_failed", run.get("failure") or "the run did not complete"
             out.append(make("orfs_compare", design, "sipath", metrics, run=run, source=run_dir, inputs_=rins,
                             **({"inputs_note": rnote} if rnote else {}),
                             measured=_mtime_date(os.path.join(run_dir, "graph.json")), backfilled=backfilled,
                             overrides={"flow": cfg.get("flow")} if cfg.get("flow") else {},
-                            image_platform=run["image_platform"], toolchain_=run["toolchain"]))
+                            image_platform=run["image_platform"], toolchain_=run["toolchain"], outcome=outcome,
+                            **({"failure": failure} if failure else {})))
     return out
+
+
+def _outcome(exit_code, measure_error) -> tuple[str, str | None]:
+    """(outcome, failure) of a run from its exit status and its measurement: a missing exit status is a failed
+    run, never a completed one."""
+    if exit_code != 0:
+        return "execution_failed", f"exit {exit_code}" if exit_code is not None else "no exit status recorded"
+    if measure_error:
+        return "measurement_failed", measure_error
+    return "completed", None
 
 
 def from_repeat(design_dir: str, backfilled: bool = False) -> list[dict]:
@@ -290,31 +307,59 @@ def from_repeat(design_dir: str, backfilled: bool = False) -> list[dict]:
                 metrics.update(drc_router=run["router_drc"], wns_worst_ns=run["worst_setup"])
                 rm = run_metrics(run_dir)
                 metrics.update(synth_area_um2=rm["synth_area_um2"], instances=rm["instances"])
-            failure = run.get("failure") or log_failure
+            outcome, why = _outcome(r.get("exit"), r.get("measure_error") or r.get("error"))
+            failure = run.get("failure") or log_failure or why
             extra = {"failure": failure} if failure else {}
             src = run_dir if run and not run.get("graph_not_this_result") else os.path.join(design_dir, tag)
             when = os.path.join(design_dir, tag, "time.json")
+            if r.get("source_snapshot"):
+                extra["source_snapshot"] = r["source_snapshot"]
+            if r.get("driver_error"):
+                extra["failure"] = r["driver_error"]
+            if r.get("overrides"):  # what the configuration set, from the driver (not read back from a default)
+                overrides = {**overrides, **r["overrides"]}
             out.append(make("repeat", design, cfg, metrics, run=run if "verification" in run else None, repeat=i,
                             source=src, **extra, overrides=overrides, backfilled=backfilled,
                             **_repeat_inputs(run_dir, run, ins),
                             measured=_mtime_date(when) if os.path.isfile(when) else None,
-                            image_platform=run.get("image_platform", "linux/amd64"),
+                            image_platform=run.get("image_platform"), outcome=outcome,
                             toolchain_=run.get("toolchain")))
     return out
 
 
 def make(kind: str, design: str, flow: str, metrics: dict, *, measured: str | None = None, source: str | None = None,
          run: dict | None = None, inputs_: dict | None = None, overrides: dict | None = None, seeds=None,
-         image_platform: str | None = "linux/amd64", backfilled: bool = False, notes: str = "",
+         image_platform: str | None = None, backfilled: bool = False, notes: str = "",
          toolchain_: dict | None = None, **extra) -> dict:
+    """A record. What the run's own files did not say is filled from the export and listed in
+    ``provenance_gaps`` (toolchain, image platform, date, machine, commit, inputs), never passed off as the run's."""
     run = run or {}
+    gaps = provenance_gaps(flow, run, measured, image_platform, toolchain_, inputs_, backfilled, extra)
     return {"kind": kind, "design": design, "flow": flow, "measured": measured or time.strftime("%Y-%m-%d"),
             "metrics": metrics, "verification": run.get("verification"), "steps": run.get("steps"),
             "sipath": run.get("sipath") if flow != "orfs" else None, "toolchain": toolchain_ or toolchain(),
             "machine": machine(image_platform), "inputs": inputs_, "overrides": overrides or {},
             "seeds": seeds, "source": os.path.relpath(source, ROOT) if source else None, "backfilled": backfilled,
             "exported": {"at": time.strftime("%Y-%m-%d %H:%M"), "by": _exporter()},  # not the run's own identity
-            **({"notes": notes} if notes else {}), **extra}
+            **({"provenance_gaps": gaps} if gaps else {}), **({"notes": notes} if notes else {}), **extra}
+
+
+def provenance_gaps(flow, run, measured, image_platform, toolchain_, inputs_, backfilled, extra) -> list[str]:
+    """What a record's provenance does not have from the run itself."""
+    gaps = []
+    if not toolchain_ or not toolchain_.get("orfs"):
+        gaps.append("toolchain: the lock at export, not recorded by the run")
+    if not image_platform:
+        gaps.append("machine.image_platform: not recorded by the run")
+    if not measured:
+        gaps.append("measured: the export date, not the run's")
+    if backfilled:
+        gaps.append("machine: the exporting machine, not necessarily the one that ran")
+    if flow != "orfs" and not (run.get("sipath") or {}).get("commit"):
+        gaps.append("sipath.commit: not recorded by the run (the code it ran is unknown)")
+    if inputs_ is None or (inputs_ == {} and "inputs_note" not in extra):
+        gaps.append("inputs: unknown")
+    return gaps
 
 
 def _exporter() -> dict:
@@ -338,8 +383,7 @@ def archive_source() -> dict:
     archive once written is never rewritten (the same key is the same content)."""
     import hashlib
     import shutil
-    import subprocess
-    from sipath.designfile import sipath_identity
+    from sipath.designfile import sipath_identity, source_diff
     ident = sipath_identity()
     if not (ident.get("diff_sha256") or ident.get("untracked")):
         return ident
@@ -355,8 +399,11 @@ def archive_source() -> dict:
         shutil.rmtree(tmp, ignore_errors=True)
         os.makedirs(tmp)
         if ident.get("diff_sha256"):
-            diff = subprocess.run(["git", "-C", ROOT, "diff", "HEAD", "--binary"], capture_output=True, text=True).stdout
-            with open(os.path.join(tmp, "diff.patch"), "w") as f:
+            diff = source_diff(ROOT)  # the diff the identity hashed (checked: a tree that changed since is refused)
+            if hashlib.sha256(diff).hexdigest()[:16] != ident["diff_sha256"]:
+                shutil.rmtree(tmp, ignore_errors=True)
+                raise RuntimeError("the working tree changed while its source was being archived; run again")
+            with open(os.path.join(tmp, "diff.patch"), "wb") as f:
                 f.write(diff)
         for rel in ident.get("untracked") or {}:
             dst = os.path.join(tmp, "untracked", rel)

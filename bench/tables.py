@@ -46,28 +46,58 @@ def _one(recs, design, flow):
     return next((r for r in recs if r["design"] == design and r["flow"] == flow), None)
 
 
+def _medians(done) -> tuple[dict, dict]:
+    """Each metric's median over the runs that have it, and how many those are (a metric some runs lack is
+    shown with its count: the median of fewer runs than the row's)."""
+    merged, counts = {}, {}
+    for k in {k for r in done for k in r["metrics"]}:
+        vals = [r["metrics"][k] for r in done if isinstance(r["metrics"].get(k), (int, float))
+                and not isinstance(r["metrics"].get(k), bool)]
+        if vals:
+            merged[k], counts[k] = statistics.median(vals), len(vals)
+    return merged, counts
+
+
 def _repeats(design):
     """The default configuration's repeats of ``design``: (merged metrics of the completed runs, completed, all)."""
     runs = sorted((r for r in _by("repeat") if r["design"] == design and r["flow"] == _default_fallback()),
                   key=lambda r: r.get("repeat") or 0)
     done = [r for r in runs if completed(r)]
-    merged = {}
-    for k in {k for r in done for k in r["metrics"]}:
-        vals = [r["metrics"][k] for r in done if isinstance(r["metrics"].get(k), (int, float))
-                and not isinstance(r["metrics"].get(k), bool)]
-        if vals:
-            merged[k] = statistics.median(vals)
-    return merged, done, runs
+    return _medians(done)[0], done, runs
+
+
+def _rev(runs) -> str:
+    """The SiPath code the runs ran: each distinct commit, short ('*': uncommitted changes), 'unrecorded' for a
+    run that recorded none; '—' for none (ORFS)."""
+    revs = []
+    for r in runs:
+        c = (r.get("sipath") or {}).get("commit") if r.get("flow") != "orfs" else None
+        s = (c[:7] + ("*" if c.endswith("-dirty") else "")) if c else ("unrecorded" if r.get("flow") != "orfs" else "—")
+        if s not in revs:
+            revs.append(s)
+    return ", ".join(revs) or "—"
 
 
 def completed(r) -> bool:
-    """Eligible for a table's results: the run finished and was measured (outcome "completed"); records from
-    before outcomes were recorded: exit code 0 and a measured result (a typical-corner slack or a wirelength)."""
+    """Eligible for a table's results: the run finished and was measured (outcome "completed"). Records from
+    before outcomes were recorded: a recorded exit code 0 (none recorded is not a success), a run that did not
+    fail by its own verdict, and a measured result (a slack or a wirelength)."""
     if "outcome" in r:
         return r["outcome"] == "completed"
     m = r["metrics"]
-    return not m.get("exit") and (m.get("wns_tt_ns") is not None or m.get("routed_wirelength_um") is not None
-                                  or r["kind"] not in ("strategy",))
+    if m.get("exit") != 0 or (r.get("verification") or {}).get("execution") not in (None, "completed"):
+        return False
+    return any(m.get(k) is not None for k in ("wns_tt_ns", "wns_ss_max_ns", "routed_wirelength_um"))
+
+
+def _status(r) -> str:
+    """'completed', or why a run does not count ('failed: signoff', 'measurement failed', a tool error code)."""
+    if completed(r):
+        return "completed"
+    f = r.get("failure") or ""
+    if "SignoffError" in f:
+        return "failed: signoff"
+    return _why(r) if _why(r) != "failed" else "failed"
 
 
 def _why(r) -> str:
@@ -113,32 +143,32 @@ def _verdict(r) -> str:
 
 def table_orfs(short: bool = False) -> str:
     oc = _by("orfs_compare")
-    head = ("| design | flow | WNS (ns) | TNS (ns) | wirelength (µm) | cell area (µm²) | DRC | wall (s) | runs | signoff |"
-            if short else
+    head = ("| design | flow | WNS (ns) | TNS (ns) | wirelength (µm) | cell area (µm²) | DRC | wall (s) | runs | signoff | "
+            "SiPath code |" if short else
             "| design | flow | measured | WNS (ns) | TNS (ns) | wirelength (µm) | cells | cell area (µm²) | "
-            "DRC (router / KLayout) | wall (s) | runs | signoff |")
+            "DRC (router / KLayout) | wall (s) | runs | signoff | SiPath code |")
     lines = [head, "|" + "---|" * (head.count("|") - 1)]
     for design, label in (("gcd", "gcd (1.1 ns)"), ("aes", "aes")):
         o = _one(oc, design, "orfs")
         m, done, runs = _repeats(design)
         rows = []
         if o:
-            om = o["metrics"]
-            rows.append(("ORFS", o["measured"][5:], om, "1", "—"))
+            ok = [o] if completed(o) else []
+            rows.append(("ORFS", o["measured"][5:], o["metrics"] if ok else {}, _runs_cell(ok, [o]), "—", "—"))
         if runs:
             rows.append(("SiPath", (done or runs)[-1]["measured"][5:], m, _runs_cell(done, runs),
-                         _verdict_counts(done)))
-        for flow, when, x, nruns, ver in rows:
+                         _verdict_counts(done), _rev(runs)))
+        for flow, when, x, nruns, ver, rev in rows:
             wns, tns = _num(x.get("wns_tt_ns"), 3, sign=True), _num(x.get("tns_tt_ns"), 2)
             if short:
                 lines.append(f"| {label} | {flow} | {wns} | {tns} | {_num(x.get('routed_wirelength_um'))} | "
                              f"{_num(x.get('cell_area_um2'))} | {_num(x.get('drc_klayout'))} | {_num(x.get('wall_s'))} | "
-                             f"{nruns} | {ver} |")
+                             f"{nruns} | {ver} | {rev} |")
             else:
                 lines.append(f"| {label} | {flow} | {when} | {wns} | {tns} | {_num(x.get('routed_wirelength_um'))} | "
                              f"{_num(x.get('cells'))} | {_num(x.get('cell_area_um2'))} | "
                              f"{_num(x.get('drc_router'))} / {_num(x.get('drc_klayout'))} | {_num(x.get('wall_s'))} | "
-                             f"{nruns} | {ver} |")
+                             f"{nruns} | {ver} | {rev} |")
     return "\n".join(lines)
 
 
@@ -170,14 +200,14 @@ def table_sipath_designs() -> str:
             r = _one(oc, design, flow)
             if not r:
                 continue
-            m = r["metrics"]
+            m = r["metrics"] if completed(r) else {}
             wall = _num(m.get("wall_s"))
             if flow == "orfs" and (r.get("stages") or {}).get("tools"):
                 wall += f" (tools {_num(r['stages']['tools'])})"
             lines.append(f"| {label} | {'ORFS' if flow == 'orfs' else 'SiPath'} | {_num(m.get('wns_tt_ns'), 3)} | "
                          f"{_num(m.get('routed_wirelength_um'))} | {_num(m.get('cells'))} | {_num(m.get('cell_area_um2'))} | "
                          f"{_num(m.get('drc_router'))} / {_num(m.get('drc_klayout'))} | {wall} | "
-                         f"{_verdict(r) if flow == 'sipath' else '—'} |")
+                         f"{(_verdict(r) if flow == 'sipath' else '—') if completed(r) else _status(r)} |")
     return "\n".join(lines)
 
 
@@ -186,11 +216,11 @@ def table_fallback() -> str:
         if design in ("aes", "gcd"):
             runs = [r for r in _by("repeat") if r["design"] == design and r["flow"] == fb and completed(r)]
             return runs[-1] if runs else None
-        return _one(_by("fallback"), design, fb)
+        return _one(_by("fallback"), design, fb)  # one run each: shown with its status (values from its signoff report)
     lines = ["| design | slack at ss_max: knee | best_slack | synthesized area (µm²) | final cell area (µm²) | "
-             "routed wirelength (µm) | slew violations |", "|---|---|---|---|---|---|---|"]
+             "routed wirelength (µm) | slew violations | runs (knee / best_slack) |", "|---|---|---|---|---|---|---|---|"]
     for design, label in (("aes", "aes (ORFS)"), ("gcd", "gcd (ORFS, 1.1 ns)"), ("alu32", "alu32 (10 ns)"),
-                          ("apb_timer", "apb_timer (10 ns)")):
+                          ("apb_timer", "apb_timer (5 ns)")):
         k, b = pick(design, "knee"), pick(design, "best_slack")
         if not (k and b):
             continue
@@ -203,7 +233,7 @@ def table_fallback() -> str:
             return "same" if x == y else f"{_num(x, nd)} → {_num(y, nd)}"
         lines.append(f"| {label} | {_num(km.get('wns_ss_max_ns'), 3)} ns | {_num(bm.get('wns_ss_max_ns'), 3)} ns | "
                      f"{arrow('synth_area_um2')} | {arrow('cell_area_um2')} | {arrow('routed_wirelength_um')} | "
-                     f"{arrow('drv_slew')} |")
+                     f"{arrow('drv_slew')} | {_status(k)} / {_status(b)} |")
     return "\n".join(lines)
 
 
@@ -214,8 +244,8 @@ def table_strategies() -> str:
     """Each design × strategy: completed runs, and the medians of what they ended with."""
     recs = _by("strategy")
     lines = ["| design | strategy | runs | verification | WNS tt (ns) | WNS worst corner (ns) | cell area (µm²) | "
-             "wirelength (µm) | DRC | slew viol. | wall (s) | core-s | core-s × defaults |",
-             "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+             "wirelength (µm) | DRC | slew viol. | wall (s) | core-s | core-s × defaults | SiPath code |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for design in sorted({r["design"] for r in recs}, key=lambda d: ["gcd8_crowded", "dp8", "aes"].index(d)
                          if d in ("gcd8_crowded", "dp8", "aes") else 9):
         for s in STRATEGIES:
@@ -224,17 +254,22 @@ def table_strategies() -> str:
                 continue
             done = [r for r in runs if completed(r)]
 
+            merged, counts = _medians(done)
+
             def med(k, nd=0, sign=False):
-                vals = [r["metrics"][k] for r in done if isinstance(r["metrics"].get(k), (int, float))]
-                return _num(statistics.median(vals), nd, sign) if vals else "–"
-            base = [r["metrics"]["core_seconds"] for r in recs if r["design"] == design and r["flow"] == "defaults"
-                    and completed(r) and isinstance(r["metrics"].get("core_seconds"), (int, float))]
+                if k not in merged:
+                    return "–"
+                return _num(merged[k], nd, sign) + (f" ({counts[k]} of {len(done)})" if counts[k] < len(done) else "")
+            defaults = [r for r in recs if r["design"] == design and r["flow"] == "defaults" and completed(r)]
+            base = [r["metrics"]["core_seconds"] for r in defaults if isinstance(r["metrics"].get("core_seconds"), (int, float))]
             mine = [r["metrics"]["core_seconds"] for r in done if isinstance(r["metrics"].get("core_seconds"), (int, float))]
             ratio = (f"{statistics.median(mine) / statistics.median(base):.2f}" if base and mine else "–")
+            if ratio != "–" and _rev(done) != _rev(defaults):
+                ratio += "†"  # against defaults run on other code
             lines.append(f"| {design} | {s} | {_runs_cell(done, runs)} | {_verdict_counts(done)} | "
                          f"{med('wns_tt_ns', 3)} | {med('wns_worst_ns', 3)} | "
                          f"{med('cell_area_um2')} | {med('routed_wirelength_um')} | {med('drc_klayout')} | "
-                         f"{med('drv_slew')} | {med('wall_s')} | {med('core_seconds')} | {ratio} |")
+                         f"{med('drv_slew')} | {med('wall_s')} | {med('core_seconds')} | {ratio} | {_rev(runs)} |")
     return "\n".join(lines)
 
 

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # synth_flow benchmark manifest. Paths are relative to bench/.
-# External designs live under bench/external/ (run ./fetch_external.sh first).
+# External designs live under bench/synth/external/ (run ./fetch_external.sh first).
 #
 # Fields: name, category, top, files (globs), includes (optional), clock,
 # period_ps, clock_2/period_ps_2 (optional), sdc (optional), external (optional

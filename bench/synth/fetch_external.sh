@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
-# Fetch external benchmark designs at pinned commits into bench/external/.
+# Fetch external benchmark designs at pinned commits into bench/synth/external/.
 # Re-run to refresh; existing checkouts at the right commit are left alone.
 set -euo pipefail
 cd "$(dirname "$0")"

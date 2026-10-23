@@ -28,7 +28,18 @@
   "wall_s": 321.0,
   "wns_tt_ns": -1.465
  },
+ "orfs_unmapped": {
+  "ADDER_MAP_FILE": "export CORE_UTILIZATION = 38",
+  "OPENROAD_HIERARCHICAL": "1",
+  "SWAP_ARITH_OPERATORS": "1",
+  "TNS_END_PERCENT": "100"
+ },
  "overrides": {},
+ "provenance_gaps": [
+  "toolchain: the lock at export, not recorded by the run",
+  "machine.image_platform: not recorded by the run",
+  "machine: the exporting machine, not necessarily the one that ran"
+ ],
  "seeds": null,
  "sipath": null,
  "source": "runs/bench/gcd/orfs",

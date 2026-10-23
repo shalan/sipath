@@ -112,12 +112,13 @@ def table(rows: list[dict], tag: str, sets: dict, frontend_sweep: bool) -> str:
             continue
         met += r["wns_ns"] is not None and r["wns_ns"] >= 0
         ref_met += bool(rf) and float(rf["wns_ns"]) >= 0
-        out.append(f"| {r['design']} | {r['period_ns']:g} | {r['wns_ns']:+.3f} | {r['tns_ns']:.2f} | "
-                   f"{r['area_um2']:,.0f} | {r['cells']} | {r['recipe']} | {r['frontend']} | {r['seconds']:.0f} | "
-                   f"{float(rf['wns_ns']):+.3f} | {float(rf['area_um2']):,.0f} | {rf.get('recipe', '-')} |"
-                   if rf else
-                   f"| {r['design']} | {r['period_ns']:g} | {r['wns_ns']:+.3f} | {r['tns_ns']:.2f} | "
-                   f"{r['area_um2']:,.0f} | {r['cells']} | {r['recipe']} | {r['frontend']} | {r['seconds']:.0f} | - | - | - |")
+
+        def f(v, spec):  # a value the run did not give is shown as missing, never as a number
+            return "–" if v is None else format(v, spec)
+        mine = (f"| {r['design']} | {r['period_ns']:g} | {f(r['wns_ns'], '+.3f')} | {f(r['tns_ns'], '.2f')} | "
+                f"{f(r['area_um2'], ',.0f')} | {r['cells']} | {r['recipe']} | {r['frontend']} | {f(r['seconds'], '.0f')} | ")
+        out.append(mine + (f"{float(rf['wns_ns']):+.3f} | {float(rf['area_um2']):,.0f} | {rf.get('recipe', '-')} |"
+                           if rf else "- | - | - |"))
     out += ["", f"Meeting timing: SiPath {met} of {sum(r.get('status') == 'ok' for r in rows)}, "
                 f"synth_flow (pre-repair) {ref_met}."]
     return "\n".join(out) + "\n"

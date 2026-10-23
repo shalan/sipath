@@ -74,10 +74,16 @@ def fetch_design(d: str) -> str:
     return w
 
 
+MAPPED = {"DESIGN_NAME", "DESIGN_NICKNAME", "PLATFORM", "VERILOG_FILES", "SDC_FILE", "CORE_UTILIZATION",
+          "CORE_ASPECT_RATIO", "CORE_MARGIN", "FASTROUTE_TCL"}  # what orfs_config gives SiPath's run
+
+
 def orfs_config(w: str, d: str) -> dict:
     with open(os.path.join(w, "cfg", "config.mk")) as f:
         text = f.read()
     var = dict(re.findall(r"^export\s+(\w+)\s*:?=\s*(.*?)\s*$", text, re.M))
+    every = dict(re.findall(r"^(?:export\s+)?(\w+)\s*[?:]?=\s*(.*?)\s*$", text, re.M))
+    unmapped = {k: v for k, v in sorted(every.items()) if k not in MAPPED}
     rtl = sorted(glob.glob(os.path.join(w, "src", "*.v")))
     if "VERILOG_FILES" in var and "wildcard" not in var["VERILOG_FILES"]:
         rtl = [os.path.join(w, "src", os.path.basename(p)) for p in var["VERILOG_FILES"].split()]
@@ -85,13 +91,16 @@ def orfs_config(w: str, d: str) -> dict:
     adj = {}
     fr = os.path.join(w, "cfg", "fastroute.tcl")
     if os.path.isfile(fr):
-        m = re.search(r"set_global_routing_layer_adjustment\s+\S+\s+([\d.]+)", open(fr).read())
+        with open(fr) as f:
+            m = re.search(r"set_global_routing_layer_adjustment\s+\S+\s+([\d.]+)", f.read())
         if m:
             adj = {ly: float(m.group(1)) for ly in ("met1", "met2", "met3", "met4", "met5")}
     return {"top": var["DESIGN_NAME"], "utilization": float(var.get("CORE_UTILIZATION", 40)) / 100,
             "layer_adjustments": adj,
             "aspect_ratio": float(var.get("CORE_ASPECT_RATIO", 1)), "margin": float(var.get("CORE_MARGIN", 2)),
-            "rtl": rtl, "sdc": os.path.join(w, "cfg", "constraint.sdc")}
+            "rtl": rtl, "sdc": os.path.join(w, "cfg", "constraint.sdc"),
+            # ORFS's settings SiPath's run does not take (the comparison is not like for like in these)
+            "orfs_unmapped": unmapped}
 
 
 ORFS_PLATFORM = {"sky130A": "sky130hd", "sky130A_hs": "sky130hs", "ihp-sg13g2": "ihp-sg13g2"}
@@ -204,12 +213,14 @@ def orfs_result(w: str, d: str, platform: str = "sky130hd") -> dict:
          "drt_rpt": os.path.join(out, "reports", platform, d, "base", "5_route_drc.rpt")}
     tj = os.path.join(out, "time.json")
     if os.path.isfile(tj):
-        r.update(json.load(open(tj)))
+        with open(tj) as f:
+            r.update(json.load(f))
     return r
 
 
 def run_orfs(w: str, d: str) -> dict:
     out = os.path.join(w, "orfs")
+    subprocess.run(["rm", "-rf", out])  # make would reuse an earlier run's results (and their wall time)
     os.makedirs(out, exist_ok=True)
     t0 = time.time()
     rc = docker(["bash", "-c", f"cd {ORFS} && make DESIGN_CONFIG=./designs/sky130hd/{d}/config.mk "
@@ -256,23 +267,22 @@ def sipath_result(w: str, tag: str = "sipath", typical: str = "tt_nom") -> dict:
     r = {}
     tj = os.path.join(out, "time.json")
     if os.path.isfile(tj):
-        r.update(json.load(open(tj)))
+        with open(tj) as f:
+            r.update(json.load(f))
     graph = os.path.join(out, "run", "graph.json")
     if os.path.isfile(graph):
-        g = json.load(open(graph))
-        atts = {a["step"]: a for a in g["attempts"] if a.get("status") == "selected"}
-        by_id = {a["id"]: a for a in g["attempts"]}
-        so, ex = atts.get("signoff", {}), atts.get("extract", {})
-        a = by_id.get(so.get("parent")) if so else None  # signoff's own chain: after a bounded search the
-        while a is not None and not a["step"].startswith("extract"):  # winner may be a branch's extract
-            a = by_id.get(a.get("parent"))
-        ex = a or ex
+        with open(graph) as f:
+            g = json.load(f)
+        from sipath.scheduler import in_chain, run_chain
+        chain = run_chain(g)  # the run's result: after a bounded search, the winner's ancestry
+        atts = {a["step"].split("@")[0]: a for a in chain}
+        so, ex = in_chain(chain, "signoff"), in_chain(chain, "extract")
         if not so:  # no signoff (IHP): the extracted checkpoint; its DEF is written by the measurement
             so = {"checkpoint": ex.get("checkpoint"), "outputs": {}}
         r.update(odb=so.get("checkpoint"), spef=(ex.get("outputs", {}).get("spef_corners") or {}).get(typical),
                  gds=so.get("outputs", {}).get("gds"), drt_drc=atts.get("route_digital", {}).get("metrics", {}).get("drc"))
         r["def"] = so.get("outputs", {}).get("def_")
-        r["steps"] = {a["step"]: round(a.get("seconds") or 0, 1) for a in g["attempts"] if a.get("status") == "selected"}
+        r["steps"] = {a["step"]: round(a.get("seconds") or 0, 1) for a in chain}
         r["failed"] = [f"{a['id']}: {(a.get('error') or '').strip().splitlines()[-1:]}" for a in g["attempts"]
                        if a.get("status") == "failed"]
     return r
@@ -302,6 +312,10 @@ def measure(r: dict, cfg: dict, lib: str, tag: str, w: str) -> dict:
     if not (r.get("odb") and os.path.isfile(r["odb"]) and r.get("spef") and os.path.isfile(r["spef"])):
         return {"error": "no final database/SPEF"}
     script = os.path.join(w, f"measure_{tag}.tcl")
+    log, rpt = os.path.join(w, f"measure_{tag}.log"), os.path.join(w, f"drc_{tag}.lyrdb")
+    for old in (log, rpt, os.path.join(w, f"final_{tag}.def")):  # an earlier measurement's files are not this one's
+        if os.path.exists(old):
+            os.remove(old)
     if not (r.get("def") and os.path.isfile(r["def"])):  # e.g. no signoff step: the DEF from the checkpoint
         r["def"] = os.path.join(w, f"final_{tag}.def")
         wd = f"write_def {r['def']}"
@@ -309,24 +323,25 @@ def measure(r: dict, cfg: dict, lib: str, tag: str, w: str) -> dict:
         wd = ""
     with open(script, "w") as f:
         f.write(MEASURE.format(odb=r["odb"], lib=lib, sdc=cfg["sdc"], spef=r["spef"], write_def=wd))
-    log = os.path.join(w, f"measure_{tag}.log")
     mounts = sorted({BENCH, os.path.abspath(w), os.path.dirname(lib), os.path.dirname(r["odb"]), os.path.dirname(r["spef"]),
                      os.path.dirname(cfg["sdc"])})  # w: the measurement script (another bench's directory)
     mounts = [m for m in mounts if os.path.exists(m)]  # an image path (IHP's platform files) is not mounted over
     docker([f"{ORFS}/../tools/install/OpenROAD/bin/openroad", "-no_splash", "-no_init", "-exit", script], mounts, log)
-    m = re.search(r"BENCH (\S+) (\S+) (\d+) (\S+)", open(log).read())
+    with open(log) as f:
+        m = re.search(r"BENCH (\S+) (\S+) (\d+) (\S+)", f.read())
     if m:
         out.update(wns_ns=round(float(m.group(1)), 3), tns_ns=round(float(m.group(2)), 3),
                    cells=int(m.group(3)), cell_area_um2=round(float(m.group(4)), 1))
     else:
         out["error"] = f"measurement failed ({log})"
     out["wirelength_um"] = def_wirelength(r.get("def"))
+    if out["wirelength_um"] is None and "error" not in out:
+        out["error"] = f"no routed wirelength: final DEF {r.get('def')} missing or without routing"
     # KLayout DRC with the PDK deck on the flow's GDS (when SiPath has a deck for the PDK)
     from sipath.pdk import load
     deck = cfg["drc_deck"] if "drc_deck" in cfg else load("sky130A").signoff["drc_deck"]
     gds = r.get("gds")
     if deck and gds and os.path.isfile(gds):
-        rpt = os.path.join(w, f"drc_{tag}.lyrdb")
         top = cfg["top"]
         docker(["klayout", "-b", "-r", deck, "-rd", f"input={gds}", "-rd", f"topcell={top}", "-rd", f"report={rpt}",
                 "-rd", "feol=true", "-rd", "beol=true", "-rd", "offgrid=true", "-rd", "floating_met=false",
@@ -335,6 +350,8 @@ def measure(r: dict, cfg: dict, lib: str, tag: str, w: str) -> dict:
         if os.path.isfile(rpt):
             p = parse_lyrdb(rpt, None, top)
             out.update(klayout_drc=p["count"], klayout_drc_rules=p["by_rule"])
+        elif "error" not in out:
+            out["error"] = f"KLayout DRC wrote no report ({os.path.join(w, f'drc_{tag}.log')})"
     return out
 
 
@@ -343,7 +360,8 @@ def def_wirelength(path: str) -> int | None:
     of the NETS section (vias and patches not counted)."""
     if not path or not os.path.isfile(path):
         return None
-    text = open(path).read()
+    with open(path) as f:
+        text = f.read()
     s = text.find("\nNETS ")
     if s < 0:
         return None
@@ -364,7 +382,8 @@ def def_wirelength(path: str) -> int | None:
 def drt_count(rpt: str) -> int | None:
     if not os.path.isfile(rpt):
         return None
-    return len(re.findall(r"violation type:", open(rpt).read()))
+    with open(rpt) as f:
+        return len(re.findall(r"violation type:", f.read()))
 
 
 def _records(design_dir: str):
@@ -389,7 +408,7 @@ def main_sipath_designs(paths: list[str], argv) -> list:
         for tag in ("orfs", "sipath"):
             res[tag]["measured"] = measure(res[tag], cfg, cfg["lib"], tag, w)
         with open(os.path.join(w, "compare.json"), "w") as f:
-            json.dump({"config": cfg, **res}, f, indent=1)
+            json.dump({"config": cfg, "orfs_image": IMAGE, **res}, f, indent=1)
         _records(w)
         rows.append((d, cfg, res))
     return rows
@@ -423,7 +442,7 @@ def main(argv):
         if "orfs" in res:
             res["orfs"]["drt_drc"] = drt_count(res["orfs"].get("drt_rpt", ""))
         with open(os.path.join(w, "compare.json"), "w") as f:
-            json.dump({"config": cfg, **res}, f, indent=1)
+            json.dump({"config": cfg, "orfs_image": IMAGE, **res}, f, indent=1)
         _records(w)
         rows.append((d, cfg, res))
     lines = ["| design | flow | WNS (ns) | TNS (ns) | wirelength (um) | cells | cell area (um2) | DRT DRC | KLayout DRC | wall (s) |",

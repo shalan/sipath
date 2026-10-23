@@ -1,6 +1,9 @@
 {
  "backfilled": true,
  "design": "aes",
+ "effective": {
+  "synth.synth_fallback": "knee"
+ },
  "flow": "knee",
  "inputs": {
   "runs/bench/aes/cfg/constraint.sdc": "d87b13b726bd0f89",
@@ -43,11 +46,18 @@
   "wns_tt_ns": -0.01,
   "wns_worst_ns": -3.46
  },
+ "notes_export": [
+  "synth.synth_fallback was not set by this configuration: knee, the default when it ran (best_slack became the default in c01c1c6, 2026-10-22)"
+ ],
  "overrides": {
   "signoff": {
    "fail_on_violation": false
   }
  },
+ "provenance_gaps": [
+  "machine: the exporting machine, not necessarily the one that ran",
+  "sipath.commit: not recorded by the run (the code it ran is unknown)"
+ ],
  "repeat": 1,
  "seeds": null,
  "sipath": {

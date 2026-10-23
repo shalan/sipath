@@ -261,10 +261,24 @@ def build(d: Design, workdir: str, runner, config=None, resume: bool = False, ex
                 runner_prefixes=runner.runner_prefixes(), config=cfg, resume=resume, provenance=prov, runner=runner)
 
 
+# what a run's identity leaves out of "uncommitted changes": data and prose, not code (benchmark records are
+# written while a batch of runs goes on; they would mark every later run of the batch dirty)
+NOT_SOURCE = (":(exclude)bench/results", ":(exclude)*.md")
+
+
+def source_diff(root: str) -> bytes:
+    """The uncommitted diff of the checkout's source (NOT_SOURCE left out), as bytes: the one sipath_identity
+    hashes and bench/records.py archives."""
+    import subprocess
+    return subprocess.run(["git", "-C", root, "diff", "HEAD", "--binary", "--", ".", *NOT_SOURCE],
+                          capture_output=True, timeout=30).stdout
+
+
 def sipath_identity() -> dict:
     """SiPath as it runs: its version, its code digest (fingerprint.code_identity) and, from a checkout, the git
-    commit; when the tree has changes, ``-dirty`` with the digest of the uncommitted diff and of each untracked
-    source file (bench/records.py archives the diff itself under that digest), so the run's source is known."""
+    commit; when the source has changes, ``-dirty`` with the digest of the uncommitted diff (source_diff) and of
+    each untracked file under sipath/ and bench/ (bench/records.py archives both under that digest), so the
+    run's source is known."""
     import hashlib
     import subprocess
     from . import fingerprint
@@ -277,13 +291,13 @@ def sipath_identity() -> dict:
     try:
         head = git("rev-parse", "--short=12", "HEAD")
         if head.returncode == 0:
-            diff = git("diff", "HEAD", "--binary").stdout
-            untracked = [p for p in git("ls-files", "--others", "--exclude-standard", "sipath", "bench").stdout.split()
-                         if p.endswith((".py", ".tcl", ".json", ".yaml"))
-                         and not p.startswith("bench/results/")]  # benchmark results are data, not source
-            out["commit"] = head.stdout.strip() + ("-dirty" if diff else "")
+            diff = source_diff(root)
+            untracked = [p for p in git("ls-files", "--others", "--exclude-standard", "-z", "sipath", "bench").stdout
+                         .split("\0") if p and not p.startswith("bench/results/")  # results are data, not source
+                         and "__pycache__/" not in p and not p.endswith(".pyc")]
+            out["commit"] = head.stdout.strip() + ("-dirty" if diff or untracked else "")
             if diff:
-                out["diff_sha256"] = hashlib.sha256(diff.encode()).hexdigest()[:16]
+                out["diff_sha256"] = hashlib.sha256(diff).hexdigest()[:16]
             if untracked:
                 out["untracked"] = {p: fingerprint.file_hash(os.path.join(root, p)) for p in sorted(untracked)}
     except (OSError, subprocess.TimeoutExpired):

@@ -30,9 +30,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import orfs_compare as oc  # noqa: E402
 
 OUT = os.path.join(oc.ROOT, "runs", "bench_repeat")
-DEFAULT_CONFIGS = {
+DEFAULT_CONFIGS = {  # each names what it sets: a record must not depend on what the default was when it ran
     "knee": {"synth": {"synth_fallback": "knee"}},
-    "best_slack": {},  # the default
+    "best_slack": {"synth": {"synth_fallback": "best_slack"}},
     "least_area": {"synth": {"synth_fallback": "least_area"}},
     "map_typical": {"synth": {"map_corner": "typical"}},
 }
@@ -82,15 +82,29 @@ def run_one(w: str, d: str, cfg: dict, tag: str, overrides: dict) -> dict:
     lib = [c.liberty for c in __import__("sipath.pdk", fromlist=["load"]).load("sky130A").analysis_corners()
            if c.name == "tt_nom"][0]
     m = oc.measure(r, dict(cfg, drc_deck=None), lib, tag, w)  # signoff already ran the DRC deck
+    if m.get("error"):
+        m["measure_error"] = m.pop("error")
     return {"exit": rc, "seconds": r.get("seconds"), **m, **signoff_summary(out), **trace(out)}
 
 
+def _chain(out: str) -> list:
+    """The run's result chain (sipath.scheduler.run_chain), [] when the run wrote no graph."""
+    path = os.path.join(out, "run", "graph.json")
+    if not os.path.isfile(path):
+        return []
+    from sipath.scheduler import run_chain
+    with open(path) as f:
+        return run_chain(json.load(f))
+
+
 def signoff_summary(out: str) -> dict:
-    import glob
-    files = sorted(glob.glob(os.path.join(out, "run", "signoff", "*", "signoff.json")))
-    if not files:
+    """The result chain's signoff (signoff.json), not the latest directory of any branch."""
+    from sipath.scheduler import in_chain
+    so = (in_chain(_chain(out), "signoff").get("outputs") or {}).get("signoff")
+    if not (so and os.path.isfile(so)):
         return {"signoff": None}
-    s = json.load(open(files[-1]))
+    with open(so) as f:
+        s = json.load(f)
     corners = (s.get("timing") or {}).get("corners") or {}
     return {"wns_ss_max_ns": round(corners["ss_max"]["wns"], 3) if "ss_max" in corners else None,
             "whs_min_ns": round(min(c["whs"] for c in corners.values()), 3) if corners else None,
@@ -101,13 +115,15 @@ def signoff_summary(out: str) -> dict:
 def trace(out: str) -> dict:
     """The selected netlist (a hash, so repeats can be compared) and each
     selected step's instance count, WNS and wirelength."""
-    g = json.load(open(os.path.join(out, "run", "graph.json")))
-    sel = {a["step"]: a for a in g["attempts"] if a.get("status") == "selected"}
+    sel = {a["step"].split("@")[0]: a for a in _chain(out)}  # no graph (an early failure): nothing to trace
     steps = {s: {k: (sel[s].get("metrics") or {}).get(k) for k in ("insts", "wns", "wirelength_um")}
              | {"seconds": round((sel[s].get("finished_at") or 0) - (sel[s].get("started_at") or 0), 1)}
              for s in sel}
     net = (sel.get("synth", {}).get("outputs") or {}).get("netlist")
-    digest = hashlib.sha256(open(net, "rb").read()).hexdigest()[:12] if net and os.path.isfile(net) else None
+    digest = None
+    if net and os.path.isfile(net):
+        with open(net, "rb") as f:
+            digest = hashlib.sha256(f.read()).hexdigest()[:12]
     why = ((sel.get("synth", {}).get("outputs") or {}).get("abc_sweep") or {}).get("why")
     return {"netlist_sha": digest, "synth_recipe": (sel.get("synth", {}).get("metrics") or {}).get("abc_recipe"),
             "synth_why": why, "steps": steps}
@@ -152,8 +168,13 @@ def main(argv) -> int:
     w = os.path.join(OUT, d)
     os.makedirs(w, exist_ok=True)
     path = os.path.join(w, "results.json")
-    results = json.load(open(path)) if os.path.isfile(path) else {}
+    results = {}
+    if os.path.isfile(path):
+        with open(path) as f:
+            results = json.load(f)
     if "--table" not in argv:
+        import records
+        source = records.archive_source()  # the code these runs run, archived when uncommitted
         src = oc.fetch_design(d)
         cfg = oc.orfs_config(src, d)
         for k in range(repeats):
@@ -162,11 +183,18 @@ def main(argv) -> int:
                 if len(runs) > k:  # recorded: resumable
                     continue
                 print(f"{d} {name} #{k + 1} ...", flush=True)
-                r = run_one(w, d, cfg, f"{name}_r{k + 1}", ov)
+                try:
+                    r = run_one(w, d, cfg, f"{name}_r{k + 1}", ov)
+                except Exception as e:  # noqa: BLE001  (one run failing does not stop the others; it is recorded)
+                    r = {"exit": None, "driver_error": f"{type(e).__name__}: {e}"}
+                r["source_snapshot"], r["overrides"] = source, ov
                 runs.append(r)
                 with open(path, "w") as f:
                     json.dump(results, f, indent=1)
                 print(f"  wns {r.get('wns_ns')} ns, area {r.get('cell_area_um2')}, {r.get('seconds')} s", flush=True)
+        for rec in records.from_repeat(w):  # the tables read records, not results.json
+            if rec["flow"] in configs:
+                print("record:", records.write(rec, tag=f"r{rec['repeat']}"))
     md = table(d, {n: results[n] for n in configs if n in results})
     with open(os.path.join(w, "results.md"), "w") as f:
         f.write(md)

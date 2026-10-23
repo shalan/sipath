@@ -19,7 +19,7 @@ wirelength from the final DEF, logic cells and their area (no fill, tap, decap
 or diode), the detailed router's DRC count and the PDK's KLayout DRC deck.
 Wall time is the whole run, signoff included for SiPath, on an Apple-silicon
 Mac under Rosetta (amd64 image), 12 threads: indicative only. ORFS's results
-are its 2026-10-16 runs (same image), measured again.
+are its 2026-10-15 runs (same image), measured again.
 
 **Completion is not signoff.** The benchmark appends `signoff` with
 `fail_on_violation: false`, so a SiPath run finishes, and is measured, even
@@ -34,15 +34,25 @@ commits were recorded), the image digest and open_pdks release, the machine,
 the inputs' hashes, the overrides and the run directory it came from. The
 SiPath rows are the current default configuration's runs from
 `bench/repeat_compare.py`, measured by the same code as ORFS's: how many
-completed, and the median of those that did.
+completed, and the median of those that did. A row counts a run only when it
+recorded exit status 0, its own verdict does not say it failed, and it was
+measured; a metric some of a row's runs lack shows its count ("(1 of 2)").
+The last column names the SiPath code the runs ran (a commit, `*` for
+uncommitted changes, `unrecorded` for runs from before commits were
+recorded), and a record lists whatever else its run did not record in
+`provenance_gaps` (for ORFS's rows: the image, which is the lock at export).
+Each ORFS record also lists the ORFS settings SiPath's run does not take
+(`orfs_unmapped`: aes's CTS clustering, placement density addon, pin
+spacing, `TNS_END_PERCENT` and its synthesis options), so the comparison is
+not like for like in those.
 
 <!-- table:orfs -->
-| design | flow | measured | WNS (ns) | TNS (ns) | wirelength (µm) | cells | cell area (µm²) | DRC (router / KLayout) | wall (s) | runs | signoff |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| gcd (1.1 ns) | ORFS | 10-15 | −1.465 | −65.09 | 11,786 | 473 | 5,319 | 0 / 0 | 321 | 1 | — |
-| gcd (1.1 ns) | SiPath | 10-21 | −1.083 | −46.62 | 8,061 | 473 | 4,975 | 0 / 0 | 369 | 1 | failed 1/1: setup |
-| aes | ORFS | 10-15 | −0.196 | −0.67 | 588,211 | 15,396 | 124,637 | 0 / 0 | 2,724 | 1 | — |
-| aes | SiPath | 10-21 | +0.233 | 0.00 | 583,437 | 19,123 | 136,273 | 0 / 0 | 4,207 | 1 of 2 (DRT-0206) | failed 1/1: drv, setup |
+| design | flow | measured | WNS (ns) | TNS (ns) | wirelength (µm) | cells | cell area (µm²) | DRC (router / KLayout) | wall (s) | runs | signoff | SiPath code |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| gcd (1.1 ns) | ORFS | 10-15 | −1.465 | −65.09 | 11,786 | 473 | 5,319 | 0 / 0 | 321 | 1 | — | — |
+| gcd (1.1 ns) | SiPath | 10-21 | −1.083 | −46.62 | 8,061 | 473 | 4,975 | 0 / 0 | 369 | 1 | failed 1/1: setup | unrecorded |
+| aes | ORFS | 10-15 | −0.196 | −0.67 | 588,211 | 15,396 | 124,637 | 0 / 0 | 2,724 | 1 | — | — |
+| aes | SiPath | 10-21 | +0.233 | 0.00 | 583,437 | 19,123 | 136,273 | 0 / 0 | 4,207 | 1 of 2 (DRT-0206) | failed 1/1: drv, setup | unrecorded |
 <!-- /table -->
 
 - **gcd** (a 1.1 ns clock, beyond what sky130 HD closes): SiPath ends 0.38 ns
@@ -66,8 +76,10 @@ completed, and the median of those that did.
   netlist took 9,674 s once and 5,614 s the next time).
 - **One aes run of two failed.** The first `best_slack` run stopped in
   post-route repair: the detailed router's connectivity check failed
-  (`DRT-0206`) after an incremental patch. The second, from the same inputs,
-  completed and is the row above.
+  (`DRT-0206`) after an incremental patch. It ran before repair retried that
+  failure with a full re-route (added the same evening), so the second run,
+  from the same inputs, ran different code; it completed and is the row
+  above. Neither recorded its commit.
 - **aes signoff fails** on setup at the slow corners (−2.383 ns at ss_max;
   +0.222 ns at tt and +0.921 ns at ff; ORFS does not check ss) and on 34 slew,
   1 capacitance and 2 fanout violations. DRC 0, LVS match, antennas 0, hold
@@ -280,26 +292,28 @@ from the final DEF), plus the worst signoff corner's slack, slew violations,
 DRC, wall time and the core-seconds the scheduler allocated. Runs went one at
 a time; gcd8_crowded is gcd8 at 65% core utilization and placement density
 0.8, the setting the adaptive rounds were first measured on; aes is the ORFS
-benchmark's aes (one run each; the sweep twice).
+benchmark's aes (one run each; the sweep twice). The last column names the
+code each row's runs ran; a cost ratio marked † is against defaults runs of
+other code.
 
 <!-- table:strategies -->
-| design | strategy | runs | verification | WNS tt (ns) | WNS worst corner (ns) | cell area (µm²) | wirelength (µm) | DRC | slew viol. | wall (s) | core-s | core-s × defaults |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| gcd8_crowded | defaults | 2 | passed 2/2 | 6.981 | 4.213 | 1,672 | 3,438 | 0 | 0 | 70 | 722 | 1.00 |
-| gcd8_crowded | sweep | 2 | passed 2/2 | 6.981 | 4.213 | 1,672 | 3,438 | 0 | 0 | 71 | 734 | 1.02 |
-| gcd8_crowded | adaptive | 2 | failed 2/2: drv | 6.780 | 3.812 | 1,657 | 3,696 | 0 | 11 | 93 | 982 | 1.36 |
-| gcd8_crowded | search | 2 | passed 2/2 | 6.981 | 4.213 | 1,672 | 3,438 | 0 | 0 | 110 | 1,192 | 1.65 |
-| gcd8_crowded | adaptive_search | 2 | passed 2/2 | 6.981 | 4.213 | 1,672 | 3,438 | 0 | 0 | 170 | 1,910 | 2.65 |
-| dp8 | defaults | 2 | passed 2/2 | 5.812 | 0.831 | 1,790 | 7,230 | 0 | 0 | 66 | 789 | 1.00 |
-| dp8 | sweep | 2 | passed 2/2 | 5.812 | 0.831 | 1,790 | 7,230 | 0 | 0 | 66 | 783 | 0.99 |
-| dp8 | adaptive | 2 | passed 2/2 | 5.812 | 0.831 | 1,790 | 7,230 | 0 | 0 | 70 | 839 | 1.06 |
-| dp8 | search | 2 | passed 2/2 | 5.812 | 0.831 | 1,790 | 7,230 | 0 | 0 | 107 | 1,276 | 1.62 |
-| dp8 | adaptive_search | 2 | passed 2/2 | 5.812 | 0.831 | 1,790 | 7,230 | 0 | 0 | 111 | 1,320 | 1.67 |
-| aes | defaults | 1 | failed 1/1: drv, setup | 0.233 | −2.383 | 136,273 | 583,437 | 0 | 34 | 3,807 | 37,420 | 1.00 |
-| aes | sweep | 1 of 2 (timeout) | failed 1/1: drv, setup | 0.233 | −2.383 | 136,273 | 583,437 | 0 | 34 | 3,794 | 37,237 | 1.00 |
-| aes | adaptive | 1 | failed 1/1: drv, setup | 0.233 | −2.383 | 136,273 | 583,437 | 0 | 34 | 5,269 | 39,031 | 1.04 |
-| aes | search | 1 | failed 1/1: drv, setup | 0.233 | −2.383 | 136,273 | 583,437 | 0 | 34 | 5,931 | 62,816 | 1.68 |
-| aes | adaptive_search | 1 | failed 1/1: drv, setup | 0.233 | −2.383 | 136,273 | 583,437 | 0 | 34 | 5,254 | 54,787 | 1.46 |
+| design | strategy | runs | verification | WNS tt (ns) | WNS worst corner (ns) | cell area (µm²) | wirelength (µm) | DRC | slew viol. | wall (s) | core-s | core-s × defaults | SiPath code |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| gcd8_crowded | defaults | 2 | passed 2/2 | 6.981 | 4.213 | 1,672 | 3,438 | 0 | 0 | 70 | 722 | 1.00 | dd0899a* |
+| gcd8_crowded | sweep | 2 | passed 2/2 | 6.981 | 4.213 | 1,672 | 3,438 | 0 | 0 | 71 | 734 | 1.02 | dd0899a* |
+| gcd8_crowded | adaptive | 2 | failed 2/2: drv | 6.780 | 3.812 | 1,657 | 3,696 | 0 | 11 | 93 | 982 | 1.36 | dd0899a* |
+| gcd8_crowded | search | 2 | passed 2/2 | 6.981 | 4.213 | 1,672 | 3,438 | 0 | 0 | 110 | 1,192 | 1.65 | dd0899a* |
+| gcd8_crowded | adaptive_search | 2 | passed 2/2 | 6.981 | 4.213 | 1,672 | 3,438 | 0 | 0 | 170 | 1,910 | 2.65 | dd0899a* |
+| dp8 | defaults | 2 | passed 2/2 | 5.812 | 0.831 | 1,790 | 7,230 | 0 | 0 | 66 | 789 | 1.00 | dd0899a* |
+| dp8 | sweep | 2 | passed 2/2 | 5.812 | 0.831 | 1,790 | 7,230 | 0 | 0 | 66 | 783 | 0.99 | dd0899a* |
+| dp8 | adaptive | 2 | passed 2/2 | 5.812 | 0.831 | 1,790 | 7,230 | 0 | 0 | 70 | 839 | 1.06 | dd0899a* |
+| dp8 | search | 2 | passed 2/2 | 5.812 | 0.831 | 1,790 | 7,230 | 0 | 0 | 107 | 1,276 | 1.62 | dd0899a* |
+| dp8 | adaptive_search | 2 | passed 2/2 | 5.812 | 0.831 | 1,790 | 7,230 | 0 | 0 | 111 | 1,320 | 1.67 | dd0899a* |
+| aes | defaults | 1 | failed 1/1: drv, setup | 0.233 | −2.383 | 136,273 | 583,437 | 0 | 34 | 3,807 | 37,420 | 1.00 | 5bc8ddb* |
+| aes | sweep | 1 of 2 (timeout) | failed 1/1: drv, setup | 0.233 | −2.383 | 136,273 | 583,437 | 0 | 34 | 3,794 | 37,237 | 1.00† | 04ee8af, e895ae5 |
+| aes | adaptive | 1 | failed 1/1: drv, setup | 0.233 | −2.383 | 136,273 | 583,437 | 0 | 34 | 5,269 | 39,031 | 1.04† | 04ee8af |
+| aes | search | 1 | failed 1/1: drv, setup | 0.233 | −2.383 | 136,273 | 583,437 | 0 | 34 | 5,931 | 62,816 | 1.68† | 04ee8af |
+| aes | adaptive_search | 1 | failed 1/1: drv, setup | 0.233 | −2.383 | 136,273 | 583,437 | 0 | 34 | 5,254 | 54,787 | 1.46† | 04ee8af |
 <!-- /table -->
 
 - **Every repeat gave the same result:** the same final DEF by digest

@@ -110,14 +110,17 @@ also the final cell area after repair (they move in opposite directions on
 aes: the faster netlist is 4% larger, and needs less repair).
 
 <!-- table:fallback -->
-| design | slack at ss_max: knee | best_slack | synthesized area (µm²) | final cell area (µm²) | routed wirelength (µm) | slew violations |
-|---|---|---|---|---|---|---|
-| aes (ORFS) | −3.460 ns | −2.383 ns | 77,743 → 81,108 | 148,639 → 136,273 | 650,995 → 583,437 | 127 → 34 |
-| gcd (ORFS, 1.1 ns) | −3.079 ns | −3.079 ns | same | same | same | same |
-| alu32 (10 ns) | −1.990 ns | −1.209 ns | 10,723 → 12,314 | – | 58,270 → 74,224 | 25 → 42 |
-| apb_timer (10 ns) | −0.970 ns | −0.234 ns | 11,321 → 11,627 | – | 35,813 → 38,187 | 0 → 14 |
+| design | slack at ss_max: knee | best_slack | synthesized area (µm²) | final cell area (µm²) | routed wirelength (µm) | slew violations | runs (knee / best_slack) |
+|---|---|---|---|---|---|---|---|
+| aes (ORFS) | −3.460 ns | −2.383 ns | 77,743 → 81,108 | 148,639 → 136,273 | 650,995 → 583,437 | 127 → 34 | completed / completed |
+| gcd (ORFS, 1.1 ns) | −3.079 ns | −3.079 ns | same | same | same | same | completed / completed |
+| alu32 (10 ns) | −1.990 ns | −1.209 ns | 10,723 → 12,314 | – | 58,270 → 74,224 | 25 → 42 | failed: signoff / failed: signoff |
+| apb_timer (5 ns) | −0.970 ns | −0.234 ns | 11,321 → 11,627 | – | 35,813 → 38,187 | 0 → 14 | failed: signoff / failed: signoff |
 <!-- /table -->
 
+alu32's and apb_timer's runs failed signoff (`fail_on_violation` on, the
+default; the last column): their numbers are read from the signoff report
+each run wrote, and their records carry no commit or input hashes.
 `best_slack` gives the better slow-corner slack on three designs and ties on
 the fourth; its cost in area, wire and slew violations depends on the design
 (`route_repair`'s `drv_sizing` sizes up the drivers of slew violators after

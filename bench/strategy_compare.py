@@ -143,24 +143,27 @@ def run(name: str, strategy: str, repeat: int) -> dict:
         from sipath.pdk import load
         lib = [c.liberty for c in load("sky130A").analysis_corners() if c.name == "tt_nom"][0]
         meas = oc.measure(oc.sipath_result(w, tag), {"sdc": d["sdc"], "top": d["top"], "drc_deck": None}, lib, tag, w)
-        if meas.get("error"):
-            rec["outcome"], rec["failure"] = "measurement_failed", meas["error"]
+        missing = [k for k in ("wns_ns", "cells", "cell_area_um2", "wirelength_um") if meas.get(k) is None]
+        if meas.get("error") or missing:
+            rec["outcome"] = "measurement_failed"
+            rec["failure"] = meas.get("error") or f"the measurement gave no {', '.join(missing)}"
+        # every number from the one measurement of the final layout (none filled in from another source)
         m.update(wns_tt_ns=meas.get("wns_ns"), tns_tt_ns=meas.get("tns_ns"), cells=meas.get("cells"),
-                 cell_area_um2=meas.get("cell_area_um2"), routed_wirelength_um=meas.get("wirelength_um")
-                 or m.get("routed_wirelength_um"))
+                 cell_area_um2=meas.get("cell_area_um2"), routed_wirelength_um=meas.get("wirelength_um"))
         rec["metrics"]["drc_klayout"] = _signoff_drc(run_dir)
     print("record:", records.write(rec, tag=f"r{repeat}"), flush=True)
     return rec
 
 
 def _signoff_drc(run_dir: str):
+    """The KLayout DRC count of the result chain's signoff (not another branch's)."""
+    from sipath.scheduler import in_chain, run_chain
     with open(os.path.join(run_dir, "graph.json")) as f:
         g = json.load(f)
-    for a in reversed(g["attempts"]):
-        p = os.path.join(a.get("dir") or "", "signoff.json")
-        if a["step"] == "signoff" and os.path.isfile(p):
-            with open(p) as fh:
-                return (json.load(fh).get("drc") or {}).get("count")
+    p = (in_chain(run_chain(g), "signoff").get("outputs") or {}).get("signoff")
+    if p and os.path.isfile(p):
+        with open(p) as fh:
+            return (json.load(fh).get("drc") or {}).get("count")
     return None
 
 
