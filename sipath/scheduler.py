@@ -156,11 +156,19 @@ def in_chain(chain: list[dict], step: str) -> dict:
     return next((a for a in reversed(chain) if a["step"] == step or a["step"].startswith(step + "@")), {})
 
 
+def declared_name(fn, name: str) -> str:
+    """The name ``fn``'s parameters are declared under: the one it was registered as (registry.register_step, a
+    ``module:function`` step), else its function name; ``name`` without a function."""
+    if fn is None:
+        return name
+    return getattr(fn, "declared_as", None) or getattr(fn, "__name__", name)
+
+
 def resolve_step_params(fn, name: str, params, pdk=None, design=None) -> dict:
     """The parameters a step runs with: the variant, then the design's and the PDK's step_defaults, then the
     declared defaults, by the step function's declared name (an alias, ``step: x`` with ``fn: place``, resolves
     as place). The one resolution execution, prerequisites, admission, fingerprints and the plan all use."""
-    decl = getattr(fn, "__name__", name) if fn is not None else name
+    decl = declared_name(fn, name)
     try:
         return params_mod.resolve(decl, params or {}, pdk, design)
     except Exception:  # noqa: BLE001  (an undeclared step: its variant as given)
@@ -327,7 +335,7 @@ class _Processes:
     def add(self, p):
         with self.flow._lock:
             self.flow._procs.setdefault(self.id, set()).add(p)
-        if self.flow.cancelled:  # cancelled while it was starting
+        if self.cancelled:  # cancelled (or out of budget) while it was starting
             p.kill()
 
     def discard(self, p):
@@ -336,7 +344,8 @@ class _Processes:
 
     @property
     def cancelled(self) -> bool:
-        return self.flow.cancelled
+        """The flow was cancelled, or a budget stopped this attempt: no process of it may start or go on."""
+        return self.flow.cancelled or self.id in self.flow._budget_stopped
 
 
 class Flow:
@@ -401,7 +410,7 @@ class Flow:
             self._unfingerprinted = True
             log.warning("resume: %s was written without input fingerprints; recorded steps are reused without "
                         "checking the inputs", path)
-        by_id = {}
+        by_id, lost = {}, []
         for j in g["attempts"]:
             a = Attempt(id=j["id"], step=j["step"], index=j["index"], params=j["params"],
                         parent=by_id.get(j["parent"]) if j["parent"] else None,
@@ -423,11 +432,16 @@ class Flow:
             if a.status in ("running", "pending"):
                 a.status = "interrupted"  # the process that ran it is gone
             if a.status in ("ok", "selected", "rejected", "kept") and not (a.checkpoint and os.path.isfile(a.checkpoint)):
-                a.status, a.error = "interrupted", f"checkpoint {a.checkpoint} missing on resume"
+                # kept as a record (its id is not handed out again; what continued from it is judged by its
+                # parent when it is asked for again)
+                a.status, a.stale_reason = "stale", f"checkpoint {a.checkpoint} missing on resume"
+                lost.append(a)
             by_id[a.id] = a
             self.attempts.append(a)
         self.decisions = list(g.get("decisions") or [])
-        self.head = by_id.get(g.get("head")) if g.get("head") else None
+        for a in lost:
+            self.stale.append({"step": a.step, "reason": a.stale_reason})
+        self.head = self._valid_tip(by_id.get(g.get("head")) if g.get("head") else None)
         for name, s in (g.get("steps") or {}).items():
             atts = [a for a in self.attempts if a.step == name]
             sel = by_id.get(s.get("selected")) if s.get("selected") else None
@@ -450,11 +464,11 @@ class Flow:
 
     def _attempt_fp(self, name, params, parent, fn=None) -> str:
         return fp_mod.attempt(self.inputs["digest"], name, self._resolve(fn, name, params),
-                              parent.fingerprint if parent else None, None)
+                              parent.fingerprint if parent else None, None, fp_mod.step_code(fn))
 
     def _step_fp(self, name, variants, score, parent, fn=None) -> str:
         return fp_mod.step(self.inputs["digest"], name, [self._resolve(fn, name, v) for v in variants], score,
-                           parent.fingerprint if parent else None, None)
+                           parent.fingerprint if parent else None, None, fp_mod.step_code(fn))
 
     def _recorded(self, name, parent, variants, score, fn=None) -> StepRun | None:
         """The recorded result of an identical step, if this flow was resumed. A recorded step whose fingerprint
@@ -481,7 +495,7 @@ class Flow:
         elif not same_call:
             why = "its variants or score changed"
         else:
-            why = "; ".join(self.input_changes) or "the step's declared parameter defaults changed"
+            why = "; ".join(self.input_changes) or "the step's code (outside sipath) or declared parameter defaults changed"
         self._make_stale(name, why)
         return None
 
@@ -512,13 +526,30 @@ class Flow:
             return None
         return sorted(set(have) | set(getattr(fn, "provides", ()) or ()))
 
+    @staticmethod
+    def _valid_tip(a):
+        """``a``, or its nearest ancestor whose chain is still selected (or kept) all the way up: an attempt
+        that continued from a checkpoint no longer selected is not a result."""
+        tip, x = a, a
+        while x is not None:
+            if x.status not in ("selected", "kept"):
+                tip = x.parent
+            x = x.parent
+        return tip
+
     def _advance_head(self, best, name, save: bool = False) -> bool:
-        """The run's head moves to ``best`` when it continues the head's chain, re-selects the head's step, or
-        starts a chain (a root step); a branch's selection leaves it where it is. ``save``: write graph.json
-        when it moved (a reused step: no selection saves it otherwise). Returns whether it moved."""
-        h = self.head
+        """The run's head moves to ``best`` when it continues the head's chain, re-selects a step of the head's
+        chain (from the same parent: what came after it is no longer the result), or starts a chain (a root
+        step); a branch's selection leaves it where it is. ``save``: write graph.json when it moved (a reused
+        step: no selection saves it otherwise). Returns whether it moved."""
+        h = self._valid_tip(self.head)
+        replaces = False
+        x = h
+        while x is not None and not replaces:
+            replaces = x.step == name and x.parent is best.parent if best is not None else False
+            x = x.parent
         if best is not None and best is not h and (h is None or best.parent is None or best.parent is h
-                                                   or (h.step == name and h.parent is best.parent)):
+                                                   or replaces):
             self.head = best
             if save:
                 self.save_graph()
@@ -532,14 +563,20 @@ class Flow:
                 if a.step == name and a.status != "stale":
                     a.status, a.stale_reason = "stale", why
             self.steps.pop(name, None)
-        if self.head is not None and self.head.status == "stale":
-            self.head = None  # the next selection starts the result's chain again
+        self.head = self._valid_tip(self.head)  # back to what is still a result
         self.stale.append({"step": name, "reason": why})
         log.warning("step %s: recorded result not reused: %s", name, why)
 
     def _base_index(self, name) -> int:
         """First index for new attempts of ``name``: after its stale ones (attempt ids stay unique)."""
         return max([a.index + 1 for a in self.attempts if a.step == name and a.status == "stale"] + [0])
+
+    def _free_index(self, name, k: int) -> int:
+        """``k``, or the next index no attempt of ``name`` in the graph has (an id names one attempt)."""
+        used = {a.index for a in self.attempts if a.step == name}
+        while k in used:
+            k += 1
+        return k
 
     def _forget_unfinished(self, name):
         """Drop attempts of ``name`` that did not finish with a checkpoint and
@@ -585,6 +622,12 @@ class Flow:
             kill = getattr(s, "kill", None)
             if kill:
                 kill()
+
+    def _check_budget_stop(self, a: "Attempt"):
+        """A step that returned after a budget stopped it (it caught its processes' cancellation) did not finish:
+        its result is not one (status "budget")."""
+        if a.id in self._budget_stopped:
+            raise RuntimeError("the step returned after its budget stopped it")
 
     def _budget_reason(self, a: "Attempt") -> str:
         c = self.config
@@ -659,6 +702,10 @@ class Flow:
         if parent is not None and parent.status not in ("selected", "kept"):
             raise ValueError(f"{name}: parent {parent.id} is {parent.status}; continue only from a selected (or "
                              "kept) checkpoint")
+        if parent is not None and self._valid_tip(parent) is not parent:
+            gone = next(x for x in _ancestors(parent) if x.status not in ("selected", "kept"))
+            raise ValueError(f"{name}: parent {parent.id} continues from {gone.id}, which is {gone.status} now; "
+                             "continue from the selected chain")
         self.check_prerequisites(name, fn, parent, variants)
         self._start_run_clock()
         rec = self._recorded(name, parent, variants, score, fn)
@@ -673,21 +720,25 @@ class Flow:
         live = [a for a in self.attempts if a.step == name and a.status != "stale"]
         if any(a.status != "ok" for a in live):
             raise ValueError(f"step {name} already ran")
-        base = self._base_index(name)
-        kept = {a.index - base: a for a in live}  # finished before an interruption
         fps = [self._attempt_fp(name, v, parent, fn) for v in variants]
-        if any(not (_same(a.params, variants[k]) and a.parent is parent and a.fingerprint in (None, fps[k]))
-               for k, a in kept.items() if k < len(variants)):
+        kept = {}  # finished before an interruption: matched to the variant it ran
+        for k, v in enumerate(variants):
+            a = next((a for a in live if a not in kept.values() and _same(a.params, v) and a.parent is parent
+                      and a.fingerprint in (None, fps[k])), None)
+            if a is not None:
+                kept[k] = a
+        if any(a not in kept.values() for a in live):
             self._make_stale(name, "; ".join(self.input_changes)
                              or "its recorded attempts have other params, parent or inputs")
-            base, kept = self._base_index(name), {}
+            kept = {}
+        base = self._base_index(name)
         attempts = []
         for k, v in enumerate(variants):
             if k in kept:
                 attempts.append(kept[k])  # not run again
             else:
-                a = self._new_attempt(name, base + k, v, parent, kind="tool" if getattr(fn, "tool", False) else "step",
-                                      fn=fn)
+                a = self._new_attempt(name, self._free_index(name, base + k), v, parent,
+                                      kind="tool" if getattr(fn, "tool", False) else "step", fn=fn)
                 a.fingerprint = fps[k]
                 attempts.append(a)
         self._run_batch(name, attempts, fn, parallel, parent)
@@ -909,12 +960,14 @@ class Flow:
         parent (None disables the check)."""
         score = score or "drc_then_slack"
         params = {"ops": ops, "max_patch_nets": max_patch_nets}
-        efp = fp_mod.attempt(self.inputs["digest"], name, self._resolve(None, "eco", params),  # eco's declarations
+        efp = fp_mod.attempt(self.inputs["digest"], name,  # eco's declarations, and what accepts its result
+                             {**self._resolve(None, "eco", params), "_score": score, "_max_slack_loss": max_slack_loss},
                              parent.fingerprint, None)
         run = self.steps.get(name)
         if run is not None and run.resumed and not run.reused:
             if _same(run.variants, [params]) and run.parent == parent.id and run.fingerprint in (None, efp):
                 run.reused = True
+                self._advance_head(run.selected, name, save=True)
                 return run  # the same ECO, recorded by an earlier run
             self._make_stale(name, "; ".join(self.input_changes) or "its parent or operations changed")
         self._forget_unfinished(name)
@@ -931,7 +984,7 @@ class Flow:
                              "start from the head of the selected chain")
         if fn is None:
             fn = registry.eco_runner()
-        a = self._new_attempt(name, self._base_index(name), params, parent, kind="eco")
+        a = self._new_attempt(name, self._free_index(name, self._base_index(name)), params, parent, kind="eco")
         a.fingerprint, a.capabilities = efp, parent.capabilities  # an ECO keeps what its parent had
         self._run_attempt(a, fn)
         if a.status == "cancelled":
@@ -1047,6 +1100,7 @@ class Flow:
             ctx = Ctx(session, self.design, self.pdk, params, a.dir, a.parent, a, config=self.config,
                       threads=threads, processes=_Processes(self, a.id))
             fn(ctx)
+            self._check_budget_stop(a)
             t1 = mark("step", t1)
             metrics = self.checkpoints.metrics(session)
             metrics.update(ctx.metrics)
@@ -1107,10 +1161,10 @@ class Flow:
         if self.cancelled:
             raise RuntimeError("cancelled")
         a.process = "tool"
-        decl = getattr(fn, "__name__", a.step)
-        ctx = Ctx(None, self.design, self.pdk, params_mod.resolve(decl, a.params, self.pdk, self.design),
+        ctx = Ctx(None, self.design, self.pdk, self._resolve(fn, a.step, a.params),
                   a.dir, a.parent, a, runner=self.runner, config=self.config, processes=_Processes(self, a.id))
         fn(ctx)
+        self._check_budget_stop(a)
         mark("step", t0)
         out = ctx.outputs.get("checkpoint")
         if not out or not os.path.isfile(out) or os.path.getsize(out) == 0:
@@ -1181,7 +1235,7 @@ class Flow:
                 **({"decisions": self.decisions} if self.decisions else {}),
                 "head": self.head.id if self.head is not None else None,
                 **({"stale": self.stale} if self.stale else {}),
-                "attempts": [a.to_json() for a in self.attempts],
+                "attempts": [a.to_json() for a in _parents_first(self.attempts)],
                 "steps": {k: {"score": v.score_name, "selected": v.selected.id if v.selected else None,
                               "parent": v.parent, "variants": v.variants, "fingerprint": v.fingerprint,
                               **({"rounds": v.rounds} if v.rounds else {}), **({"kept": v.kept} if v.kept else {})}
@@ -1209,6 +1263,28 @@ class Flow:
                 report.write(self.workdir)
             except Exception as e:  # noqa: BLE001
                 log.warning("run report not written: %s", e)
+
+
+def _ancestors(a):
+    while a is not None:
+        yield a
+        a = a.parent
+
+
+def _parents_first(attempts: list) -> list:
+    """``attempts`` in their order, except that each comes after its parent."""
+    out, seen = [], set()
+
+    def put(a):
+        if id(a) in seen:
+            return
+        if a.parent is not None and a.parent in attempts:
+            put(a.parent)
+        seen.add(id(a))
+        out.append(a)
+    for a in attempts:
+        put(a)
+    return out
 
 
 def _slowest(session, n: int = 8) -> list:

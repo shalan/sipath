@@ -218,6 +218,17 @@ def verify(g: dict) -> dict:
             "notes": notes, "head": chain[-1]["id"] if chain else None}
 
 
+def exit_code(v: dict) -> int:
+    """The CLI's exit status for a verdict: 0 when the run completed and no required check failed or is undecided
+    (verification passed, completed or omitted); 1 when the run or a required check failed; 3 when it was
+    cancelled, stopped by a budget, or a check is inconclusive."""
+    if v["execution"] in ("cancelled", "budget"):
+        return 3
+    if v["execution"] != "completed" or v["verification"] == "failed":
+        return 1
+    return 3 if v["verification"] == "inconclusive" else 0
+
+
 def line(v: dict) -> str:
     """One line for a CLI or a log: the verdict and what it rests on."""
     failed = [c for c, x in v["checks"].items() if x["status"] == "failed" and x["required"]]

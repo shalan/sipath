@@ -155,12 +155,32 @@ def changes(old: dict | None, new: dict) -> list[str]:
     return out
 
 
-def attempt(run_digest: str, step: str, params: dict, parent_fp: str | None, defaults=None) -> str:
-    """One attempt: the run, the step, its parameters and declared defaults, and its parent's fingerprint."""
-    return digest({"run": run_digest, "step": step, "params": params, "parent": parent_fp, "defaults": defaults})
+def attempt(run_digest: str, step: str, params: dict, parent_fp: str | None, defaults=None,
+            code: str | None = None) -> str:
+    """One attempt: the run, the step, its parameters and declared defaults, its parent's fingerprint, and the
+    code of a step function from outside sipath (``step_code``)."""
+    return digest({"run": run_digest, "step": step, "params": params, "parent": parent_fp, "defaults": defaults,
+                   **({"code": code} if code else {})})
 
 
-def step(run_digest: str, step_name: str, variants, score, parent_fp: str | None, defaults=None) -> str:
+def step(run_digest: str, step_name: str, variants, score, parent_fp: str | None, defaults=None,
+         code: str | None = None) -> str:
     """A step: the same over all its variants and the score that selects among them."""
     return digest({"run": run_digest, "step": step_name, "variants": variants, "score": score,
-                   "parent": parent_fp, "defaults": defaults})
+                   "parent": parent_fp, "defaults": defaults, **({"code": code} if code else {})})
+
+
+def step_code(fn) -> str | None:
+    """The source a step function from outside sipath runs: the hash of its module's file (a plugin package's
+    module, a design file's ``module:function``); None for sipath's own steps (the run's code identity covers
+    them) and for a function without a source file."""
+    import inspect
+    import sys
+    mod = getattr(fn, "__module__", None) or ""
+    if not mod or mod == "sipath" or mod.startswith("sipath."):
+        return None
+    try:
+        f = inspect.getsourcefile(sys.modules[mod]) or inspect.getfile(fn)
+    except (KeyError, TypeError, OSError):
+        return None
+    return file_hash(f) if f else None

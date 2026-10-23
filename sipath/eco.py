@@ -31,11 +31,12 @@ def _inst_nets(session, insts) -> set[str]:
 
 
 def check_ops(ops, pdk, design):
-    """Refuse an ECO whose op uses a cell the PDK or the design excludes."""
+    """Refuse an ECO whose op uses a cell the PDK or the design excludes, or one the PDK's dont_use patterns
+    keep sizing and CTS from choosing."""
     for op in ops:
         m = op.get("master")
-        if m and pdk.excluded(m, design.dont_use) and m not in design.allow_excluded:
-            raise ValueError(f"ECO op {op}: {m} is excluded (known layout problems or design dont_use)")
+        if m and pdk.excluded(m, [*pdk.dont_use, *design.dont_use]) and m not in design.allow_excluded:
+            raise ValueError(f"ECO op {op}: {m} is excluded (known layout problems, PDK or design dont_use)")
 
 
 def apply_op(session, op: dict) -> set[str]:

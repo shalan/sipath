@@ -281,12 +281,12 @@ def placements_for(dp, session, tap=None) -> list[Placement]:
     distance from a tap breaks the latch-up rules."""
     rows = query_rows(session)
     dbu = dbu_per_micron(session)
-    origin = (int(dp.origin[0] * dbu), int(dp.origin[1] * dbu))
+    origin = (int(round(dp.origin[0] * dbu)), int(round(dp.origin[1] * dbu)))
     cells = dp.cells if dp.kind == "column" else [c for r in dp.cells for c in r if c is not None]
     sizes = query_sizes(session, cells)
     slot = None
     if tap and tap[0] and tap[1]:
-        slot = (int(session.value(f"[[ord::get_db] findMaster {q(tap[0])}] getWidth")), int(tap[1] * dbu))
+        slot = (int(session.value(f"[[ord::get_db] findMaster {q(tap[0])}] getWidth")), int(round(tap[1] * dbu)))
     if dp.kind == "column":
         return pack_column(dp.cells, origin, rows, sizes)
     if dp.kind == "array":

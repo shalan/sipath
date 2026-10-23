@@ -140,6 +140,30 @@ def validate() -> int:
     return 0
 
 
+def _read_graph(wd: str) -> dict:
+    import json
+    with open(os.path.join(wd, "graph.json")) as f:
+        return json.load(f)
+
+
+def _stops():
+    from .scheduler import BudgetExceeded, EcoRefused, MissingPrerequisite, StepCancelled, StepFailed
+    return (StepFailed, StepCancelled, BudgetExceeded, MissingPrerequisite, EcoRefused)
+
+
+def _stopped(e: Exception, wd: str) -> int:
+    """A run that stopped (a step failed, a budget ran out, a cancel, a flow that cannot run): one line for
+    it, the verdict of what it recorded, and its exit status (verdict.exit_code; 1 when nothing was recorded)."""
+    from . import verdict
+    print(f"{type(e).__name__}: {e}")
+    if not os.path.isfile(os.path.join(wd, "graph.json")):
+        return 1
+    v = verdict.verify(_read_graph(wd))
+    print("graph:", os.path.join(wd, "graph.json"))
+    print(verdict.line(v))
+    return verdict.exit_code(v) or 1  # it stopped: never success
+
+
 def main(argv) -> int:
     if not argv or argv[0] in ("-h", "--help"):
         print(__doc__)
@@ -210,7 +234,12 @@ def main(argv) -> int:
             p = designfile.plan(path, wd, run_cfg, explore=explore)
             print(designfile.plan_text(p))
             return 1 if p["problems"] else 0
-        flow = designfile.run(path, wd, config=run_cfg, resume=resume, explore=explore)
+        try:
+            flow = designfile.run(path, wd, config=run_cfg, resume=resume, explore=explore)
+        except Exception as e:  # noqa: BLE001
+            if not isinstance(e, _stops()):
+                raise
+            return _stopped(e, wd)
         last = flow.result()  # the run's head: after a bounded search, the winner's chain
         ppa_md = (last.outputs.get("reports") or {}).get("ppa")
         if ppa_md and os.path.isfile(ppa_md):
@@ -223,8 +252,9 @@ def main(argv) -> int:
             print(f"ran again: {s['step']}: {s['reason']}")
         print("graph:", os.path.join(wd, "graph.json"))
         from . import verdict
-        print(verdict.line(flow.verification()))  # what the run established, not just that it finished
-        return 0
+        v = flow.verification()
+        print(verdict.line(v))  # what the run established, not just that it finished
+        return verdict.exit_code(v)
     if cmd == "harden":
         import logging
         from . import designfile
@@ -238,9 +268,18 @@ def main(argv) -> int:
         path = args[0]
         if not os.path.isfile(path):
             path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "examples", path + ".yaml")
-        out = designfile.harden(path, os.path.abspath(args[1]), args[2] if len(args) > 2 else None, resume=resume)
+        wd = args[2] if len(args) > 2 else os.path.join(os.getcwd(), "runs", designfile.load(path)[0].name + "_harden")
+        try:
+            out = designfile.harden(path, os.path.abspath(args[1]), wd, resume=resume)
+        except Exception as e:  # noqa: BLE001
+            if not isinstance(e, _stops()):
+                raise
+            return _stopped(e, wd)
         print("views:", out)
-        return 0
+        from . import verdict
+        v = verdict.verify(_read_graph(wd))
+        print(verdict.line(v))
+        return verdict.exit_code(v)
     if cmd == "templates":
         from . import templates
         for t in templates.listing():

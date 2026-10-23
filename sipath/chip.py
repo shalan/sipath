@@ -160,8 +160,8 @@ set o"""))
             bx0, by0, bx1, by1 = map(int, b)
             coords.append(bx0 if edge in ("south", "north") else by0)
             dbu = int(s.value("[ord::get_db_block] getDbUnitsPerMicron"))
-            if edge == "south" and by0 != int(y0 * dbu) or edge == "north" and by1 != int(y1 * dbu) \
-                    or edge == "west" and bx0 != int(x0 * dbu) or edge == "east" and bx1 != int(x1 * dbu):
+            if edge == "south" and by0 != int(round(y0 * dbu)) or edge == "north" and by1 != int(round(y1 * dbu)) \
+                    or edge == "west" and bx0 != int(round(x0 * dbu)) or edge == "east" and bx1 != int(round(x1 * dbu)):
                 raise RuntimeError(f"pad {p.inst} is not on the {edge} edge: {b}")
         if coords != sorted(coords):
             raise RuntimeError(f"{edge} pads out of order: {[p.inst for p in pads]}")

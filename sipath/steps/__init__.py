@@ -125,6 +125,7 @@ for _name, _checks in params.CHECK_STEPS.items():  # a check step streams the GD
 for _name, (_req, _prov) in CAPS.items():
     STEPS[_name].requires = _req if callable(_req) else frozenset(_req)
     STEPS[_name].provides = frozenset(_prov)
+    STEPS[_name].declared_as = _name
 registry.ADAPTERS.setdefault("place", adapt_place)  # adaptive rounds: hotspots -> the next placements
 
 # parameters each step reads from its variant dict; anything else is a mistake

@@ -56,9 +56,9 @@ def hotspots_then_wns(m):
     hotspots into the next attempts' parameters (``adapt``)."""
     hot = [m.get(f"heatmap_{k}_hot_share") for k in ("placement", "rudy", "routing")]
     hot = [h for h in hot if h is not None]
-    if not hot or m.get("wns") is None:
+    if not hot or m.get("wns") is None or m.get("grt_overflow") is None:
         return None
-    return (-(m.get("grt_overflow") or 0), -round(sum(hot), 3), round(m["wns"], 3))
+    return (-m["grt_overflow"], -round(sum(hot), 3), round(m["wns"], 3))
 
 
 def drc_then_slack(m):

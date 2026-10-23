@@ -162,7 +162,7 @@ def run(runner, gds: str, top: str, schematic: str, workdir: str, deck: str, thr
            "seconds": round(time.time() - t0, 1), "errors": len(errors), "first_errors": errors[:8]}
     if not verdict:
         tail = [ln for ln in out.strip().splitlines() if ln.strip()][-3:]
-        res["reason"] = f"no verdict from the deck (exit {p.returncode}): {' / '.join(tail)[:400]}"
+        res["reason"] = f"no verdict from the deck (exit {p.rc}): {' / '.join(tail)[:400]}"
     return res
 
 

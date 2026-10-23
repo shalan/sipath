@@ -75,13 +75,13 @@ def connect_supplies(ctx):
     if d.mode == "die" and d.pdn.rings and d.pdn.ring_connect_to_pads:
         for inst, pin, net in chip.supply_pads(ctx):
             if net in grid_nets(d):
-                done += [dict(r, inst=inst) for r in powerconnect.connect(s, inst, f"^{pin}$", layers, die, **vias)]
+                done += [dict(r, inst=inst) for r in powerconnect.connect(s, inst, f"^{re.escape(pin)}$", layers, die, **vias)]
     for m in d.macros:
         rep = macro_supply_pins(s, m.inst)
         for item in rep["unconnected"]:
             pin, net = item.split("->")
             if net in grid_nets(d):
-                done += [dict(r, inst=m.inst) for r in powerconnect.connect(s, m.inst, f"^{pin}$", layers, die, **vias)]
+                done += [dict(r, inst=m.inst) for r in powerconnect.connect(s, m.inst, f"^{re.escape(pin)}$", layers, die, **vias)]
     ctx.outputs["power_connections"] = done
     ctx.metrics["power_straps"] = sum(1 for r in done if r["ok"])
     failed = [f"{r['inst']}/{r['pin']}" for r in done if not r["ok"]]
@@ -110,7 +110,7 @@ def power_checks(ctx) -> dict:
         out[net] = {"connected": r.rc == 0, "unconnected_instances": sorted(set(i.split("/")[0] for i in unconnected_inst)),
                     "unconnected_shapes": len(re.findall(r"PSM-0038", r.output))}
         v = ctx.pdk.voltages
-        volt = 0.0 if net.upper().startswith("VSS") else (v["analog"] if net in ctx.design.analog_supplies else v["core"])
+        volt = 0.0 if ctx.design.is_ground(net) else (v["analog"] if net in ctx.design.analog_supplies else v["core"])
         r = power_ops.ir_drop(s, net, volt, has_terms)
         worst = re.findall(r"Worstcase IR drop: ([0-9.eE+-]+) V", r.output)
         avg = re.findall(r"Average IR drop  : ([0-9.eE+-]+) V", r.output)
@@ -165,7 +165,7 @@ def reports(ctx, tag: str) -> dict:
     """Timing (setup/hold paths per corner), clock skew and power reports for
     this attempt, written to files next to its checkpoint."""
     s = ctx.session
-    files = {}
+    files, failed = {}, []
     corners = [c.name for c in ctx.pdk.analysis_corners()]
     power = ("report_power" if len(corners) == 1 else
              "; ".join(f"puts {{== corner {c}}}; report_power -scene {c}" for c in corners))
@@ -176,14 +176,19 @@ def reports(ctx, tag: str) -> dict:
                       ("design_rules", "report_check_types -max_slew -max_capacitance -max_fanout -violators")):
         f = ctx.path(f"{tag}_{name}.rpt")
         r = report_ops.to_file(s, f, cmd)
-        if r.rc == 0 and os.path.isfile(f):
-            files[name] = f
-        else:
+        if not (r.rc == 0 and os.path.isfile(f)):
             with open(f, "w") as fh:
                 fh.write(f"{cmd} failed: {r.value}\n")
-            files[name] = f
+            failed.append(name)
+        files[name] = f
     ctx.outputs.setdefault("reports", {}).update({f"{tag}_{k}": v for k, v in files.items()})
-    ctx.metrics.update(design_rule_counts(ctx, files["design_rules"]))
+    if failed:
+        ctx.outputs[f"{tag}_reports_failed"] = failed
+    if "design_rules" in failed:  # no report is not a clean one
+        ctx.metrics.update({"drv_slew": None, "drv_cap": None, "drv_fanout": None, "drv_excluded": None,
+                            "drv_clean": None})
+    else:
+        ctx.metrics.update(design_rule_counts(ctx, files["design_rules"]))
     ctx.metrics.update(power_metrics(files["power"]))
     return files
 
@@ -390,14 +395,21 @@ def check_antennas(ctx) -> int:
     ctx.outputs.setdefault("reports", {})["antenna"] = rpt
     return int(m[-1])
 
+def timing_met(wns, whs):
+    """True/False for the constrained slacks; None when neither setup nor hold has a constrained path."""
+    if wns is None and whs is None:
+        return None
+    return (wns is None or wns >= 0) and (whs is None or whs >= 0)
+
+
 def _timing_gate(ctx):
-    """Record whether setup and hold are met (with the parasitics loaded now);
-    fail when params ``fail_on_violation`` is set."""
+    """Record whether setup and hold are met (with the parasitics loaded now): None when no path is constrained
+    (nothing was judged, not met); fail when params ``fail_on_violation`` is set and they are not met."""
     m = db.worst_slacks(ctx.session)
     wns, whs = (float(v) if abs(float(v)) < 1e30 else None for v in m)
-    met = (wns is None or wns >= 0) and (whs is None or whs >= 0)
+    met = timing_met(wns, whs)
     ctx.metrics["timing_met"] = met
-    if not met and ctx.params.get("fail_on_violation"):
+    if met is False and ctx.params.get("fail_on_violation"):
         raise RuntimeError(f"timing not met after extraction: setup {wns} ns, hold {whs} ns")
 
 def min_area_repair(ctx, tag: str = "route") -> dict:

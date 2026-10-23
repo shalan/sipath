@@ -30,7 +30,7 @@ NET_NAMES_TCL = "set o {}; foreach n [[ord::get_db_block] getNets] { lappend o [
 
 def locations(s) -> dict[str, tuple]:
     """Every instance but spacers: name -> (x, y, orientation)."""
-    f = s.value(LOCATIONS_TCL).split()
+    f = tcl_words(s.value(LOCATIONS_TCL))  # a Tcl list: a bus register's name is braced
     return {f[i]: (f[i + 1], f[i + 2], f[i + 3]) for i in range(0, len(f), 4)}
 
 
@@ -46,7 +46,7 @@ def inst_nets(s, insts) -> set[str]:
     out = s.value(f"""
 set out {{}}
 foreach n {qlist(sorted(insts))} {{
-  set i [[ord::get_db_block] findInst $n]
+  set i [::flow_find_inst $n]
   if {{$i eq "NULL"}} continue
   foreach it [$i getITerms] {{
     set net [$it getNet]
@@ -145,7 +145,7 @@ foreach __p {qlist(sorted(set(pins)))} {{
   set __pin [get_pins -quiet $__p]
   if {{![llength $__pin]}} continue
   foreach __d [get_pins -quiet -of_objects [get_nets -of_objects $__pin] -filter "direction==output"] {{
-    set __i [[ord::get_db_block] findInst [get_full_name [get_cells -of_objects $__d]]]
+    set __i [::flow_find_inst [get_full_name [get_cells -of_objects $__d]]]
     if {{$__i eq "NULL" || ![string match CORE* [[$__i getMaster] getType]]}} continue
     if {{[lsearch -exact $__seen [$__i getName]] >= 0}} continue
     lappend __seen [$__i getName]

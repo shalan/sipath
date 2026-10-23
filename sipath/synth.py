@@ -116,7 +116,7 @@ def clock_period_ps(sdc: str) -> float | None:
     """First ``create_clock -period`` of the SDC (ns) in ps; a period given as a
     Tcl variable (``set clk_period 4.5`` ... ``-period $clk_period``) is resolved."""
     with open(sdc) as f:
-        text = f.read()
+        text = re.sub(r"(?m)^\s*#.*$", "", f.read())  # a commented-out create_clock is not the clock
     vars_ = dict(re.findall(r"^\s*set\s+(\w+)\s+([0-9.]+)\s*$", text, re.M))
     m = re.search(r"create_clock\b[^\n]*?-period\s+(\$\{?\w+\}?|[0-9.]+)", text)
     if not m:

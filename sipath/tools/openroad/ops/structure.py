@@ -1,7 +1,7 @@
 """Fences, clusters: region checks, keeping fences exclusive, cluster cells and spread."""
 from __future__ import annotations
 
-from ..tcl import q, qlist
+from ..tcl import q, qlist, tcl_words
 
 
 def fence_violations(s, names) -> list[str]:
@@ -75,7 +75,7 @@ list $adopted $moved""").split()
 
 def cluster_cells(s, prefix: str) -> list[str]:
     """[name, x, y, width, height, ...] of the instances whose name starts with ``prefix``."""
-    return s.value(f"""
+    return tcl_words(s.value(f"""
 set out {{}}
 foreach inst [[ord::get_db_block] getInsts] {{
   if {{[string first {q(prefix)} [$inst getName]] == 0}} {{
@@ -83,7 +83,7 @@ foreach inst [[ord::get_db_block] getInsts] {{
     lappend out [$inst getName] [lindex $l 0] [lindex $l 1] [$m getWidth] [$m getHeight]
   }}
 }}
-set out""").split()
+set out"""))  # a Tcl list: a bus register's name is braced
 
 
 def cluster_spread(s, prefix: str) -> float:

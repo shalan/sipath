@@ -126,6 +126,8 @@ def register_step(name: str, fn: Callable, params=(), tool: bool | None = None, 
     if provides is not None:
         fn.provides = frozenset(provides)
     steps[name] = fn
+    if not hasattr(fn, "declared_as"):  # its declarations are found by this name (registered as another, or "mod:fn")
+        fn.declared_as = name
     params = list(params)
     if not getattr(fn, "tool", False):  # an OpenROAD step: threads like the built-in ones
         params += [p for p in _params.COMMON if p.name not in {q.name for q in params}]

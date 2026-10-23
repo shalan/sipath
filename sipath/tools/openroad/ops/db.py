@@ -72,7 +72,7 @@ set worst"""))
 def inst_master_types(s, insts) -> dict[str, str]:
     """{instance: master type} (UNKNOWN for a name the database lacks)."""
     flat = tcl_words(s.value(
-        f"set o {{}}; foreach n {qlist(insts)} {{ set i [[ord::get_db_block] findInst $n]; "
+        f"set o {{}}; foreach n {qlist(insts)} {{ set i [::flow_find_inst $n]; "
         "lappend o $n [expr {$i eq \"NULL\" ? \"UNKNOWN\" : [[$i getMaster] getType]}] }; set o"))
     return dict(zip(flat[0::2], flat[1::2]))
 

@@ -35,11 +35,12 @@ class Port:
     name: str
     direction: str  # input | output | inout
     width: int = 0  # 0 = scalar
+    lsb: int = 0  # the lowest index ([8:1]: 1)
 
     def bits(self) -> list[str]:
         if self.width == 0:
             return [self.name]
-        return [f"{self.name}[{i}]" for i in range(self.width)]
+        return [f"{self.name}[{i}]" for i in range(self.lsb, self.lsb + self.width)]
 
 
 @dataclass
@@ -72,7 +73,7 @@ class Module:
     def to_verilog(self) -> str:
         out = [f"module {self.name} ({', '.join(p.name for p in self.ports)});"]
         for p in self.ports:
-            rng = f" [{p.width - 1}:0]" if p.width else ""
+            rng = f" [{p.lsb + p.width - 1}:{p.lsb}]" if p.width else ""
             out.append(f"  {p.direction}{rng} {p.name};")
         for w in self.wires:
             out.append(f"  wire {vname(w)};")
@@ -184,7 +185,7 @@ def parse_verilog(text: str, top: str | None = None) -> Module:
                     break
         take(";")
         declared: dict[str, Port] = {}
-        widths: dict[str, int] = {}  # declared name -> width (0: scalar)
+        bounds: dict[str, tuple[int, int]] = {}  # declared bus -> (left, right) index as declared
 
         def bits_of(consts: bool = False) -> list[str]:
             """An operand as bits, most significant first: name, name[i],
@@ -217,31 +218,38 @@ def parse_verilog(text: str, top: str | None = None) -> Module:
                 take("]")
                 step = -1 if hi >= lo else 1
                 return [f"{val}[{i}]" for i in range(hi, lo + step, step)]
-            w = widths.get(val, 0)
-            return [f"{val}[{i}]" for i in range(w - 1, -1, -1)] if w else [val]
+            if val not in bounds:
+                return [val]
+            left, right = bounds[val]  # the whole bus, left index first (Verilog's order)
+            step = -1 if left >= right else 1
+            return [f"{val}[{i}]" for i in range(left, right + step, step)]
 
         while peek()[1] != "endmodule":
             kw = peek()[1]
             if kw in ("input", "output", "inout", "wire"):
                 take()
-                width = 0
+                width, rng = 0, None
                 if peek()[1] == "[":
                     take("[")
                     msb = int(take()[1])
                     take(":")
                     lsb = int(take()[1])
                     take("]")
-                    width = abs(msb - lsb) + 1
+                    width, rng = abs(msb - lsb) + 1, (msb, lsb)
                 while True:
                     name = take()[1]
-                    widths[name] = width
+                    if rng:
+                        bounds[name] = rng
+                    else:
+                        bounds.pop(name, None)
+                    low = min(rng) if rng else 0
                     if kw == "wire":
                         if width:
-                            mod.wires.extend(f"{name}[{i}]" for i in range(width))
+                            mod.wires.extend(f"{name}[{i}]" for i in range(low, low + width))
                         else:
                             mod.wires.append(name)
                     else:
-                        declared[name] = Port(name, kw, width)
+                        declared[name] = Port(name, kw, width, low)
                     if peek()[1] == ",":
                         take(",")
                         continue

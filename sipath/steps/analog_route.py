@@ -3,6 +3,7 @@ wiring, guarded and optionally shielded; and the analog coupling report ``extrac
 from __future__ import annotations
 
 import json
+import re
 
 from .. import analog
 from ..tools.openroad.ops import analog as analog_ops, db, route as route_ops
@@ -161,7 +162,7 @@ def route_analog(ctx):
         recs = []
         for net in supplies:
             inst, pin = pads[net]
-            recs += [dict(r, inst=inst) for r in powerconnect.connect(s, inst, f"^{pin}$", layers, die, **vias)]
+            recs += [dict(r, inst=inst) for r in powerconnect.connect(s, inst, f"^{re.escape(pin)}$", layers, die, **vias)]
         ctx.outputs["analog_supply_pad_straps"] = recs
         if not all(r["ok"] for r in recs):
             raise RuntimeError(f"could not strap analog supply pads to their wires: {recs}")

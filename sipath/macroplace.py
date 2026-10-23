@@ -199,7 +199,7 @@ def place(ctx) -> dict:  # noqa: C901
     core = tuple(_core(s))
     rx, ry, site_w, row_h = ops.first_row(s)
     rules = _rules(ctx, dbu, row_h)
-    keepouts = [tuple(int(v * dbu) for v in box) for box in d.keepouts]
+    keepouts = [tuple(int(round(v * dbu)) for v in box) for box in d.keepouts]
     analog = _analog_insts(ctx)
     aw = float(p.get("analog_weight", 4.0))
     analog_nets = list(d.analog_nets)
@@ -208,7 +208,7 @@ def place(ctx) -> dict:  # noqa: C901
     def mbox(m, orient, x, y):
         w, h, ps = sides[m.inst]
         W, H = oriented_size(w, h, orient)
-        return MacroBox(m.inst, (x, y, x + W, y + H), int(m.halo * dbu),
+        return MacroBox(m.inst, (x, y, x + W, y + H), int(round(m.halo * dbu)),
                         frozenset(orient_side(sd, orient, w, h) for sd in ps), m.inst in analog)
 
     placed: list[MacroBox] = []
@@ -238,7 +238,7 @@ def place(ctx) -> dict:  # noqa: C901
                     break
                 w, h, _ps = sides[m.inst]
                 W, H = oriented_size(w, h, orients[0])
-                hl = int(m.halo * dbu)
+                hl = int(round(m.halo * dbu))
                 x = rng.randint(core[0] + hl, max(core[0] + hl, core[2] - max(w, h) - hl))
                 y = rng.randint(core[1] + hl, max(core[1] + hl, core[3] - max(w, h) - hl))
                 r = rng.random()  # a share of candidates hug a core edge (channel rule)
@@ -278,7 +278,7 @@ def place(ctx) -> dict:  # noqa: C901
                 g = _grow(c.box, c.halo + int(rules.analog_guard))
                 g = (max(g[0], core[0]), max(g[1], core[1]), min(g[2], core[2]), min(g[3], core[3]))
                 # no rows (taps, endcaps) under it; no row pieces too short for a well tap
-                ops.guard_blockage(s, g, int(min_row * dbu))
+                ops.guard_blockage(s, g, int(round(min_row * dbu)))
                 guards.append([v / dbu for v in g])
     if guards:
         ctx.outputs["analog_guard_blockages"] = guards
@@ -541,7 +541,7 @@ def _cdlns(ctx, autos, placed, keepouts, rules, analog, dbu, mbox, core, grid) -
     finally:
         ops.cdlns_end(s)
     halo = max([m.halo for m in d.macros] + [0.0])
-    edge = int(max(halo * dbu, rules.pin_clearance))  # the canvas keeps halos and pin clearance off the core edge
+    edge = int(round(max(halo * dbu, rules.pin_clearance)))  # the canvas keeps halos and pin clearance off the core edge
     # spacing the rule check asks of two facing macros (violation), plus room for
     # snapping both to the site and row grid
     gap_um = max(2 * halo + ((rules.analog_guard / dbu) if analog else 0.0), rules.channel / dbu,

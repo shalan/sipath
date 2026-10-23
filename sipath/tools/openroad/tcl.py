@@ -109,10 +109,16 @@ proc ::flow_supply_pin_data {inst_name} {
   set m [$inst getMaster]; set bb [$inst getBBox]
   return [list [$inst getOrient] [$bb xMin] [$bb yMin] [$bb xMax] [$bb yMax] [$m getWidth] [$m getHeight] $pins $nets]
 }
-proc ::flow_inst {name} {
+proc ::flow_find_inst {name} {
+  # NULL when there is none. The database keeps a bus register's or an escaped
+  # Verilog name (result[0]_reg, \bank[0].u_ram) with its brackets escaped;
+  # STA reports print them plain
   set inst [[ord::get_db_block] findInst $name]
-  # an escaped Verilog name (\bank[0].u_ram) is kept with its brackets escaped
   if {$inst eq "NULL"} { set inst [[ord::get_db_block] findInst [string map {[ \\[ ] \\]} $name]] }
+  return $inst
+}
+proc ::flow_inst {name} {
+  set inst [::flow_find_inst $name]
   if {$inst eq "NULL"} { error "no instance $name" }
   return $inst
 }
@@ -345,8 +351,9 @@ def global_connect(d: Design, pdk: Pdk) -> str:
     for m in d.macros:
         for pat, net in m.supplies.items():
             net = d.net(net)
-            kind = "-ground" if net.upper().startswith("VSS") or net.upper().startswith("GND") else "-power"
-            out.append(f"add_global_connection -net {net} -inst_pattern {q('^' + m.inst + '$')} "
+            kind = "-ground" if d.is_ground(net) else "-power"
+            # a regular expression: the instance name matched literally (bank[0].u_ram)
+            out.append(f"add_global_connection -net {net} -inst_pattern {q('^' + re.escape(m.inst) + '$')} "
                        f"-pin_pattern {q(pat)} {kind}")
     out.append("global_connect")
     return "\n".join(out)

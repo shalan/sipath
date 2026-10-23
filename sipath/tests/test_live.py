@@ -190,6 +190,28 @@ class LiveHs(unittest.TestCase):
 
 
 # ----------------------------------------------------------------------------- live
+BUS_DEF = r"""VERSION 5.8 ;
+DIVIDERCHAR "/" ;
+BUSBITCHARS "[]" ;
+DESIGN top ;
+UNITS DISTANCE MICRONS 1000 ;
+DIEAREA ( 0 0 ) ( 50000 50000 ) ;
+COMPONENTS 2 ;
+- result\[0\]_reg sky130_fd_sc_hd__dfxtp_1 + PLACED ( 10120 10880 ) N ;
+- u_buf sky130_fd_sc_hd__buf_1 + PLACED ( 20240 10880 ) N ;
+END COMPONENTS
+NETS 1 ;
+- n1 ( result\[0\]_reg Q ) ( u_buf A ) ;
+END NETS
+END DESIGN
+"""
+
+
+def tcl_words_nested(text):
+    from sipath.tclquote import tcl_words
+    return [tcl_words(w) for w in tcl_words(text)]
+
+
 @LIVE
 class OpenRoad(unittest.TestCase):
     """A live process: reads a LEF, answers Tcl, raises on Tcl errors."""
@@ -227,6 +249,35 @@ class OpenRoad(unittest.TestCase):
             with self.assertRaises(TclError):
                 s.run("break")
             self.assertEqual(s.value("return 7"), "7")  # return is a normal completion
+
+    def test_bus_register_names_are_found(self):
+        """The database keeps a bus register's name escaped (result\\[0\\]_reg), STA reports print it plain, and
+        Tcl braces it in a list: every lookup finds it in each form (a missed one was a dropped DRV violation, a
+        moved cell's nets left unrouted)."""
+        from sipath import signoff
+        from sipath.tools.openroad.ops import db, eco, structure
+        pdk = sky130hd(RUNNER.platform_root())
+        wd = _workdir("busnames")
+        if not KEEP:
+            self.addCleanup(_rmtree, wd)
+        with open(os.path.join(wd, "t.def"), "w") as fh:
+            fh.write(BUS_DEF)
+        with OpenRoadSession(wd, RUNNER, timeout=120) as s:
+            s.run(f"read_lef {tcl.q(pdk.tech_lef)}\nread_lef {tcl.q(pdk.cell_lef)}\n"
+                  f"read_liberty {tcl.q(pdk.liberty)}\nread_def {tcl.q(os.path.join(wd, 't.def'))}")
+            s.run(tcl.HELPERS)
+            self.assertEqual(db.inst_master_types(s, ["result[0]_reg", "u_buf", "nope"]),
+                             {"result[0]_reg": "CORE", "u_buf": "CORE", "nope": "UNKNOWN"})
+            loc = eco.locations(s)
+            self.assertEqual(set(loc), {"result\\[0\\]_reg", "u_buf"})
+            self.assertEqual(set(loc), set(eco.masters(s)))  # one form for both
+            self.assertEqual(eco.inst_nets(s, ["result\\[0\\]_reg"]), {"n1"})
+            self.assertEqual(eco.inst_nets(s, ["result[0]_reg"]), {"n1"})
+            self.assertEqual(structure.cluster_cells(s, "result")[:3], ["result\\[0\\]_reg", "10120", "10880"])
+            drivers = eco.drv_driver_list(s, ["u_buf/A"])
+            self.assertIn(["result\\[0\\]_reg", "sky130_fd_sc_hd__dfxtp_1"], tcl_words_nested(drivers[0]))
+            s.run(signoff.NET_KIND)
+            self.assertEqual(s.value("::flow_pin_net_kind result\\[0\\]_reg/Q"), "1 0")
 
 
 @LIVE
@@ -1028,6 +1079,42 @@ def _precheck_image():
         return None
     r = subprocess.run(["docker", "image", "inspect", ref], capture_output=True)
     return ref if r.returncode == 0 else None
+
+
+def _magic_image():
+    """The Magic image the configuration names, when it is present here (docker/magic)."""
+    import subprocess
+    from sipath.config import Config
+    ref = Config.load().magic_image
+    r = subprocess.run(["docker", "image", "inspect", ref], capture_output=True)
+    return ref if r.returncode == 0 else None
+
+
+@LIVE
+@unittest.skipUnless(SKY130A, "needs the sky130A PDK (python3 -m sipath install-pdk)")
+class LiveMagic(unittest.TestCase):
+    """Magic DRC judges a cell it really loaded: a top cell the GDS lacks is an error, not 0 violations."""
+
+    def test_magic_drc_refuses_a_cell_it_did_not_load(self):
+        import types
+        from sipath import signoff
+        from sipath.pdk import load
+        if not _magic_image():
+            self.skipTest("no Magic image (docker build -t <magic_image> docker/magic)")
+        pdk = load("sky130A")
+        gds = pdk.signoff["cell_gds"][0]
+        wd = _workdir("magic")
+        if not KEEP:
+            self.addCleanup(_rmtree, wd)
+        RUNNER.mount(os.path.realpath(gds), os.path.realpath(pdk.signoff["magic_rc"]))
+        for top, want in (("sky130_fd_sc_hd__inv_1", None), ("no_such_cell", "has no cell no_such_cell")):
+            ctx = types.SimpleNamespace(dir=wd, pdk=pdk, design=types.SimpleNamespace(top=top), runner=RUNNER,
+                                        config=None, path=lambda n: os.path.join(wd, n))
+            if want:
+                with self.assertRaisesRegex(signoff.SignoffError, want):
+                    signoff.magic_drc(ctx, gds)
+            else:
+                self.assertGreater(signoff.magic_drc(ctx, gds)["count"], 0)  # a bare cell: its tap rules fire
 
 
 @LIVE

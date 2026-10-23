@@ -357,6 +357,18 @@ def _magic(ctx, script: str, name: str) -> str:
     return magic.run(ctx, rc, script, name, error=SignoffError)
 
 
+def magic_cell_problem(out: str, top: str, log: str):
+    """Raise unless Magic loaded the PDK's technology and the GDS gave it ``top``: a GDS read that failed, or a top
+    name the GDS lacks, gives Magic an empty new cell, whose DRC count is 0 (no check at all)."""
+    m = re.search(r"SIPATH_MAGIC_CELL (\S+) (\S+)", out)
+    if not m:
+        raise SignoffError(f"Magic did not report the loaded cell (log {log})")
+    if m.group(1) == "minimum":  # Magic's built-in technology: the rc file loaded none
+        raise SignoffError(f"Magic loaded no PDK technology (log {log})")
+    if m.group(2) in ("0", ""):
+        raise SignoffError(f"Magic has no cell {top}: the GDS was not read or does not contain it (log {log})")
+
+
 def magic_drc(ctx, gds: str) -> dict:
     """Magic's DRC (style drc(full), euclidean) on the GDS: a second DRC
     engine beside KLayout, as in the Efabless/ChipFoundry precheck."""
@@ -365,6 +377,7 @@ def magic_drc(ctx, gds: str) -> dict:
 drc off
 gds readonly true
 gds read {{{gds}}}
+puts "SIPATH_MAGIC_CELL [tech name] [cellname list exists {{{ctx.design.top}}}]"
 load {{{ctx.design.top}}} -dereference
 select top cell
 drc euclidean on
@@ -381,6 +394,7 @@ puts "SIPATH_MAGIC_DRC $n"
 quit -noprompt
 """
     out = _magic(ctx, script, "magic_drc")
+    magic_cell_problem(out, ctx.design.top, ctx.path("magic_drc.log"))
     m = re.search(r"SIPATH_MAGIC_DRC (\d+)", out)
     if not m:
         raise SignoffError(f"Magic DRC did not finish (log {ctx.path('magic_drc.log')})")
@@ -732,15 +746,7 @@ def timing(ctx, verilog: str, spef_corners: dict) -> dict:
         with open(files["checks"]) as fh:
             checks = fh.read()
         analog = set(d.analog_nets) | {n.split("[")[0] for n in d.analog_nets}
-        uncon, other = [], []
-        sect = None
-        for line in checks.splitlines():
-            if line.startswith("Warning:"):
-                sect = "uncon" if "unconstrained endpoints" in line else line
-                if sect != "uncon":
-                    other.append(line.strip())
-            elif line.startswith("  ") and sect == "uncon":
-                uncon.append(line.strip())
+        uncon, other = check_setup_sections(checks)
         analog_ports = _analog_ports(s, d)
         s.run(NET_KIND)
         io_ports = {e for e in uncon if "/" not in e and e not in analog_ports
@@ -766,6 +772,42 @@ def _analog_ports(session, d) -> set[str]:
     return set(ports) | set(d.analog_nets)
 
 
+def sta_failures(st: dict, checks) -> list[str]:
+    """What the signoff STA fails on. A check with nothing to judge fails too: no corner with a constrained setup
+    (hold) path means no clock reached an endpoint, not that timing was met (leave setup/hold out of ``require``
+    for a design without timing)."""
+    out = []
+    for key, kind in (("wns", "setup"), ("whs", "hold")):
+        if kind not in checks:
+            continue
+        vals = {c: v[key] for c, v in st["corners"].items() if v.get(key) is not None}
+        if not vals:
+            out.append(f"{kind}: no constrained path at any corner ({sorted(st['corners'])})")
+        elif min(vals.values()) < 0:
+            out.append(f"{kind}: worst {min(vals.values()):.3f} ns ({[c for c, v in vals.items() if v < 0]})")
+    if "drv" in checks and not st["drv_clean"]:
+        out.append(f"drv: slew {st['drv_slew']}, cap {st['drv_cap']}, fanout {st['drv_fanout']} on standard cells")
+    if "annotation" in checks and st["unannotated_loaded"]:
+        out.append(f"annotation: loaded nets without parasitics at {st['unannotated_loaded'][:8]}")
+    if "unconstrained" in checks and st["unconstrained"]:
+        out.append(f"unconstrained: {len(st['unconstrained'])} endpoints, e.g. {st['unconstrained'][:5]}")
+    return out
+
+
+def check_setup_sections(text: str) -> tuple[list[str], list[str]]:
+    """``check_setup -verbose``: (the unconstrained endpoints, every other warning line). OpenSTA says "There is 1
+    unconstrained endpoint." or "There are N unconstrained endpoints."."""
+    uncon, other, sect = [], [], None
+    for line in text.splitlines():
+        if line.startswith("Warning:"):
+            sect = "uncon" if "unconstrained endpoint" in line else line
+            if sect != "uncon":
+                other.append(line.strip())
+        elif line.startswith("  ") and sect == "uncon":
+            uncon.append(line.strip())
+    return uncon, other
+
+
 NET_KIND = r"""
 proc ::flow_pin_net_kind {pin} {
   # loads on the pin's net and whether the net only touches IO-ring cells
@@ -776,7 +818,7 @@ proc ::flow_pin_net_kind {pin} {
   if {$it ne "NULL"} { set net [$it getNet] } else {
     set k [string last "/" $pin]
     if {$k > 0} {
-      set i [$b findInst [string range $pin 0 [expr {$k - 1}]]]
+      set i [::flow_find_inst [string range $pin 0 [expr {$k - 1}]]]
       if {$i ne "NULL"} { set it [$i findITerm [string range $pin [expr {$k + 1}] end]]
         if {$it ne "NULL"} { set net [$it getNet] } }
     } else {
@@ -984,18 +1026,7 @@ def run(ctx) -> dict:
     if "sta" in results:
         st = results["sta"]
         summary["timing"] = st
-        wns = [v["wns"] for v in st["corners"].values() if v["wns"] is not None]
-        whs = [v["whs"] for v in st["corners"].values() if v["whs"] is not None]
-        if "setup" in checks and wns and min(wns) < 0:
-            failures.append(f"setup: worst {min(wns):.3f} ns ({[c for c, v in st['corners'].items() if v['wns'] is not None and v['wns'] < 0]})")
-        if "hold" in checks and whs and min(whs) < 0:
-            failures.append(f"hold: worst {min(whs):.3f} ns ({[c for c, v in st['corners'].items() if v['whs'] is not None and v['whs'] < 0]})")
-        if "drv" in checks and not st["drv_clean"]:
-            failures.append(f"drv: slew {st['drv_slew']}, cap {st['drv_cap']}, fanout {st['drv_fanout']} on standard cells")
-        if "annotation" in checks and st["unannotated_loaded"]:
-            failures.append(f"annotation: loaded nets without parasitics at {st['unannotated_loaded'][:8]}")
-        if "unconstrained" in checks and st["unconstrained"]:
-            failures.append(f"unconstrained: {len(st['unconstrained'])} endpoints, e.g. {st['unconstrained'][:5]}")
+        failures += sta_failures(st, checks)
     if "harness" in checks:  # the routed wrapper against the frame's template
         if d.harness:
             from . import harness as harness_mod

@@ -10,7 +10,7 @@ def _snap_box(session, box_um):
     """Snap a box (microns) to rows vertically and to the site grid horizontally."""
     rows = datapath.query_rows(session)
     dbu = datapath.dbu_per_micron(session)
-    x0, y0, x1, y1 = (int(v * dbu) for v in box_um)
+    x0, y0, x1, y1 = (int(round(v * dbu)) for v in box_um)
     r = rows[0]
     sx0 = r.x + ((x0 - r.x + r.site_w - 1) // r.site_w) * r.site_w
     sx1 = r.x + ((x1 - r.x) // r.site_w) * r.site_w

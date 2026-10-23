@@ -311,6 +311,13 @@ def metrics2(g: dict) -> dict:
         out.update({f"{stage}__{k}": v for k, v in vals.items()})
         if stage != "synth":  # final values describe the layout, not synthesis's estimates
             final.update(vals)
+        sta = {k: v for k, v in (a.get("metrics") or {}).items() if k.startswith(("sta_wns_", "sta_whs_"))
+               and isinstance(v, (int, float)) and not isinstance(v, bool)}
+        if sta:  # signoff's STA (extracted parasitics, every corner) is the final slack, not the head's estimate
+            for kind, key in (("setup", "sta_wns_"), ("hold", "sta_whs_")):
+                vs = [v for k, v in sta.items() if k.startswith(key)]
+                if vs:
+                    final[f"timing__{kind}__ws"] = min(vs)
     out.update(final)
     v = g.get("verification")
     if v:  # SiPath's own: METRICS2.1 has no verdict

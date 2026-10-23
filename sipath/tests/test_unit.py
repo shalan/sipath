@@ -3514,6 +3514,300 @@ class RunHeadThirdReview(unittest.TestCase):
             self.assertIsNone(records.final_def_digest(g))  # extraction's is missing: no digest, not a guess
 
 
+class ResumeIntegrity(unittest.TestCase):
+    """Project review, batch 1: the run's result and its record stay right across resumes, re-selections,
+    lost checkpoints, aliased and imported steps, and budgets."""
+
+    def flow(self, td, resume=False, **cfg):
+        from sipath.config import Config
+        return Flow(Design("fake", "fake", "x.v", "x.sdc", "macro", floorplan_def="x.def"), sky130hd("/p"), td,
+                    demo.fake_factory(), validate_inputs=False, config=Config(**cfg), resume=resume)
+
+    def test_a_reused_eco_is_the_result(self):
+        with tempfile.TemporaryDirectory() as td:
+            f = self.flow(td)
+            p = f.step("place", demo.fake_step(), variants=[{"k": 1}])
+            f.eco("e1", p.selected, [], fn=demo.fake_step(), score="setup_wns", max_slack_loss=None)
+            f2 = self.flow(td, resume=True)
+            p2 = f2.step("place", demo.fake_step(), variants=[{"k": 1}])
+            e2 = f2.eco("e1", p2.selected, [], fn=demo.fake_step(), score="setup_wns", max_slack_loss=None)
+            self.assertEqual((f2.head.id, _read_json(os.path.join(td, "graph.json"))["head"]), ("e1.0", "e1.0"))
+            f2.step("sign", demo.fake_step(), parent=e2.selected)
+            self.assertEqual((f2.head.id, f2.verification()["head"]), ("sign.0", "sign.0"))
+
+    def test_a_reselected_step_moves_the_result_and_retires_what_followed(self):
+        from sipath.scheduler import run_chain
+
+        def place(ctx):
+            ctx.metrics["wns"] = float(ctx.params.get("d", 0))
+        with tempfile.TemporaryDirectory() as td:
+            f = self.flow(td)
+            a = f.step("floorplan", demo.fake_step())
+            b = f.step("place", place, parent=a.selected, variants=[{"d": 0}], score="setup_wns")
+            c = f.step("cts", demo.fake_step(), parent=b.selected)
+            r = f.extend("place", place, [{"d": 5}])  # an adaptive round after cts ran
+            self.assertEqual((r.selected.id, f.head.id), ("place.1", "place.1"))
+            self.assertEqual([x["id"] for x in run_chain(f.graph())], ["floorplan.0", "place.1"])
+            with self.assertRaisesRegex(ValueError, "continues from place.0, which is rejected"):
+                f.step("route", demo.fake_step(), parent=c.selected)
+
+    def test_a_lost_selected_checkpoint_keeps_ids_unique_and_the_graph_readable(self):
+        def chain(f):
+            a = f.step("floorplan", demo.fake_step())
+            b = f.step("place", demo.fake_step(), parent=a.selected, variants=[{"k": 1}, {"k": 2}])
+            return b, f.step("cts", demo.fake_step(), parent=b.selected)
+        with tempfile.TemporaryDirectory() as td:
+            b, c = chain(self.flow(td))
+            os.remove(b.selected.checkpoint)
+            f2 = self.flow(td, resume=True)
+            self.assertEqual(f2.head.id, "floorplan.0")  # what continued from the lost one is not the result
+            b2, c2 = chain(f2)
+            self.assertFalse(c2.resumed)  # cts ran again: its parent is a new attempt
+            ids = [a["id"] for a in _read_json(os.path.join(td, "graph.json"))["attempts"]]
+            self.assertEqual(len(ids), len(set(ids)))
+            self.assertNotIn(b2.selected.id, (b.selected.id,))
+            g3 = self.flow(td, resume=True)  # the graph it wrote loads
+            self.assertEqual(g3.head.id, c2.selected.id)
+
+    def test_an_imported_steps_code_is_in_its_fingerprint(self):
+        from sipath import designfile, params, steps
+        with tempfile.TemporaryDirectory() as td:
+            mod = os.path.join(td, "mods")
+            os.makedirs(mod)
+            src = os.path.join(mod, "review_step_mod.py")
+            with open(src, "w") as fh:
+                fh.write("def mystep(ctx):\n    ctx.metrics['wns'] = 1.0\n")
+            sys.path.insert(0, mod)
+            self.addCleanup(sys.path.remove, mod)
+            self.addCleanup(lambda: (steps.STEPS.pop("review_step_mod:mystep", None),
+                                     params.STEP_PARAMS.pop("review_step_mod:mystep", None),
+                                     params.DECLARED.pop("review_step_mod:mystep", None),
+                                     sys.modules.pop("review_step_mod", None)))
+            run = os.path.join(td, "run")
+            items = lambda: designfile.resolve_steps([{"step": "review_step_mod:mystep"}])  # noqa: E731
+            designfile.run_items(self.flow(run), items())
+            f2 = self.flow(run, resume=True)
+            designfile.run_items(f2, items())
+            self.assertEqual(f2.stale, [])  # unchanged: reused
+            with open(src, "a") as fh:
+                fh.write("    ctx.metrics['wns'] = 2.0\n")
+            f3 = self.flow(run, resume=True)
+            designfile.run_items(f3, items())
+            self.assertEqual([s["step"] for s in f3.stale], ["mystep"])
+
+    def test_a_step_registered_under_another_name_gets_its_declared_defaults(self):
+        from sipath import params, registry, steps
+        seen = {}
+
+        def my_fill_impl(ctx):
+            seen.update(ctx.params)
+            ctx.metrics["wns"] = 0.0
+        registry.register_step("review_myfill", my_fill_impl, params=[params.Param("density", "float", 0.42, "target")])
+        self.addCleanup(lambda: (steps.STEPS.pop("review_myfill"), params.STEP_PARAMS.pop("review_myfill"),
+                                 params.DECLARED.pop("review_myfill")))
+        with tempfile.TemporaryDirectory() as td:
+            self.flow(td).step("review_myfill", registry.STEPS["review_myfill"])
+        self.assertEqual(seen.get("density"), 0.42)
+
+    def test_a_budget_stops_the_attempts_later_processes_too(self):
+        import time as _t
+        from sipath.tools import process
+        log = []
+
+        def step(ctx):  # several tool processes one after another, each failure caught (a signoff job does)
+            for _ in range(3):
+                try:
+                    process.run(["sleep", "1.5"], tracker=ctx.processes)
+                    log.append("ran")
+                except process.ProcessCancelled:
+                    log.append("cancelled")
+        with tempfile.TemporaryDirectory() as td:
+            f = self.flow(td, step_budget_s=0.5)
+            t0 = _t.time()
+            with self.assertRaises(StepFailed):  # no attempt finished inside the time box
+                f.step("s", step)
+            self.assertLess(_t.time() - t0, 1.4)
+        self.assertEqual(log, ["cancelled"] * 3)
+        self.assertEqual(f.attempts[0].status, "budget")
+
+
+class CliExitCodes(unittest.TestCase):
+    """Project review, batch 1: a run's exit status says what it established, not only that it ended."""
+
+    place, route = staticmethod(RunHead.place), staticmethod(RunHead.route)
+
+    def test_exit_code_of_a_verdict(self):
+        from sipath.verdict import exit_code
+        for execution, verification, want in (("completed", "passed", 0), ("completed", "omitted", 0),
+                                              ("completed", "completed", 0), ("completed", "failed", 1),
+                                              ("completed", "inconclusive", 3), ("failed", "passed", 1),
+                                              ("budget", "passed", 3), ("cancelled", "omitted", 3),
+                                              ("empty", "completed", 1)):
+            self.assertEqual(exit_code({"execution": execution, "verification": verification}), want,
+                             (execution, verification))
+
+    def test_run_exits_nonzero_on_a_failed_verdict_and_on_a_stop(self):
+        import contextlib
+        import io
+        from unittest import mock
+        from sipath import __main__ as cli, designfile
+        from sipath.scheduler import StepFailed
+        with tempfile.TemporaryDirectory() as td:
+            f = RunHead.flow(self, td)
+            designfile.run_items(f, RunHead.items(self))
+            v = dict(f.verification(), verification="failed", checks={"setup": {"status": "failed", "required": True}})
+            f.verification = lambda: v
+            out = io.StringIO()
+            with mock.patch.object(designfile, "run", lambda *a, **k: f), contextlib.redirect_stdout(out):
+                rc = cli.main(["run", "gcd8", td])
+            self.assertEqual(rc, 1)
+            self.assertIn("verification FAILED", out.getvalue())
+
+            def stops(*a, **k):
+                raise StepFailed("step route: no successful attempt")
+            out = io.StringIO()
+            with mock.patch.object(designfile, "run", stops), contextlib.redirect_stdout(out):
+                rc = cli.main(["run", "gcd8", td])
+            self.assertEqual(rc, 1)
+            self.assertIn("StepFailed: step route", out.getvalue())
+
+
+class SourceCorrectness(unittest.TestCase):
+    """Project review, batch 1: smaller correctness defects in parsing, units and checks."""
+
+    def test_sdc_options_and_commented_clocks(self):
+        from sipath import sdc, synth
+        with tempfile.TemporaryDirectory() as td:
+            p = os.path.join(td, "a.sdc")
+            with open(p, "w") as fh:
+                fh.write("# create_clock -period 2 [get_ports old]\n"
+                         "create_clock -name c -period 10 [get_ports -quiet clk]\n")
+            self.assertEqual(sdc.clock_ports(p), ["clk"])
+            self.assertEqual(synth.clock_period_ps(p), 10000.0)
+
+    def test_offset_buses_keep_their_indices(self):
+        from sipath.netlist import parse_verilog
+        src = ("module t(a, y);\ninput [8:1] a;\noutput [3:0] y;\nwire [2:1] w;\nassign y = a[4:1];\n"
+               "sky130_fd_sc_hd__buf_1 b (.A(a), .X(w));\nendmodule\n")
+        mods = parse_verilog(src)
+        m = mods[0] if isinstance(mods, list) else next(iter(mods.values())) if isinstance(mods, dict) else mods
+        self.assertEqual(m.ports[0].bits(), [f"a[{i}]" for i in range(1, 9)])
+        self.assertEqual(m.wires, ["w[1]", "w[2]"])
+        self.assertIn("input [8:1] a;", m.to_verilog() if hasattr(m, "to_verilog") else str(m))
+
+    def test_eco_ops_refuse_the_pdks_dont_use_cells(self):
+        from sipath import eco
+        pdk = sky130hd("/p")
+        d = Design("fake", "fake", "x.v", "x.sdc", "macro", floorplan_def="x.def")
+        with self.assertRaisesRegex(ValueError, "dont_use"):
+            eco.check_ops([{"op": "resize", "inst": "u1", "master": "sky130_fd_sc_hd__lpflow_inputiso0p_1"}], pdk, d)
+        eco.check_ops([{"op": "resize", "inst": "u1", "master": "sky130_fd_sc_hd__buf_4"}], pdk, d)
+
+    def test_micron_boxes_round_to_the_grid(self):
+        from sipath.steps import structure
+        self.assertEqual(int(round(1.005 * 1000)), 1005)
+        with open(structure.__file__) as fh:
+            src = fh.read()
+        self.assertNotRegex(src, r"\bint\([^()]*\* dbu\)")  # truncation lost a site at exact boundaries
+
+    def test_macro_supplies_connect_literally_and_by_ground_kind(self):
+        from sipath import tcl
+        d = Design("fake", "fake", "x.v", "x.sdc", "macro", floorplan_def="x.def",
+                   macros=[Macro("bank[0].u_ram", "ram", "ram.lef", supplies={"vccd1": "VDD", "vssd1": "VSS"})],
+                   supply_names={"VDD": "VPWR", "VSS": "VGND"})
+        out = tcl.global_connect(d, sky130hd("/p"))
+        from sipath.tclquote import tcl_words
+        line = next(ln for ln in out.splitlines() if "vccd1" in ln)
+        self.assertEqual(tcl_words(line)[4], r"^bank\[0\]\.u_ram$")  # what Tcl's regexp gets: the name literally
+        self.assertRegex(out, r"-net VGND .*-pin_pattern vssd1 -ground")
+        self.assertRegex(out, r"-net VPWR .*-pin_pattern vccd1 -power")
+        self.assertTrue(d.is_ground("VGND") and not d.is_ground("VPWR"))
+
+    def test_limits_do_not_fall_back_to_the_routers_drc(self):
+        from sipath import limits
+        with tempfile.TemporaryDirectory() as td:
+            so = os.path.join(td, "signoff.json")
+            _write_json(so, {"drc": {"run": False}, "timing": {"corners": {}}, "pass": False})
+            _write_json(os.path.join(td, "graph.json"), {"head": "signoff.0", "attempts": [
+                {"id": "signoff.0", "step": "signoff", "parent": None, "status": "selected", "started_at": 1,
+                 "finished_at": 2, "metrics": {"drc": 0}, "outputs": {"signoff": so}}],
+                "steps": {"signoff": {"selected": "signoff.0"}}})
+            self.assertIsNone(limits.run_metrics(td, "signoff")["drc"])
+
+    def test_lvs_full_reports_why_without_a_verdict(self):
+        with open(os.path.join(os.path.dirname(eco_module_path()), "lvs_full.py")) as fh:
+            src = fh.read()
+        self.assertNotIn("p.returncode", src)  # process.Result has rc: the old name raised AttributeError
+
+
+def eco_module_path():
+    from sipath import eco
+    return eco.__file__
+
+
+class SignoffJudgment(unittest.TestCase):
+    """Project review, batch 1: a check with nothing to judge is not a pass."""
+
+    def test_one_unconstrained_endpoint_is_read(self):
+        from sipath.signoff import check_setup_sections
+        one = "Warning: There is 1 unconstrained endpoint.\n  out_q\nWarning: There are 2 combinational loops.\n"
+        many = "Warning: There are 2 unconstrained endpoints.\n  a\n  b\n"
+        self.assertEqual(check_setup_sections(one), (["out_q"], ["Warning: There are 2 combinational loops."]))
+        self.assertEqual(check_setup_sections(many)[0], ["a", "b"])
+
+    def test_no_constrained_path_fails_setup_and_hold(self):
+        from sipath.signoff import sta_failures
+        st = {"corners": {"tt": {"wns": None, "whs": None}, "ss": {"wns": None, "whs": None}}, "drv_clean": True,
+              "unannotated_loaded": [], "unconstrained": ["out_q"]}
+        f = sta_failures(st, ["setup", "hold", "drv", "annotation"])
+        self.assertEqual([x.split(":")[0] for x in f], ["setup", "hold"])
+        self.assertIn("no constrained path", f[0])
+        self.assertEqual(sta_failures(st, ["drv"]), [])  # left out of the checks: not judged
+        st["corners"]["ss"].update(wns=-0.2, whs=0.1)
+        self.assertEqual(sta_failures(st, ["setup", "hold"]), ["setup: worst -0.200 ns (['ss'])"])
+
+    def test_timing_met_is_unknown_without_constrained_paths(self):
+        from sipath.steps.common import timing_met
+        self.assertIsNone(timing_met(None, None))
+        self.assertTrue(timing_met(0.1, None))
+        self.assertFalse(timing_met(0.1, -0.01))
+
+    def test_a_failed_design_rule_report_is_not_clean(self):
+        from unittest import mock
+        from sipath.steps import common
+        with tempfile.TemporaryDirectory() as td:
+            ctx = types.SimpleNamespace(session=object(), pdk=types.SimpleNamespace(analysis_corners=lambda: []),
+                                        outputs={}, metrics={}, path=lambda n: os.path.join(td, n))
+
+            def to_file(s, f, cmd):
+                ok = "check_types" not in cmd
+                if ok:
+                    open(f, "w").close()
+                return types.SimpleNamespace(rc=0 if ok else 1, value="STA-1234 crashed")
+            with mock.patch.object(common.report_ops, "to_file", to_file):
+                common.reports(ctx, "cts")
+        self.assertIsNone(ctx.metrics["drv_clean"])
+        self.assertEqual(ctx.outputs["cts_reports_failed"], ["design_rules"])
+
+    def test_the_final_slack_is_signoffs_not_the_heads_estimate(self):
+        from sipath import report
+        g = {"design": "x", "head": "signoff.0", "attempts": [
+            {"id": "extract.0", "step": "extract", "parent": None, "metrics": {"wns": 4.3}},
+            {"id": "signoff.0", "step": "signoff", "parent": "extract.0",
+             "metrics": {"wns": 4.416, "whs": 0.3, "parasitics": "placement", "sta_wns_tt": 4.3, "sta_wns_ss": 4.249,
+                         "sta_whs_tt": 0.2, "sta_whs_ff": 0.171}}]}
+        m = report.metrics2(g)
+        self.assertEqual((m["timing__setup__ws"], m["timing__hold__ws"]), (4.249, 0.171))
+
+    def test_magic_must_have_loaded_the_cell_and_the_tech(self):
+        from sipath.signoff import SignoffError, magic_cell_problem
+        magic_cell_problem("SIPATH_MAGIC_CELL sky130A 1\n", "top", "log")
+        for out, why in (("SIPATH_MAGIC_CELL minimum 1", "no PDK technology"), ("SIPATH_MAGIC_CELL sky130A 0", "no cell top"),
+                         ("Magic crashed", "did not report")):
+            with self.assertRaisesRegex(SignoffError, why):
+                magic_cell_problem(out, "top", "log")
+
+
 class ArchivesAndEligibility(unittest.TestCase):
     ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -3686,10 +3980,11 @@ class Adaptive(unittest.TestCase):
             with self.assertRaises(ValueError):
                 placement_blockages(s, bad)
         sc = scores.get("hotspots_then_wns")
-        cool = sc({"wns": 0.5, "heatmap_placement_hot_share": 0.08, "heatmap_rudy_hot_share": 0.0})
-        hot = sc({"wns": 0.9, "heatmap_placement_hot_share": 0.2, "heatmap_rudy_hot_share": 0.0})
+        cool = sc({"wns": 0.5, "grt_overflow": 0, "heatmap_placement_hot_share": 0.08, "heatmap_rudy_hot_share": 0.0})
+        hot = sc({"wns": 0.9, "grt_overflow": 0, "heatmap_placement_hot_share": 0.2, "heatmap_rudy_hot_share": 0.0})
         self.assertGreater(cool, hot)  # fewer hot bins wins over slack
         self.assertIsNone(sc({"wns": 0.5}))  # no heatmaps: no score
+        self.assertIsNone(sc({"wns": 0.5, "heatmap_placement_hot_share": 0.08}))  # no overflow: not the best, no score
 
 
 class Phase0Rules(unittest.TestCase):

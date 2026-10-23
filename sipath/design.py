@@ -238,6 +238,12 @@ class Design:
         """A supply net's name in this design (supply_names applied)."""
         return self.supply_names.get(name, name)
 
+    def is_ground(self, net: str) -> bool:
+        """``net`` (a name in this design) is a ground: the design's VSS, or a net whose logical name (the
+        supply_names key that maps to it, else its own) is a ground's (VSS*, GND*, VGND*)."""
+        logical = [k for k, v in self.supply_names.items() if v == net] or [net]
+        return net == self.net("VSS") or any(n.upper().startswith(("VSS", "GND", "VGND")) for n in logical)
+
     def excluded_in(self, netlist: str, pdk) -> list[str]:
         """Cells of ``netlist`` the PDK or the design excludes (waivers left out)."""
         if not (pdk.exclude or self.dont_use):

@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 
 _SET = re.compile(r"^\s*set\s+(\w+)\s+(.+?)\s*$")
-_PORTS = re.compile(r"get_ports\s+(\{[^}]*\}|\"[^\"]*\"|[^\]\s]+)")
+_PORTS = re.compile(r"get_ports\s+(?:-\w+\s+)*(\{[^}]*\}|\"[^\"]*\"|[^\]\s]+)")  # options (-quiet) first
 
 
 def _subst(text: str, env: dict[str, str]) -> str:

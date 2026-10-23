@@ -64,7 +64,8 @@ def run_metrics(workdir: str, until: str | None = None) -> dict:
         wns = [c["wns"] for c in corners.values() if c.get("wns") is not None]
         whs = [c["whs"] for c in corners.values() if c.get("whs") is not None]
         out.update(wns_ns=min(wns) if wns else out["wns_ns"], whs_ns=min(whs) if whs else out["whs_ns"],
-                   drc=(s.get("drc") or {}).get("count", out["drc"]), lvs_match=(s.get("lvs") or {}).get("match"),
+                   # signoff's DRC when it ran one (no count: not checkable, no value), else the router's
+                   drc=s["drc"].get("count") if isinstance(s.get("drc"), dict) else out["drc"], lvs_match=(s.get("lvs") or {}).get("match"),
                    signoff_pass=bool(s.get("pass")))
     return out
 
