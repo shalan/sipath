@@ -39,6 +39,7 @@ import os
 import threading
 import time
 import traceback
+import weakref
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Callable
@@ -358,6 +359,8 @@ class Flow:
         self.design, self.pdk = design.resolve(pdk), pdk  # unset design fields take the PDK's defaults
         self.workdir = os.path.abspath(workdir)
         os.makedirs(self.workdir, exist_ok=True)
+        self._lock_fd, self._superseded = None, False
+        self._claim_workdir()
         self.session_factory = session_factory
         self.config = config or Config()
         self.provenance = dict(provenance or {})
@@ -392,6 +395,41 @@ class Flow:
         self._unchecked: set = set()  # steps that declare no prerequisites, warned about once
         if resume:
             self._load_graph()
+
+    def _claim_workdir(self):
+        """One run writes a workdir at a time: another process holding it is refused (an advisory lock on
+        <workdir>/.sipath.lock); in this process, a newer Flow takes it over from an idle older one, which no
+        longer writes graph.json, and one with attempts running is refused."""
+        key = os.path.realpath(self.workdir)
+        with _OPEN_LOCK:
+            prev = _OPEN.get(key)
+            prev = prev() if prev is not None else None
+            if prev is not None and prev is not self and prev._lock_fd is not None:
+                if prev._live or prev._procs and any(prev._procs.values()):
+                    raise RuntimeError(f"{self.workdir} is in use by a run in this process (attempts running)")
+                prev._superseded = True
+                self._lock_fd, prev._lock_fd = prev._lock_fd, None
+            else:
+                fd = os.open(os.path.join(self.workdir, ".sipath.lock"), os.O_RDWR | os.O_CREAT, 0o644)
+                try:
+                    import fcntl
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except ImportError:  # no advisory locks here (Windows): not checked
+                    pass
+                except OSError:
+                    os.close(fd)
+                    raise RuntimeError(f"{self.workdir} is in use by another process (a run holds "
+                                       f"{os.path.join(self.workdir, '.sipath.lock')})") from None
+                self._lock_fd = fd
+            _OPEN[key] = weakref.ref(self)
+
+    def __del__(self):
+        fd = getattr(self, "_lock_fd", None)
+        if fd is not None:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
 
     # ------------------------------------------------------------------ resume
     def _load_graph(self):
@@ -1247,6 +1285,9 @@ class Flow:
         return verdict.verify(self.graph())
 
     def save_graph(self):
+        if self._superseded:
+            raise RuntimeError(f"{self.workdir} was opened again by a newer run in this process; this one no "
+                               "longer writes its graph")
         with self._lock:  # attempts finish concurrently
             data = self.graph()
             try:  # the verdict follows the graph; reading a result file never fails the run
@@ -1263,6 +1304,10 @@ class Flow:
                 report.write(self.workdir)
             except Exception as e:  # noqa: BLE001
                 log.warning("run report not written: %s", e)
+
+
+_OPEN: dict = {}  # realpath of a workdir -> weakref to the Flow of this process that writes it
+_OPEN_LOCK = threading.Lock()
 
 
 def _ancestors(a):

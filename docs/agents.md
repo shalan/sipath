@@ -8,8 +8,10 @@ The repository's `.mcp.json` registers the server as `sipath`. Open the
 repository in Claude Code; it asks once whether to use the project's MCP
 server (`/mcp` shows it). The tools then appear as `mcp__sipath__<tool>`;
 Claude Code asks before each call unless you allow them, for example with
-`"permissions": {"allow": ["mcp__sipath__*"]}` in your `.claude/settings.json`
-or `.claude/settings.local.json`. Runs go under `runs/` of the repository.
+`"permissions": {"allow": ["mcp__sipath__*"], "ask": ["mcp__sipath__query_checkpoint"]}`
+in your `.claude/settings.json` or `.claude/settings.local.json`:
+`query_checkpoint` runs arbitrary Tcl with the tool's access, so it is worth
+approving call by call. Runs go under `runs/` of the repository.
 Elsewhere (another project, Claude Desktop) register the same command:
 
 ```bash
@@ -92,8 +94,10 @@ it.
   corner), reports, debug checkpoint and pictures, as
   `flow://<run>/<attempt>/<name>`.
 - `query_checkpoint` runs Tcl in a fresh process with `write_*`, `exec`,
-  `file`, `source`, `socket` removed and `open` limited to the session's own
-  result files: a guard against accidental writes, not a security sandbox.
+  `file`, `source`, `socket`, `interp` removed and `open` limited to the
+  session's own result files (no pipes): a guard against accidents, not a
+  sandbox. The checkpoint is never changed, but the Tcl is arbitrary code, so
+  the tool is not marked read-only.
 - `query_heatmap {"run_id": R, "attempt": "route_digital.0", "map": "routing", "box": [x0, y0, x1, y1]}`:
   a heatmap the attempt collected (placement, rudy, routing, pin, power,
   irdrop; see [heatmaps](flow.md#heatmaps)): unit, peak, p95, hot share and

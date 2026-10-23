@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]  # license = "<SPDX>" and license-files
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -35,4 +35,16 @@ sipath = [
     "harnesses/**/*",
     "examples/**/*",
     "third_party/**/*",
+    "tests/limits.yaml",
+]
+
+[tool.setuptools.exclude-package-data]
+# what the checkout may hold but the package must not: bytecode, generated views, the tutorial's design files,
+# the Caravel frame layout (fetched per harnesses/sources/SOURCES.txt), whatever the globs above would sweep in
+sipath = [
+    "**/__pycache__/*",
+    "**/*.pyc",
+    "examples/hardened/**",
+    "examples/tut_*.yaml",
+    "harnesses/sources/caravel/chip_io.*",
 ]

@@ -66,8 +66,19 @@ class Process:
         self.rusage = None
 
     def _read(self):
-        for chunk in iter(lambda: self.p.stdout.read(65536), b""):
-            self._chunks.append(chunk)
+        try:
+            for chunk in iter(lambda: self.p.stdout.read(65536), b""):
+                self._chunks.append(chunk)
+        except (ValueError, OSError):  # the pipe was closed under it (close())
+            pass
+
+    def close(self, timeout: float = 10.0):
+        """Collect the rest of the output (until the pipe's writers are gone, at most ``timeout``) and close it."""
+        self._reader.join(timeout=timeout)
+        try:
+            self.p.stdout.close()
+        except OSError:
+            pass
 
     def alive(self) -> bool:
         """The process or anything left in its group (a background child outlives its parent)."""
@@ -119,10 +130,9 @@ class Process:
             if end is not None and time.time() >= end:
                 return False
             time.sleep(0.05)
-        self._reader.join(timeout=10)
-        if not self._reader.is_alive():
-            self.p.stdout.close()
-        return True
+        if not self.group_alive():  # nothing left that holds the pipe: the output is complete
+            self.close()
+        return True  # a child the tool left behind still holds it: run() ends the group, then closes
 
     def output(self) -> str:
         return b"".join(self._chunks).decode(errors="replace")
@@ -158,7 +168,11 @@ def run(cmd, log: str | None = None, *, cwd=None, env=None, timeout: float | Non
             proc.wait()
         elif proc.group_alive():  # the tool exited and left children behind: they end with it
             proc.kill(grace=1.0, cancel=False)
+    except BaseException:  # interrupted (Ctrl-C, the interpreter exiting): the tool does not outlive its caller
+        proc.kill(grace=1.0)
+        raise
     finally:
+        proc.close()
         if tracker is not None:
             tracker.discard(proc)
     res = Result(proc.p.returncode if proc.p.returncode is not None else -9, proc.output(),

@@ -37,6 +37,9 @@ def _openframe_pads(v: dict) -> dict:
     """Pad 0 clock, then the core's inputs, then its outputs, all on the east
     edge (pads 0-14), next to the template's row strip."""
     n, m = v["inputs"], v["outputs"]
+    taken = {"openframe_project_wrapper": "the frame's wrapper", f"{v['name']}_wrapper": "the project's wrapper file"}
+    if v["core"] in taken:
+        raise ValueError(f"core {v['core']!r} is {taken[v['core']]}'s name: two modules would share it")
     if 1 + n + m > 15:
         raise ValueError(f"1 clock + {n} inputs + {m} outputs = {1 + n + m} pads: the east edge has 15 (0-14)")
     return {"in_hi": n, "out_lo": n + 1, "out_hi": n + m, "inputs_m1": n - 1, "inputs_w": n - 1,
@@ -74,6 +77,8 @@ class Template:
                 raise ValueError(f"template {self.name}: {k}={v} is above {p['max']}")
             if p.get("choices") and v not in p["choices"]:
                 raise ValueError(f"template {self.name}: {k}={v!r} is not one of {p['choices']}")
+            if p.get("identifier") and not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", v):
+                raise ValueError(f"template {self.name}: {k}={v!r} must be a Verilog/file name (letters, digits, _)")
             out[k] = v
         if self.spec.get("derive"):
             if self.spec["derive"] not in DERIVE:

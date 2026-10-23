@@ -8,7 +8,8 @@ openframe/  from github.com/chipfoundry/caravel @ 01fb61d4397c5e7308c3e277031b32
   mag/chip_io_openframe.mag, mag/caravel_openframe.mag   OpenFrame frame layout (Magic format)
   gds/advSeal_6um_gen.gds.gz             seal ring
 caravel/    from github.com/chipfoundry/caravel @ 01fb61d4397c5e7308c3e277031b326eca6ce475
-  gds/chip_io.gds.gz, lef/chip_io.lef, def/chip_io.def   Caravel padframe
+  gds/chip_io.gds.gz, lef/chip_io.lef, def/chip_io.def   Caravel padframe (not committed: fetch them;
+                                         SHA-256 in caravel/SHA256SUMS.fetched)
             from github.com/chipfoundry/caravel_user_project @ b510613cec367828966b37583f9090ac5ddb6491
   openlane/user_project_wrapper/fixed_dont_change/user_project_wrapper.def   Caravel wrapper template
   verilog/rtl/user_project_wrapper.v     wrapper ports and directions

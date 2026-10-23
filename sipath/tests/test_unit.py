@@ -2672,7 +2672,9 @@ class Processes(unittest.TestCase):
         from sipath.tools import process
         with tempfile.TemporaryDirectory() as td:
             pf = os.path.join(td, "pid")
+            t0 = time.time()
             r = process.run(["sh", "-c", f"sleep 60 & echo $! > {pf}; exit 0"], None, timeout=30)
+            self.assertLess(time.time() - t0, 5)  # no wait on the pipe the child held (it waited 10 s)
             time.sleep(0.2)
             with open(pf) as fh:
                 pid = int(fh.read())
@@ -2685,8 +2687,30 @@ class Processes(unittest.TestCase):
                 pid = int(fh.read())
             self.assertTrue(self.alive(pid))  # the leader is gone, its child is not
             p.kill()  # a cancel now still reaches the group
+            p.close()
             time.sleep(0.2)
             self.assertFalse(self.alive(pid))
+
+    def test_an_interrupted_caller_takes_its_tool_with_it(self):
+        import time
+        from unittest import mock
+        from sipath.tools import process
+        with tempfile.TemporaryDirectory() as td:
+            pf = os.path.join(td, "pid")
+            real_wait = process.Process.wait
+
+            def interrupted(self, timeout=None):
+                for _ in range(100):  # the tool has started
+                    if os.path.isfile(pf) and os.path.getsize(pf):
+                        break
+                    time.sleep(0.05)
+                raise KeyboardInterrupt
+            with mock.patch.object(process.Process, "wait", interrupted), self.assertRaises(KeyboardInterrupt):
+                process.run(["sh", "-c", f"echo $$ > {pf}; sleep 60"], None, timeout=30)
+            self.assertIs(process.Process.wait, real_wait)
+            time.sleep(0.2)
+            with open(pf) as fh:
+                self.assertFalse(self.alive(int(fh.read())))
 
     def test_a_container_is_stopped_by_name(self):
         from unittest import mock
@@ -3668,7 +3692,7 @@ class CliExitCodes(unittest.TestCase):
             f.verification = lambda: v
             out = io.StringIO()
             with mock.patch.object(designfile, "run", lambda *a, **k: f), contextlib.redirect_stdout(out):
-                rc = cli.main(["run", "gcd8", td])
+                rc = cli.main(["run", "gcd8", td, "--resume"])
             self.assertEqual(rc, 1)
             self.assertIn("verification FAILED", out.getvalue())
 
@@ -3676,7 +3700,7 @@ class CliExitCodes(unittest.TestCase):
                 raise StepFailed("step route: no successful attempt")
             out = io.StringIO()
             with mock.patch.object(designfile, "run", stops), contextlib.redirect_stdout(out):
-                rc = cli.main(["run", "gcd8", td])
+                rc = cli.main(["run", "gcd8", td, "--resume"])
             self.assertEqual(rc, 1)
             self.assertIn("StepFailed: step route", out.getvalue())
 
@@ -3752,6 +3776,104 @@ class SourceCorrectness(unittest.TestCase):
 def eco_module_path():
     from sipath import eco
     return eco.__file__
+
+
+class WorkdirSafety(unittest.TestCase):
+    """Project review, batch 3: one run writes a workdir at a time; a mistyped option never overwrites a run."""
+
+    def flow(self, td, resume=False):
+        return Flow(Design("fake", "fake", "x.v", "x.sdc", "macro", floorplan_def="x.def"), sky130hd("/p"), td,
+                    demo.fake_factory(), validate_inputs=False, resume=resume)
+
+    def test_another_process_holding_the_workdir_is_refused(self):
+        import subprocess
+        import time as _t
+        with tempfile.TemporaryDirectory() as td:
+            code = ("import sys, time; from sipath.tests.test_unit import WorkdirSafety as W; "
+                    "f = W.flow(None, sys.argv[1]); print('held', flush=True); time.sleep(30)")
+            p = subprocess.Popen([sys.executable, "-c", code, td], stdout=subprocess.PIPE, text=True,
+                                 cwd=os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+            try:
+                self.assertEqual(p.stdout.readline().strip(), "held")
+                with self.assertRaisesRegex(RuntimeError, "in use by another process"):
+                    self.flow(td)
+            finally:
+                p.kill()
+                p.wait()
+                p.stdout.close()
+            _t.sleep(0.1)
+            self.flow(td)  # free again once it exited
+
+    def test_a_newer_flow_in_this_process_takes_over_and_the_older_stops_writing(self):
+        with tempfile.TemporaryDirectory() as td:
+            old = self.flow(td)
+            old.step("a", demo.fake_step())
+            new = self.flow(td, resume=True)
+            with self.assertRaisesRegex(RuntimeError, "opened again"):
+                old.step("b", demo.fake_step(), parent=old.steps["a"].selected)
+            new.step("b", demo.fake_step(), parent=new.steps["a"].selected)
+            self.assertIn("b", _read_json(os.path.join(td, "graph.json"))["steps"])
+
+    def test_the_cli_never_overwrites_a_recorded_run(self):
+        import contextlib
+        import io
+        from sipath import __main__ as cli
+        with tempfile.TemporaryDirectory() as td:
+            _write_json(os.path.join(td, "graph.json"), {"attempts": []})
+            err = io.StringIO()
+            for argv in (["run", "gcd8", td], ["run", "gcd8", td, "--resum"], ["run", "gcd8", td, "--resume", "--fresh"]):
+                with contextlib.redirect_stderr(err):
+                    self.assertEqual(cli.main(argv), 2, argv)
+            self.assertIn("--resume continues it, --fresh starts over", err.getvalue())
+            self.assertIn("unknown option --resum", err.getvalue())
+
+    def test_help_runs_nothing(self):
+        import contextlib
+        import io
+        from unittest import mock
+        from sipath import __main__ as cli
+        out = io.StringIO()
+        with mock.patch.object(cli, "install_pdk", side_effect=AssertionError("ran")), \
+                mock.patch.object(cli, "setup_placer", side_effect=AssertionError("ran")), contextlib.redirect_stdout(out):
+            for c in ("install-pdk", "setup-placer", "install-tools", "run"):
+                self.assertEqual(cli.main([c, "--help"]), 0)
+        self.assertIn("python3 -m sipath install-pdk", out.getvalue())
+        self.assertNotIn("python3 -m sipath validate", out.getvalue().split("install-pdk", 1)[1][:300])
+
+
+class McpSafety(unittest.TestCase):
+    """Project review, batch 3: the MCP tools validate what they are given and say what they can do."""
+
+    def test_query_checkpoint_is_not_advertised_as_read_only(self):
+        from sipath import mcp_server
+        q = next(t for t in mcp_server.TOOLS if t["name"] == "query_checkpoint")
+        self.assertFalse(q["annotations"]["readOnlyHint"])
+        self.assertIn("interp", mcp_server.QUERY_BLOCKED)
+
+    def test_query_guard_refuses_pipes_and_child_interpreters(self):
+        import shutil
+        import subprocess
+        from sipath import mcp_server
+        if not shutil.which("tclsh"):
+            self.skipTest("no tclsh")
+        guard = "".join(f"catch {{rename {c} {{}}}}\n" for c in mcp_server.QUERY_BLOCKED) + mcp_server.QUERY_OPEN_GUARD
+        for probe in ('open "|echo PIPE"', "interp create x"):
+            r = subprocess.run(["tclsh"], input=guard + f"puts [catch {{{probe}}} m]\n", capture_output=True, text=True)
+            self.assertEqual(r.stdout.strip().splitlines()[-1], "1", (probe, r.stdout, r.stderr))
+
+    def test_tool_arguments_are_checked(self):
+        from sipath.mcp_server import Server, ToolError
+        s = Server()
+        for bad in ("false", "yes", 1):
+            with self.assertRaises(ToolError):
+                s._bool(bad if bad != "false" else "maybe", "resume")
+        self.assertFalse(s._bool("false", "resume"))
+        with self.assertRaisesRegex(ToolError, "bad arguments"):
+            s.call("list_designs", {"nope": 1})
+        with tempfile.TemporaryDirectory() as td:
+            _write_json(os.path.join(td, "graph.json"), {"attempts": []})
+            with self.assertRaisesRegex(ToolError, "holds a run"):
+                s.open_run("gcd8", td)
 
 
 class SignoffJudgment(unittest.TestCase):

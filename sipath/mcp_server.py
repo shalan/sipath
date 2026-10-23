@@ -30,6 +30,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -77,12 +78,14 @@ TOOLS = [
     {"name": "open_run", "description": "Create a run for an example design (name) or a design file (path to "
      "YAML/JSON). Writes generated inputs, checks every input file exists, and returns a run id. No OpenROAD "
      "process is started yet. resume: pick up the attempt graph already in workdir (recorded steps are not run "
-     "again). explore: optimize at the typical corner only, for a fast first cut at PPA (then run route_digital "
+     "again); a workdir that holds a run needs resume or fresh (start over). The design file's config: applies "
+     "as in `sipath run`. explore: optimize at the typical corner only, for a fast first cut at PPA (then run route_digital "
      "with detailed: false, or the ppa step after place/cts; its outputs.ppa has area, timing, power and a "
      "suggested clock period).",
      "inputSchema": _obj({"design": {"type": "string", "description": f"one of {sorted(EXAMPLES)} or a file path"},
                           "workdir": {"type": "string", "description": "absolute directory for checkpoints/logs"},
-                          "resume": {"type": "boolean"}, "explore": {"type": "boolean"}},
+                          "resume": {"type": "boolean"}, "fresh": {"type": "boolean"},
+                          "explore": {"type": "boolean"}},
                          ["design"])},
     {"name": "fork_run", "description": "Start a new run from any finished attempt of a run, a rejected one "
      "included: the new run's graph holds that attempt and its ancestors (selected there, reading the original "
@@ -163,17 +166,19 @@ TOOLS = [
                           "resolution": {"type": "number"}}, ["run_id", "attempt"]),
      "annotations": {"readOnlyHint": True}},
     {"name": "query_checkpoint", "description": "Open an attempt's checkpoint in a fresh OpenROAD process, run Tcl, "
-     "and return its result and transcript. Read-only guard: write_*, exec, file, source, socket are removed and "
-     "open is limited to the session's own result files before the query runs (a guard against accidental writes, "
-     "not a security sandbox). Times out after 300 s.",
+     "and return its result and transcript. The checkpoint itself is not changed, but the Tcl is arbitrary code "
+     "with the tool's access (the run directory, and the host on the native runtime): approve it like a shell "
+     "command. A guard against accidents removes write_*, exec, file, source, socket, interp and pipe opens "
+     "before the query runs; it is not a sandbox. Times out after 300 s.",
      "inputSchema": _obj({"run_id": {"type": "string"}, "attempt": {"type": "string"}, "tcl": {"type": "string"}},
-                         ["run_id", "attempt", "tcl"]), "annotations": {"readOnlyHint": True}},
+                         ["run_id", "attempt", "tcl"]),
+     "annotations": {"readOnlyHint": False, "destructiveHint": True, "openWorldHint": True}},
 ]
 
 
 QUERY_BLOCKED = ["write_db", "write_def", "write_verilog", "write_spef", "write_sdc", "write_lef", "write_abstract_lef",
                  "write_cdl", "write_guides", "write_global_route_segments", "write_macro_placement", "save_image",
-                 "exec", "socket", "file", "source", "cd", "load"]
+                 "exec", "socket", "file", "source", "cd", "load", "interp"]
 # `open` stays usable only for the session's own result files (the session
 # protocol returns results through them); any other path is refused.
 QUERY_OPEN_GUARD = r"""
@@ -186,7 +191,7 @@ proc ::unknown {args} { ::__flow_unknown {*}$args }
 rename open ::__flow_open
 proc ::open {path args} {
   set dir [pwd]
-  if {[string first "$dir/.flow_" $path] != 0} { error "open is disabled in read-only queries: $path" }
+  if {[string first "$dir/.flow_" $path] != 0 || [string match "|*" $path]} { error "open is disabled in read-only queries: $path" }
   return [uplevel 1 [list ::__flow_open $path {*}$args]]
 }
 """
@@ -221,7 +226,21 @@ class Server:
         self._req = threading.local()  # request id / progress token of the call on this thread
 
     # ------------------------------------------------------------- helpers
-    def _runner(self):
+    @staticmethod
+    def _bool(v, name: str) -> bool:
+        """A boolean argument: true/false (JSON), never a string's truthiness ("false" is not true)."""
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, str) and v.lower() in ("true", "false"):
+            return v.lower() == "true"
+        raise ToolError(f"{name} must be true or false, not {v!r}")
+
+    def _runner(self, config=None):
+        if config is not None:  # a design file's own configuration (image, runtime)
+            r = find_openroad(config)
+            if r is None:
+                raise ToolError("OpenROAD is not available (not on PATH, no ORFS docker image)")
+            return r
         if self.runner is None:
             self.runner = find_openroad()
         if self.runner is None:
@@ -263,10 +282,11 @@ class Server:
     def list_scores(self):
         return {"scores": {k: (f.__doc__ or "").strip() or k for k, f in scores.SCORES.items()}}
 
-    def open_run(self, design, workdir=None, resume=False, explore=False):
+    def open_run(self, design, workdir=None, resume=False, explore=False, fresh=False):
         """``design``: an example name or a design file (YAML/JSON)."""
-        runner = self._runner()
         from . import designfile
+        from .config import Config
+        resume, explore, fresh = self._bool(resume, "resume"), self._bool(explore, "explore"), self._bool(fresh, "fresh")
         path = design if os.path.isfile(design) else os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                                                   "examples", f"{design}.yaml")
         if not os.path.isfile(path):
@@ -278,8 +298,17 @@ class Server:
         name = d.name
         run_id = f"{name}-{uuid.uuid4().hex[:6]}"
         workdir = os.path.abspath(workdir or os.path.join(os.getcwd(), "runs", "mcp", run_id))
+        if os.path.isfile(os.path.join(workdir, "graph.json")) and not (resume or fresh):
+            raise ToolError(f"{workdir} holds a run: resume: true continues it, fresh: true starts over")
+        if resume and fresh:
+            raise ToolError("resume and fresh exclude each other")
         try:
-            flow = designfile.build(d, workdir, runner, resume=bool(resume), explore=bool(explore))
+            cfg = Config.load(**designfile.file_config(path))  # as `sipath run` does
+        except (ValueError, TypeError) as e:
+            raise ToolError(f"{path}: config: {e}") from e
+        runner = self._runner(cfg)
+        try:
+            flow = designfile.build(d, workdir, runner, cfg, resume=resume, explore=explore)
         except ValueError as e:
             raise ToolError(str(e)) from e
         self.runs[run_id] = {"flow": flow, "design": name, "job": None}
@@ -348,8 +377,8 @@ class Server:
             raise ToolError(f"step {step!r} has not run in {run_id}; run it first (run_step)")
         if registry.adapter(step) is None:
             raise ToolError(f"step {step!r} has no adapter; adaptive rounds exist for {sorted(registry.ADAPTERS)}")
-        if not isinstance(rounds, int) or isinstance(rounds, bool) or rounds < 1:
-            raise ToolError(f"rounds must be an integer >= 1, not {rounds!r}")
+        if not isinstance(rounds, int) or isinstance(rounds, bool) or not 1 <= rounds <= 10:
+            raise ToolError(f"rounds must be an integer 1..10, not {rounds!r}")
         if not isinstance(parallel, int) or isinstance(parallel, bool) or not 1 <= parallel <= 16:
             raise ToolError(f"parallel must be an integer 1..16, not {parallel!r}")
         opts = dict(options or {})
@@ -383,6 +412,11 @@ class Server:
             if missing:
                 raise ToolError(f"op {k} ({op['op']}): missing {sorted(missing)}")
         name = name or f"eco_{sum(a.kind == 'eco' for a in flow.attempts) + 1}"
+        if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,63}", name):
+            raise ToolError(f"name must be an identifier (letters, digits, _): it names the attempt and its "
+                            f"directory; not {name!r}")
+        if not isinstance(max_patch_nets, int) or isinstance(max_patch_nets, bool) or not 1 <= max_patch_nets <= 10000:
+            raise ToolError(f"max_patch_nets must be an integer 1..10000, not {max_patch_nets!r}")
 
         def body():
             try:
@@ -399,6 +433,7 @@ class Server:
 
     # ----------------------------------------------------------------- jobs
     def _job(self, run_id, kind, body, total, background):
+        background = self._bool(background, "background")
         run = self._run(run_id)
         flow = run["flow"]
         with self._lock:
@@ -618,10 +653,12 @@ class Server:
         fn = getattr(self, name, None) if name in {t["name"] for t in TOOLS} else None
         if fn is None:
             raise ToolError(f"unknown tool {name!r}")
-        try:
-            return fn(**args)
+        import inspect
+        try:  # arguments the tool does not take: the caller's mistake; a TypeError inside the tool is a bug
+            inspect.signature(fn).bind(**args)
         except TypeError as e:
             raise ToolError(f"bad arguments for {name}: {e}") from e
+        return fn(**args)
 
     def handle(self, msg: dict):
         method, mid = msg.get("method"), msg.get("id")
@@ -705,11 +742,20 @@ def serve(stdin=None, stdout=None):
         except json.JSONDecodeError as e:
             send({"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": f"parse error: {e}"}})
             continue
-        if msg.get("method") == "tools/call" and msg.get("id") is not None:
+        name = (msg.get("params") or {}).get("name")
+        if msg.get("method") == "tools/call" and msg.get("id") is not None and name not in QUICK:
             pool.submit(work, msg)
-        else:
+        else:  # answered at once, never queued behind long calls (cancel_job must reach a busy server)
             work(msg)
+    # the client is gone: its runs' work stops (tool processes and containers too) before the server exits
+    for r in list(server.runs.values()):
+        r["flow"].cancel()
     pool.shutdown(wait=True)
+
+
+# tools that answer from memory or the run's files at once
+QUICK = {"cancel_job", "job_status", "list_jobs", "list_attempts", "list_designs", "list_scores", "describe_step",
+         "get_outputs"}
 
 
 if __name__ == "__main__":

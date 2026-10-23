@@ -2,13 +2,16 @@
 
     python3 -m sipath validate          inputs present + scheduler graph rules (FakeSession; no design)
     python3 -m sipath gen-inputs        (re)write sipath/examples/inputs
-    python3 -m sipath run <design.yaml|dp8|mcu8|ihp_add8> [workdir] [--resume] [--explore] [--snapshots[=all]] [--plan]
-                                      [--config file] [-v]
+    python3 -m sipath run <design.yaml|dp8|mcu8|ihp_add8> [workdir] [--resume|--fresh] [--explore]
+                                      [--snapshots[=all]] [--plan] [--config file] [-v]
                                       real OpenROAD run -> routed DEF + SPEF; --resume continues the
                                       attempt graph in workdir (finished steps are not run again);
                                       --explore: a fast first cut at PPA (typical corner, global routing,
-                                      no signoff) with a suggested clock period
-    python3 -m sipath harden <design.yaml|example> <outdir> [workdir] [--resume] [-v]
+                                      no signoff) with a suggested clock period; a workdir that holds a
+                                      run needs --resume (continue) or --fresh (start over); exit 0 when
+                                      no required check failed, 1 when the run or a check failed, 3
+                                      when a check is inconclusive or a budget/cancel stopped it
+    python3 -m sipath harden <design.yaml|example> <outdir> [workdir] [--resume|--fresh] [-v]
                                       run through signoff + views; copy the hardened macro views
                                       (LEF, Liberty per corner, GDS, CDL, macro.yaml) to outdir
     python3 -m sipath templates         design templates (a starter project per target, sipath/templates)
@@ -17,7 +20,7 @@
     python3 -m sipath pdks              PDK descriptions available (sipath/pdks)
     python3 -m sipath plugins [module ...]   what plugins (entry points and the given modules) register
     python3 -m sipath docs [out.md]     reference: design-file keys, step parameters, config, PDK keys
-                                      (default docs/reference.md)
+                                      (default: docs/reference.md in a checkout, else stdout)
     python3 -m sipath schema [out.json] JSON Schema of a design file (stdout without a file)
     python3 -m sipath render <workdir> [step|attempt|all] [-o out.png]
                                       OpenROAD layout render (save_image) of a run's checkpoint: a step's
@@ -49,6 +52,8 @@
     python3 -m sipath limits <workdir> <design> [--file f] [--suggest [--until step]]
                                       a run's results against its regression limits
                                       (sipath/tests/limits.yaml; --suggest: an entry from this run)
+    python3 -m sipath --version         the installed version
+    python3 -m sipath <command> --help  that command's usage (nothing is run)
 """
 from __future__ import annotations
 
@@ -63,13 +68,11 @@ def install_pdk(argv) -> int:
     import shutil
     import subprocess
     from .toolchain import install_command, lock
-    rest, root = [a for a in argv if not a.startswith("--")], None
-    if "--pdk-root" in argv:
-        root = argv[argv.index("--pdk-root") + 1]
-        rest = [a for a in rest if a != root]
+    rest, opts = options(argv, flags=("--dry-run",), values=("--pdk-root",))
+    root = opts.get("--pdk-root")
     cmd = install_command(rest[0] if rest else next(iter(lock().get("pdks", {})), ""), root)
     print(" ".join(shlex.quote(c) for c in cmd))
-    if "--dry-run" in argv:
+    if "--dry-run" in opts:
         return 0
     if not shutil.which("ciel"):
         import importlib.util
@@ -140,6 +143,51 @@ def validate() -> int:
     return 0
 
 
+class Usage(Exception):
+    """A command line the command cannot take: printed with its usage, exit 2."""
+
+
+def usage(cmd: str) -> str:
+    """The module docstring's entry for ``cmd`` (its line and the indented ones under it)."""
+    out, on = [], False
+    for ln in __doc__.splitlines():  # the docstring's indentation may be stripped (Python 3.13)
+        body = ln.lstrip()
+        indent = len(ln) - len(body)
+        if body.startswith("python3 -m sipath ") and indent < 8:
+            on = body.split()[3] == cmd
+        elif indent < 8:
+            on = False
+        if on:
+            out.append(ln)
+    return "\n".join(out) or __doc__
+
+
+def options(argv, flags=(), values=()) -> tuple[list, dict]:
+    """(positional arguments, {option: value or True}) of a command's arguments; Usage for an option it does not
+    take or one missing its value (``--snapshots=all`` style values are split)."""
+    pos, opts, it = [], {}, iter(argv)
+    for a in it:
+        if not a.startswith("-") or a == "-":
+            pos.append(a)
+            continue
+        key, eq, val = a.partition("=")
+        if key in values:
+            v = val if eq else next(it, None)
+            if v is None or (not eq and v.startswith("-")):
+                raise Usage(f"{key} needs a value")
+            if key in opts and key == "--set":
+                opts[key] = [*opts[key], v]
+            else:
+                opts[key] = [v] if key == "--set" else v
+        elif key in flags and not eq:
+            opts[key] = True
+        elif key in flags and key == "--snapshots":
+            opts[key] = val
+        else:
+            raise Usage(f"unknown option {a}")
+    return pos, opts
+
+
 def _read_graph(wd: str) -> dict:
     import json
     with open(os.path.join(wd, "graph.json")) as f:
@@ -168,6 +216,31 @@ def main(argv) -> int:
     if not argv or argv[0] in ("-h", "--help"):
         print(__doc__)
         return 0
+    if argv[0] == "--version":
+        from . import __version__
+        print(__version__)
+        return 0
+    if any(a in ("-h", "--help") for a in argv[1:]):  # a command's usage; nothing runs (downloads, installs)
+        print(usage(argv[0]))
+        return 0
+    try:
+        return _main(argv)
+    except Usage as e:
+        print(f"sipath {argv[0]}: {e}\n{usage(argv[0])}", file=sys.stderr)
+        return 2
+
+
+def _fresh_or_resume(wd: str, opts: dict) -> bool:
+    """Whether to resume: a workdir that holds a run is continued (--resume) or started over (--fresh), never
+    overwritten because an option was mistyped or left out."""
+    if "--resume" in opts and "--fresh" in opts:
+        raise Usage("--resume and --fresh exclude each other")
+    if "--resume" not in opts and "--fresh" not in opts and os.path.isfile(os.path.join(wd, "graph.json")):
+        raise Usage(f"{wd} holds a run (graph.json): --resume continues it, --fresh starts over")
+    return "--resume" in opts
+
+
+def _main(argv) -> int:
     cmd = argv[0]
     if cmd == "validate":
         return validate()
@@ -210,13 +283,16 @@ def main(argv) -> int:
         import logging
         from . import designfile
         from .config import Config
-        resume, verbose, explore = "--resume" in argv, "-v" in argv, "--explore" in argv
-        argv_full = list(argv)
-        snapshots = "all" if "--snapshots=all" in argv else ("selected" if "--snapshots" in argv else None)
-        args = [a for a in argv[1:] if not a.startswith("-")]
-        cfg_file = argv[argv.index("--config") + 1] if "--config" in argv else None
-        if cfg_file in args:
-            args.remove(cfg_file)
+        args, opts = options(argv[1:], flags=("--resume", "--fresh", "-v", "--explore", "--plan", "--snapshots"),
+                             values=("--config",))
+        if not args or len(args) > 2:
+            raise Usage("a design file (or example name) and at most one workdir")
+        verbose, explore = "-v" in opts, "--explore" in opts
+        snap = opts.get("--snapshots")
+        if snap not in (None, True, "all", "selected"):
+            raise Usage(f"--snapshots={snap}: all or selected")
+        snapshots = "selected" if snap is True else snap
+        cfg_file = opts.get("--config")
         argv = ["run", *args]
         cfg = Config.load(cfg_file)
         logging.basicConfig(level="INFO" if verbose else cfg.log_level,
@@ -230,10 +306,11 @@ def main(argv) -> int:
         run_cfg = Config.load(cfg_file, **fcfg) if (cfg_file or fcfg) else cfg
         if snapshots:
             run_cfg = run_cfg.replace(snapshots=snapshots)
-        if "--plan" in argv_full:  # what the run would do, nothing run
+        if "--plan" in opts:  # what the run would do, nothing run
             p = designfile.plan(path, wd, run_cfg, explore=explore)
             print(designfile.plan_text(p))
             return 1 if p["problems"] else 0
+        resume = _fresh_or_resume(wd, opts)
         try:
             flow = designfile.run(path, wd, config=run_cfg, resume=resume, explore=explore)
         except Exception as e:  # noqa: BLE001
@@ -258,17 +335,17 @@ def main(argv) -> int:
     if cmd == "harden":
         import logging
         from . import designfile
-        resume, verbose = "--resume" in argv, "-v" in argv
-        args = [a for a in argv[1:] if not a.startswith("-")]
-        if len(args) < 2:
-            print("usage: python3 -m sipath harden <design.yaml|example> <outdir> [workdir] [--resume] [-v]")
-            return 2
+        args, opts = options(argv[1:], flags=("--resume", "--fresh", "-v"))
+        verbose = "-v" in opts
+        if not 2 <= len(args) <= 3:
+            raise Usage("a design file (or example name), an output directory and at most one workdir")
         logging.basicConfig(level="INFO" if verbose else "WARNING",
                             format="%(asctime)s %(name)s %(levelname)s %(message)s")
         path = args[0]
         if not os.path.isfile(path):
             path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "examples", path + ".yaml")
         wd = args[2] if len(args) > 2 else os.path.join(os.getcwd(), "runs", designfile.load(path)[0].name + "_harden")
+        resume = _fresh_or_resume(wd, opts)
         try:
             out = designfile.harden(path, os.path.abspath(args[1]), wd, resume=resume)
         except Exception as e:  # noqa: BLE001
@@ -288,18 +365,20 @@ def main(argv) -> int:
         return 0
     if cmd == "new":
         from . import templates
-        args = [a for a in argv[1:]]
-        if not args or "--template" not in args:
-            print("usage: python3 -m sipath new <dir> --template <name> [--set key=value ...] [--force]")
-            return 2
-        name = args[args.index("--template") + 1]
+        args, opts = options(argv[1:], flags=("--force",), values=("--template", "--set"))
+        if len(args) != 1 or "--template" not in opts:
+            raise Usage("one output directory and --template <name>")
         sets = {}
-        for k, a in enumerate(args):
-            if a == "--set":
-                key, _, val = args[k + 1].partition("=")
-                sets[key] = val
+        for item in opts.get("--set", []):
+            key, eq, val = item.partition("=")
+            if not eq or not key:
+                raise Usage(f"--set {item}: key=value")
+            sets[key] = val
+        try:
+            files = templates.get(opts["--template"]).render(args[0], sets, force="--force" in opts)
+        except (KeyError, ValueError) as e:
+            raise Usage(str(e).strip("'\"")) from None
         outdir = args[0]
-        files = templates.get(name).render(outdir, sets, force="--force" in args)
         print("\n".join(files))
         print(f"run it: python3 -m sipath run {os.path.join(outdir, 'design.yaml')}")
         return 0
@@ -336,8 +415,16 @@ def main(argv) -> int:
         return nt(argv[1:])
     if cmd == "docs":
         from .reference import write
-        out = argv[1] if len(argv) > 1 else os.path.join(os.path.dirname(os.path.dirname(
-            os.path.abspath(__file__))), "docs", "reference.md")
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if len(argv) > 1:
+            out = argv[1]
+        elif os.path.isdir(os.path.join(root, ".git")):  # a checkout: its reference page
+            out = os.path.join(root, "docs", "reference.md")
+        else:  # an installed package: never into site-packages
+            with tempfile.TemporaryDirectory() as td:
+                with open(write(os.path.join(td, "reference.md"))) as f:
+                    print(f.read())
+            return 0
         print(write(out))
         return 0
     if cmd == "schema":
