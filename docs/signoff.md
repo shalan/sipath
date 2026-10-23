@@ -29,7 +29,7 @@ check can also run as a step of its own.
 - **Opt-in:** `magic_drc` (Magic `drc(full)`), `xor` (Magic's stream-out of the
   routed DEF against KLayout's; fill not compared), `lvs_full`: full-device
   LVS with the PDK's own deck (open_pdks `sky130.lvs`: high-voltage MOS, MIM
-  caps, resistors, diodes), also as `sipath lvs <gds> <top> <schematic...>`
+  caps, resistors, diodes), also as `sipath lvs <gds> <top> <schematic...> --pdk <name>`
   for a macro. Schematics are prepared for the deck (device aliases, the
   device prefix on CDL models, cell SPICE for black boxes, parallel MOS merged
   as the deck merges the layout's). Not yet matching: the ChipFoundry ADC's
@@ -79,7 +79,8 @@ overriding an earlier one), and cf-precheck's checks. It writes the result to
 counts), into MCP's `run_step` result, and as the CLI's last line.
 
 - **Execution:** `completed`, `failed` (the latest step's attempts failed or
-  were interrupted), `cancelled`. A step whose attempts all ran and were
+  were interrupted), `cancelled`, `budget` (a run budget stopped it; `--resume`
+  continues). A step whose attempts all ran and were
   rejected (an ECO that lost slack) is a note, not a failure, and the verdict
   covers the chain up to the latest step that selected an attempt.
 - **Verification:** `passed` (every check that ran passed and the standard

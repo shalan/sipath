@@ -8,8 +8,9 @@ rest of the file stays as it is); every snippet here is checked against the
 design-file schema and the declared step parameters by the unit tests, so the
 names are the ones SiPath accepts. Full designs for most recipes are in
 `sipath/examples/` ([design files and examples](design-files.md)). The
-[tutorial notebook](../notebooks/sipath_tutorial.ipynb) runs every recipe, in
-Colab or Codespaces.
+[tutorial notebook](../notebooks/sipath_tutorial.ipynb) runs most recipes, in
+Colab or Codespaces (the hour-long mcu8 and OpenFrame runs are left commented
+out there).
 
 - [1. RTL to a signed-off layout](#1-rtl-to-a-signed-off-layout)
 - [2. A first cut at PPA, then the clock](#2-a-first-cut-at-ppa-then-the-clock)
@@ -53,7 +54,8 @@ python3 -m sipath report runs/gcd8
 `place.1` names an attempt, a rejected one too. Look at
 `runs/gcd8/report.html` (every step, its attempts and metrics, the signoff
 checks, the pictures in flow order) and `signoff/0/signoff.json` (DRC, LVS,
-antennas, nine-corner timing). `sipath/examples/gcd8.yaml` is this design.
+antennas, nine-corner timing). `sipath/examples/gcd8.yaml` is this design with
+its flow spelled out (at 0.35 utilization).
 
 ## 2. A first cut at PPA, then the clock
 
@@ -268,7 +270,9 @@ flow:
 `precheck`'s outputs list every cf-precheck check (LVS with Netgen, OEB with
 CVC, XOR, KLayout DRC, ...); `integrate`'s `chipcheck` confirms the die, the
 wrapper at its origin and unchanged, and the seal ring centred and touching
-nothing. `sipath/examples/openframe_gcd8.yaml` is a gcd on the east-edge pads.
+nothing. `sipath/examples/openframe_gcd8.yaml` is a gcd on the east-edge pads;
+its own flow integrates without the seal ring and has no `precheck`: add
+those as above (its live test does).
 
 ## 9. Hardened macros in a parent design
 
@@ -280,9 +284,9 @@ python3 -m sipath harden gcd8 sipath/examples/hardened/gcd8
 ```
 
 ```yaml
-macros:
-- {inst: u0, views: sipath/examples/hardened/gcd8, location: [20, 20]}
-- {inst: u1, views: sipath/examples/hardened/gcd8, location: [160, 20]}
+macros:  # views: relative to the design file (here one in sipath/examples/)
+- {inst: u0, views: hardened/gcd8, location: [20, 20]}
+- {inst: u1, views: hardened/gcd8, location: [160, 20]}
 ```
 
 The parent signs off with the macros' insides checked (DRC sees their layout,
@@ -501,16 +505,21 @@ shared the machine):
 | run | attempts | wall time | result |
 |---|---|---|---|
 | `--explore` | 7 | 29 s | WNS +0.907 ns at tt (global-route parasitics); achievable 3.09 ns, suggested `create_clock -period 3.25` |
-| full, in parallel | 7 + the single steps | 91 s | signoff passes: DRC 0, LVS match, WNS +1.975 ns at tt, +0.126 ns at ss_max |
-| full, one attempt at a time (`SIPATH_PARALLEL_CAP=1`) | the same | 104 s | identical: the same selections and numbers at every step |
+| full, in parallel (`parallel_cap: 4`, the file's) | 7 + the single steps | 76 s | signoff passes: DRC 0, LVS match, WNS +1.975 ns at tt, +0.126 ns at ss_max |
+| full, one attempt at a time (the file with `parallel_cap: 1`) | the same | 105 s | identical: the same selections and numbers at every step |
+
+The two full runs were measured on 2026-10-23 one after the other on an
+otherwise idle machine. The design file's `config:` wins over `SIPATH_*`
+variables, so `SIPATH_PARALLEL_CAP=1` does not make this file run one attempt
+at a time: change the file's `parallel_cap`.
 
 What this shows:
 - **Parallelism changes the wall time, not the result.** Both full runs select
   the same attempts with the same metrics: the flow is deterministic, and
   attempts running at once share the run's OpenROAD threads (each gets
   `threads` / the attempts alive at once; a step's `threads` parameter
-  overrides it). On a design this small the gain is modest (12%); it grows with
-  the attempts' length, e.g. mcu8's macro sweep.
+  overrides it). On a design this small the gain is 28% of the wall time; it
+  grows with the attempts' length, e.g. mcu8's macro sweep.
 - **Explore mode is a first look, judged at the typical corner.** There it
   picks the area recipe set (it meets 4 ns at tt); the full flow, judging at
   the slow corner, picks the delay set. In explore mode a routing score that

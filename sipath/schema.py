@@ -119,8 +119,8 @@ CONFIG = {
     "openroad_binary": F("str", "OpenROAD inside the image (default the ORFS path; openroad for an image with it on PATH)"),
     "platform": F("str", "image platform: linux/amd64, or linux/arm64 for a native arm64 image"),
     "native_tools": F("list[str]", "tools run on the host instead of the image (klayout, yosys, magic): faster than emulation"),
-    "runtime": F("str", "where OpenROAD, Yosys and KLayout run: auto (the locked tools unpacked by install-tools "
-                        "or openroad on PATH, else the locked image), native, or docker",
+    "runtime": F("str", "where OpenROAD, Yosys and KLayout run: auto ($SIPATH_OPENROAD, then openroad on PATH, "
+                        "then the locked tools unpacked by install-tools, else the locked image), native, or docker",
                  choices=("auto", "native", "docker")),
     "tools_root": F("str", "the locked image's tools unpacked by sipath install-tools (default "
                            "~/.cache/sipath/orfs-root)"),
@@ -129,7 +129,7 @@ CONFIG = {
     "precheck_image": F("str", "image with ChipFoundry's cf-precheck and its tools (precheck step)"),
     "require_pdk_release": F("bool", "refuse an open_pdks tree whose release is not the locked one (default on)"),
     "debug_failed": F("bool", "write a debug checkpoint for a failed attempt"),
-    "log_level": F("str", "flow logger level", choices=("DEBUG", "INFO", "WARNING", "ERROR")),
+    "log_level": F("str", "sipath logger level", choices=("DEBUG", "INFO", "WARNING", "ERROR")),
     "snapshots": F("str", "a layout picture after every step (_pictures/<attempt>.png, in the report): off, "
                           "selected (each step's selected attempt) or all (every finished attempt)",
                    choices=("off", "selected", "all")),

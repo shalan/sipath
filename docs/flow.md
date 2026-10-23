@@ -4,7 +4,8 @@ Part of the [SiPath documentation](../README.md#documentation).
 
 (`synth`) → `floorplan` → (`macros`) → `physical` → `place` → `cts` →
 `route_analog` → `route_digital` → `route_repair` → (`fill`) → `extract` →
-`signoff` → (`views`, `integrate`). `ppa` ends an exploration run; `drc`,
+`signoff` → (`views`, `integrate`). `ppa` ends an exploration run that stops
+before routing; `drc`,
 `density`, `lvs`, `lvs_full`, `antenna`, `timing`, `magic_drc`, `xor` and
 `harness` run single signoff checks.
 
@@ -15,8 +16,8 @@ capabilities it needs from its parent chain and those it adds, and a flow may
 list steps in any order that satisfies them. A step whose chain lacks one is
 refused before any tool starts, naming what is missing and the step that gives
 it: a design-file flow is checked as a whole before its first step runs (also
-by `sipath validate`), `Flow.step` checks each step, and MCP's `run_step`
-checks before its job starts.
+by `sipath run <file> --plan`, and `sipath validate` for the shipped examples),
+`Flow.step` checks each step, and MCP's `run_step` checks before its job starts.
 
 | step | needs | adds |
 |---|---|---|
@@ -238,7 +239,8 @@ capabilities in `graph.json`.
   `heatmap_<map>_peak`, `_p95` and `_hot_share`.
 - The run report draws the selected attempts' maps (`heatmaps/<map>.svg`)
   with a table of their summaries; MCP's `query_heatmap(run, attempt, map,
-  box?)` returns a map's summary and its bins, all or those in a box.
+  box?, bins?)` returns a map's summary, and its bins when asked (`bins: true`
+for all, `box` for those in a box).
 - RUDY and the routing map have one bin per gcell: 316,020 on the OpenFrame
   die. A map finer than 100 × 100 is stored, and drawn, coarsened to at most
   100 per side, each bin the largest value it covers. Its summary and hotspots

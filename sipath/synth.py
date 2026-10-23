@@ -324,7 +324,10 @@ def equivalence(ctx, netlist: str) -> dict:
         yosys.script(ctx, script, log, ctx.path("equiv.out"))
     except Exception:
         pass  # the log tells: a counterexample (FAIL) or a timeout
-    text = open(log, errors="replace").read() if os.path.isfile(log) else ""
+    text = ""
+    if os.path.isfile(log):
+        with open(log, errors="replace") as fh:
+            text = fh.read()
     res = {"depth": depth, "reset": f"{reset[0]}={reset[1]}" if reset else None, "log": log}
     if "SAT proof finished - no model found: SUCCESS" in text:
         res["result"] = f"equivalent for {depth} cycles from reset"

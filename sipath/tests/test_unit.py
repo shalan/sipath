@@ -356,11 +356,11 @@ class Precheck(unittest.TestCase):
         d = tempfile.mkdtemp()
         gds, net = os.path.join(d, "w.gds"), os.path.join(d, "w.v")
         for f in (gds, net):
-            open(f, "w").write("x")
+            _write_text(f, "x")
         out = pc.export_project(os.path.join(d, "proj"), "openframe_project_wrapper", gds, net)
         self.assertTrue(out["gds"].endswith("proj/gds/openframe_project_wrapper.gds"))
         self.assertTrue(out["netlist"].endswith("proj/verilog/gl/openframe_project_wrapper.v"))
-        cfg = json.load(open(out["lvs_config"]))  # cf-precheck's own config for the flat wrapper
+        cfg = _read_json(out["lvs_config"])  # cf-precheck's own config for the flat wrapper
         self.assertEqual(cfg, {"INCLUDE_CONFIGS": ["$LVS_ROOT/tech/$PDK/lvs_config.openframe_project_wrapper.json"]})
         from sipath import scores
         self.assertGreater(scores.auto({"precheck_pass": True, "precheck_failed": 0}),
@@ -466,13 +466,13 @@ class NativeTools(unittest.TestCase):
                                 ("usr/bin/abs", "sym", "/usr/bin/a")]), root)
         nt._unpack(self._layer([("usr/bin/.wh.gone", "file", b""), ("opt/d/.wh..wh..opq", "file", b""),
                                 ("opt/d/new", "file", b"n"), ("usr/bin/a", "file", b"2")]), root)
-        self.assertEqual(open(os.path.join(root, "usr/bin/a")).read(), "2")  # a later layer wins
+        self.assertEqual(_read_text(os.path.join(root, "usr/bin/a")), "2")  # a later layer wins
         self.assertFalse(os.path.lexists(os.path.join(root, "usr/bin/gone")))  # whiteout
         self.assertEqual(os.listdir(os.path.join(root, "opt/d")), ["new"])  # opaque directory
         self.assertFalse(os.path.exists(os.path.join(root, "usr/include")))  # skipped part
         link = os.path.join(root, "usr/bin/abs")
         self.assertFalse(os.readlink(link).startswith("/"))  # absolute link kept inside root
-        self.assertEqual(open(link).read(), "2")
+        self.assertEqual(_read_text(link), "2")
 
     def test_a_cut_download_resumes_and_is_checked(self):
         import hashlib
@@ -501,7 +501,7 @@ class NativeTools(unittest.TestCase):
         with unittest.mock.patch.object(nt, "_get", get), unittest.mock.patch.object(nt, "_token", lambda h, r: None), \
                 unittest.mock.patch("time.sleep"):
             path = nt._download("h", "r", layer, os.path.join(root, "l"), log=lambda s: None)
-            self.assertEqual(open(path, "rb").read(), blob)
+            self.assertEqual(_read_bytes(path), blob)
             self.assertEqual(starts[0], 0)
             self.assertGreater(starts[1], 0)  # the second try asked for the rest only
             bad = {"digest": "sha256:" + "0" * 64, "size": len(blob)}
@@ -2139,9 +2139,9 @@ class CdlnsWorkClock(unittest.TestCase):
             src = os.path.join(td, "placer.py")
             with open(src, "w") as f:
                 f.write("def run(clock):\n    a = clock.time()\n    b = clock.time()\n    return a, b\n")
-            sha = hashlib.sha256(open(src, "rb").read()).hexdigest()
+            sha = hashlib.sha256(_read_bytes(src)).hexdigest()
             ns = {}
-            exec(compile(open(src).read(), src, "exec"), ns)
+            exec(compile(_read_text(src), src, "exec"), ns)
             clock = wc.WorkClock(src, {3: 0.5}, tick=0.01)
             self.assertEqual(ns["run"](clock), (0.01, 0.51))  # line 2: the tick; line 3: its charge
             self.assertEqual(ns["run"](wc.WorkClock(src, {3: 0.5}, tick=0.01)), (0.01, 0.51))  # same work, same times
@@ -2190,11 +2190,11 @@ class Metrics2(unittest.TestCase):
                "== corner ss_max\nTotal                  3.23e-04   2.79e-04   1.02e-06   6.03e-04 100.0%\n")
         with tempfile.TemporaryDirectory() as td:
             f = os.path.join(td, "p.rpt")
-            open(f, "w").write(rpt)
+            _write_text(f, rpt)
             m = power_metrics(f)
             self.assertEqual((m["power_total_w"], m["power_leakage_w"], m["power_total_w_ss_max"]),
                              (7.52e-04, 1.44e-09, 6.03e-04))  # the typical corner first
-            open(f, "w").write("report_power failed: no libraries\n")
+            _write_text(f, "report_power failed: no libraries\n")
             self.assertEqual(power_metrics(f), {})
         self.assertEqual(power_metrics("/nonexistent.rpt"), {})
 
@@ -3773,6 +3773,21 @@ class SourceCorrectness(unittest.TestCase):
         self.assertNotIn("p.returncode", src)  # process.Result has rc: the old name raised AttributeError
 
 
+def _write_text(path, text):
+    with open(path, "w") as fh:
+        fh.write(text)
+
+
+def _read_text(path):
+    with open(path) as fh:
+        return fh.read()
+
+
+def _read_bytes(path):
+    with open(path, "rb") as fh:
+        return fh.read()
+
+
 def eco_module_path():
     from sipath import eco
     return eco.__file__
@@ -3874,6 +3889,52 @@ class McpSafety(unittest.TestCase):
             _write_json(os.path.join(td, "graph.json"), {"attempts": []})
             with self.assertRaisesRegex(ToolError, "holds a run"):
                 s.open_run("gcd8", td)
+
+
+class UserSurface(unittest.TestCase):
+    """Project review, batch 4: explore mode, plans and parameters say before a run what the run would refuse."""
+
+    def test_explore_drops_the_check_steps(self):
+        from sipath import designfile
+        spec = [{"step": s} for s in ("synth", "floorplan", "place", "cts", "route_digital", "extract", "timing",
+                                      "drc", "lvs", "precheck", "signoff")]
+        self.assertEqual([i["step"] for i in designfile.explore_flow(spec)],
+                         ["synth", "floorplan", "place", "cts", "route_digital"])
+
+    def test_abc_sweep_names_are_checked(self):
+        from sipath import params
+        for ok in ("auto", "off", "delay", "delay_map, area_map", "speed"):
+            params.check("synth", {"abc_sweep": ok})
+        for bad in ("dealy", "delay_map,nope", ","):
+            with self.assertRaises(ValueError):
+                params.check("synth", {"abc_sweep": bad})
+
+    def test_a_plan_names_missing_inputs_and_bad_parameters(self):
+        import yaml
+        from sipath import designfile
+        ex = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "examples")
+        with open(os.path.join(ex, "gcd8.yaml")) as fh:
+            d = yaml.safe_load(fh)
+        d["sdc"] = os.path.join(ex, d["sdc"])
+        with tempfile.TemporaryDirectory() as td:
+            d["rtl"] = [os.path.join(td, "nonexist.v")]
+            d["flow"] = [{"step": "synth", "variants": [{"abc_sweep": "dealy"}]}, {"step": "floorplan"}]
+            path = os.path.join(td, "d.yaml")
+            with open(path, "w") as fh:
+                yaml.safe_dump(d, fh)
+            p = designfile.plan(path, td)
+        self.assertTrue(any("abc_sweep" in x for x in p["problems"]), p["problems"])
+        self.assertTrue(any("nonexist.v" in x for x in p["problems"]), p["problems"])
+        self.assertIn("problem:", designfile.plan_text(p))
+
+    def test_a_live_class_that_only_skipped_is_not_a_pass(self):
+        from unittest import mock
+        from sipath.tests import run_live
+        fake = {"class": "LiveX", "rc": 0, "seconds": 1.0, "tests": 2, "skipped": 2, "durations": [], "output": ""}
+        with mock.patch.object(run_live, "run_class", lambda n, env: dict(fake, **{"class": n})), \
+                mock.patch("sys.stdout", new_callable=__import__("io").StringIO):
+            self.assertEqual(run_live.main(["-j", "1", "LiveX"]), 1)
+            self.assertEqual(run_live.main(["-j", "1", "--allow-skips", "LiveX"]), 0)
 
 
 class SignoffJudgment(unittest.TestCase):
@@ -4177,7 +4238,7 @@ class Adaptive(unittest.TestCase):
             self.assertEqual((run.selected.adapted_from, run.selected.adapt_reason), ("place.0", "hotter"))
             self.assertEqual(run.rounds, [{"from": "place.0", "attempts": ["place.1", "place.2"], "selected": "place.2"}])
             f.stop_rounds("place", "nothing hot")
-            g = json.load(open(os.path.join(td, "graph.json")))
+            g = _read_json(os.path.join(td, "graph.json"))
             self.assertEqual(g["steps"]["place"]["rounds"][-1]["stopped"], "nothing hot")
             self.assertEqual(g["steps"]["place"]["variants"], [{"density": 0.8}])  # the base variants
             ran = []
@@ -4482,7 +4543,7 @@ class Scheduler(unittest.TestCase):
             self.assertIn("patch lost nets", first.error)
             self.assertEqual((retry.params, retry.retry_of, retry.index), ({"k": 1, "full": True}, first.id, 1))
             self.assertEqual(len(calls), 2)
-            g = json.load(open(os.path.join(td, "graph.json")))
+            g = _read_json(os.path.join(td, "graph.json"))
             self.assertEqual([a.get("retry_of") for a in g["attempts"] if a["step"] == "patch"], [None, first.id])
             self.assertEqual([a.get("retry_reason") for a in g["attempts"] if a["step"] == "patch"],
                              [None, "patch lost nets"])  # the retry says why it ran
@@ -4970,8 +5031,13 @@ class ConfigTests(unittest.TestCase):
         self.assertTrue(any(wd == m or wd.startswith(m + os.sep) for m in r.mounts), r.mounts)
 
     def test_images_pinned_by_default(self):
+        from unittest import mock
         from sipath import toolchain
         from sipath.config import Config, ConfigError
+        env = mock.patch.dict(os.environ, {k: v for k, v in os.environ.items() if not k.startswith("SIPATH_")},
+                              clear=True)  # the defaults, not this machine's or this CI job's settings
+        env.start()
+        self.addCleanup(env.stop)
         c = Config()
         self.assertTrue(c.require_digest)
         self.assertEqual((c.image, c.magic_image), (toolchain.image("orfs"), toolchain.image("magic")))
@@ -5469,7 +5535,7 @@ class SynthSelection(unittest.TestCase):
                 fh.write("module m(a, y);\n  input signed [15:0] a;\n  wire signed [15:0] a;\n  output y;\n"
                          "  sky130_fd_sc_hd__inv_1 u (.A(a[0]), .Y(y));\nendmodule\n")
             self.assertEqual(synth.strip_signed(p), 2)
-            text = open(p).read()
+            text = _read_text(p)
             self.assertIn("  input [15:0] a;", text)
             self.assertEqual(len(parse_verilog(text, "m").instances), 1)  # SiPath's reader takes it now
 

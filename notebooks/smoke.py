@@ -3,8 +3,8 @@ commands, `_exit_code`, display calls). CI's smoke test of the tutorial:
 
     python notebooks/smoke.py [--until N] [notebook]
 
-Cells starting with "# optional" are skipped. A cell that raises, or a `!` command that exits non-zero, fails
-the run (exit 1), naming the cell.
+Cells starting with "# optional" are skipped. A cell that raises, or any `!` command that exits non-zero (each
+one, not only a cell's last), fails the run (exit 1), naming the cell and the command.
 """
 from __future__ import annotations
 
@@ -19,6 +19,14 @@ def main(argv) -> int:
     path = args[0] if args else os.path.join(os.path.dirname(os.path.abspath(__file__)), "sipath_tutorial.ipynb")
     from IPython.core.interactiveshell import InteractiveShell
     shell = InteractiveShell.instance()
+    failed = []  # every `!` command's non-zero exit (IPython's _exit_code keeps only the latest)
+    system = shell.system
+
+    def checked(cmd):
+        system(cmd)
+        if shell.user_ns.get("_exit_code", 0):
+            failed.append((cmd, shell.user_ns["_exit_code"]))
+    shell.system = checked
     with open(path) as f:
         cells = json.load(f)["cells"]
     for i, c in enumerate(cells):
@@ -32,9 +40,8 @@ def main(argv) -> int:
             continue
         print(f"--- cell {i}: {src.splitlines()[0][:100]}", flush=True)
         r = shell.run_cell(src, store_history=True)
-        code = shell.user_ns.get("_exit_code", 0)
-        if not r.success or code:
-            print(f"cell {i} failed" + (f" (a command exited {code})" if code else ""), file=sys.stderr)
+        if not r.success or failed:
+            print(f"cell {i} failed" + "".join(f"\n  `{cmd}` exited {code}" for cmd, code in failed), file=sys.stderr)
             return 1
     print("tutorial smoke test passed")
     return 0

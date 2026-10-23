@@ -1,7 +1,8 @@
 # The ORFS image plus Magic (VLSI layout tool), for frame layouts published in
 # Magic format, seal rings, and Magic DRC / GDS XOR (P1.5).
 #   docker build --platform linux/amd64 -t sipath/orfs-magic:8.3.685 docker/magic
-ARG BASE=openroad/orfs:latest
+# on the ORFS image locked in sipath/toolchain.json (images.orfs): the same tools as every run, never "latest"
+ARG BASE=openroad/orfs@sha256:751a77afcade9882b51427e6d9d079b8e270e7a8f4aa66df2d0659457d1c29fd
 FROM ${BASE}
 ARG MAGIC_TAG=8.3.685
 RUN apt-get update \

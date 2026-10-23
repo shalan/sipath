@@ -190,14 +190,14 @@ YAML or JSON; relative paths are relative to the file. Keys not listed are error
 | `openroad_binary` | str |  | OpenROAD inside the image (default the ORFS path; openroad for an image with it on PATH) |
 | `platform` | str |  | image platform: linux/amd64, or linux/arm64 for a native arm64 image |
 | `native_tools` | list[str] |  | tools run on the host instead of the image (klayout, yosys, magic): faster than emulation |
-| `runtime` | str |  | where OpenROAD, Yosys and KLayout run: auto (the locked tools unpacked by install-tools or openroad on PATH, else the locked image), native, or docker (one of: auto, native, docker) |
+| `runtime` | str |  | where OpenROAD, Yosys and KLayout run: auto ($SIPATH_OPENROAD, then openroad on PATH, then the locked tools unpacked by install-tools, else the locked image), native, or docker (one of: auto, native, docker) |
 | `tools_root` | str |  | the locked image's tools unpacked by sipath install-tools (default ~/.cache/sipath/orfs-root) |
 | `tool_timeout` | number |  | seconds one signoff tool run (KLayout DRC/LVS, Magic) may take |
 | `require_digest` | bool |  | refuse an image not pinned by digest (default on) |
 | `precheck_image` | str |  | image with ChipFoundry's cf-precheck and its tools (precheck step) |
 | `require_pdk_release` | bool |  | refuse an open_pdks tree whose release is not the locked one (default on) |
 | `debug_failed` | bool |  | write a debug checkpoint for a failed attempt |
-| `log_level` | str |  | flow logger level (one of: DEBUG, INFO, WARNING, ERROR) |
+| `log_level` | str |  | sipath logger level (one of: DEBUG, INFO, WARNING, ERROR) |
 | `snapshots` | str |  | a layout picture after every step (_pictures/<attempt>.png, in the report): off, selected (each step's selected attempt) or all (every finished attempt) (one of: off, selected, all) |
 
 ### inputs
@@ -231,7 +231,7 @@ Set per attempt in `variants` (design file `flow:` or MCP `run_step`), or as def
 | parameter | type | default | allowed | description |
 |---|---|---|---|---|
 | `abc` | str | – | area_classic, area_lut6, area_map, area_max, balanced_resyn, balanced_resyn2x, delay_aggressive, delay_choice_deep, delay_choice_deep_bb, delay_choice_deep_v3, delay_choice_deep_v4, delay_iter_heavy, delay_map, delay_map_resyn, delay_syn2, delay_triple, orfs_area, orfs_speed, speed_sizing, yosys_default, area, delay, speed | one ABC recipe instead of abc_sweep (sipath/synth_recipes: 18 measured in shalan/synth_flow, plus area_map and speed_sizing; aliases delay, area, speed) |
-| `abc_sweep` | str | auto |  | recipes mapped in this attempt, the netlist picked by synth_select (least area meeting timing, else the knee): auto (the delay set plus area_map), delay, area, balanced (synth_flow's top 5 each), off (delay_map_resyn alone), or names separated by commas |
+| `abc_sweep` | str | auto |  | recipes mapped in this attempt, the netlist picked by synth_select (least area meeting timing, else synth_fallback's pick): auto (the delay set plus area_map), delay, area, balanced (synth_flow's top 5 each), off (delay_map_resyn alone), or recipe names separated by commas (one string, not a list) |
 | `synth_fallback` | str | best_slack | knee, best_slack, least_area | when no recipe meets timing at synthesis: best_slack (the fastest netlist; measured best end to end, docs/synthesis.md), knee (of the slack/area front, else best slack) or least_area |
 | `map_corner` | str | – |  | corner whose Liberty dfflibmap and ABC map with: a corner name, typical, or (default) the timing corner, the slow one (bench: 12/16 designs meet timing against 10 at typical) |
 | `synth_abc` | bool | false |  | keep Yosys's generic ABC pass in synth (default: synth -noabc, as synth_flow; measured mixed: better on aes, worse on gcd8) |
@@ -514,14 +514,14 @@ Design file `config:`, a `--config` file, or the environment variable each key n
 | `openroad_binary` | `SIPATH_OPENROAD_BINARY` | str | OpenROAD inside the image (default the ORFS path; openroad for an image with it on PATH) |
 | `platform` | `SIPATH_PLATFORM` | str | image platform: linux/amd64, or linux/arm64 for a native arm64 image |
 | `native_tools` | `SIPATH_NATIVE_TOOLS` | list[str] | tools run on the host instead of the image (klayout, yosys, magic): faster than emulation |
-| `runtime` | `SIPATH_RUNTIME` | str | where OpenROAD, Yosys and KLayout run: auto (the locked tools unpacked by install-tools or openroad on PATH, else the locked image), native, or docker |
+| `runtime` | `SIPATH_RUNTIME` | str | where OpenROAD, Yosys and KLayout run: auto ($SIPATH_OPENROAD, then openroad on PATH, then the locked tools unpacked by install-tools, else the locked image), native, or docker |
 | `tools_root` | `SIPATH_TOOLS_ROOT` | str | the locked image's tools unpacked by sipath install-tools (default ~/.cache/sipath/orfs-root) |
 | `tool_timeout` | `SIPATH_TOOL_TIMEOUT` | number | seconds one signoff tool run (KLayout DRC/LVS, Magic) may take |
 | `require_digest` | `SIPATH_REQUIRE_DIGEST` | bool | refuse an image not pinned by digest (default on) |
 | `precheck_image` | `SIPATH_PRECHECK_IMAGE` | str | image with ChipFoundry's cf-precheck and its tools (precheck step) |
 | `require_pdk_release` | `SIPATH_REQUIRE_PDK` | bool | refuse an open_pdks tree whose release is not the locked one (default on) |
 | `debug_failed` | `SIPATH_DEBUG_FAILED` | bool | write a debug checkpoint for a failed attempt |
-| `log_level` | `SIPATH_LOG_LEVEL` | str | flow logger level |
+| `log_level` | `SIPATH_LOG_LEVEL` | str | sipath logger level |
 | `snapshots` | `SIPATH_SNAPSHOTS` | str | a layout picture after every step (_pictures/<attempt>.png, in the report): off, selected (each step's selected attempt) or all (every finished attempt) |
 
 ## PDK description keys

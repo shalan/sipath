@@ -5,8 +5,9 @@
 A design file holds the ``Design`` fields (netlist, SDC, mode, floorplan DEF or
 die + pads, macros, groups, datapaths, analog nets, PDN, ...), the PDK to use
 (``pdk``: a name from ``sipath/pdks`` or a file) and, optionally, the steps to
-run (``flow``: a list of ``{step, variants, score, parallel}``; each step
-continues from the previous step's selected attempt). Relative paths are
+run (``flow``: a list of ``{step, fn, variants, score, parallel, ...}``, with ``adapt``, ``sweep``,
+``synth_opts_sweep``, ``keep``, ``decide_at`` and ``decide_score`` where they apply; each step continues from
+the previous step's selected attempt). Relative paths are
 relative to the file. ``inputs.generate: module:function`` names a function
 that (re)writes generated inputs before they are checked (the examples
 generate their netlists); every input must exist afterwards.
@@ -149,8 +150,9 @@ def design_from_dict(data: dict, base: str) -> Design:
     return Design(**kw)
 
 
-# explore mode drops these (signoff-grade work), and keeps the rest of the design's flow
-EXPLORE_DROP = {"fill", "route_repair", "extract", "signoff", "views", "integrate"}
+# explore mode drops these (signoff-grade work: the check steps too, which would judge a layout routed only
+# globally, without the parasitics they read), and keeps the rest of the design's flow
+EXPLORE_DROP = {"fill", "route_repair", "extract", "signoff", "views", "integrate", "precheck"}
 
 
 def expand_sweep(item: dict) -> dict:
@@ -180,14 +182,15 @@ def expand_sweep(item: dict) -> dict:
 def explore_flow(spec: list[dict]) -> list[dict]:
     """A design's flow as a fast first cut at PPA (explore mode): no
     equivalence check, global routing only (PPA from its parasitics), no fill,
-    post-route repair, extraction, signoff, views or integration; a ``ppa``
+    post-route repair, extraction, signoff, check steps, precheck, views or integration; a ``ppa``
     step closes a flow that stops before routing; a routing score that needs
     the detailed router's DRC count becomes ``setup_wns``. With the typical
     corner only (``build(..., explore=True)``)."""
+    from .params import CHECK_STEPS
     out = []
     for item in spec:
         fn = item.get("fn", item["step"])
-        if fn in EXPLORE_DROP:
+        if fn in EXPLORE_DROP or fn in CHECK_STEPS:
             continue
         item = dict(item)
         if fn == "synth":
@@ -486,7 +489,16 @@ def plan(path_or_design, workdir: str | None = None, config=None, flow_steps=Non
     rows, total = [], 0
     groups = len(((getattr(pdk, "signoff", None) or {}).get("drc_groups")) or [])
     branches, until = 1, None  # a bounded search: the steps up to its decide_at run once per branch
-    for name, ref, fn, item in resolve_steps(spec):
+    # what the run would refuse at its start: a parameter it does not take, an input file that is not there
+    missing = [f for f in dict.fromkeys(d.input_files()) if f and not os.path.isfile(f)]
+    try:
+        items = resolve_steps(spec)
+    except ValueError as e:
+        return {"design": d.name, "steps": [], "attempts": 0, "notes": [],
+                "budget": {k: getattr(cfg, k) for k in ("threads", "parallel_cap", "budget_s", "step_budget_s",
+                                                        "max_attempts", "memory_gb")},
+                "problems": [str(e)] + [f"input file missing: {f}" for f in missing]}
+    for name, ref, fn, item in items:
         variants = item.get("variants") or [{}]
         total += len(variants) * branches
         at_once, why = max(1, min(len(variants), cfg.cap(item.get("parallel", 1)))), []
@@ -520,7 +532,8 @@ def plan(path_or_design, workdir: str | None = None, config=None, flow_steps=Non
             row["recorded_peak_mb"] = mem
         rows.append(row)
     root = {"netlist"} if (d.netlist and not d.rtl) else set()
-    problems = chain_problems(root, [(n, f, i.get("variants")) for n, _, f, i in resolve_steps(spec)], resolve=resolve)
+    problems = chain_problems(root, [(n, f, i.get("variants")) for n, _, f, i in items], resolve=resolve)
+    problems += [f"input file missing: {f}" for f in missing]
     budget = {k: getattr(cfg, k) for k in ("threads", "parallel_cap", "budget_s", "step_budget_s", "max_attempts",
                                            "memory_gb")}
     notes = []

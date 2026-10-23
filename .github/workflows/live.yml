@@ -27,12 +27,12 @@ jobs:
         include:
           - group: chip       # mcu8: pad ring, macros, analog, full signoff (about an hour)
             classes: LiveMcuDie
-          - group: openframe  # the OpenFrame harness, chip assembly with the seal ring
-            classes: LiveOpenFrame
+          - group: openframe  # the OpenFrame harness, chip assembly with the seal ring, precheck, Magic DRC
+            classes: LiveOpenFrame LiveMagic
           - group: blocks
             classes: >-
-              LiveRtl LiveSoftMacro LiveHs LiveResume LiveMcp LiveIhp LiveIhpRing
-              LiveScale OpenRoad LiveMacroPlacers LiveAdaptive LiveCancel LiveBudget LiveFork LiveDocs
+              LiveRtl LiveSoftMacro LiveHs LiveResume LiveMcp LiveIhp LiveIhpRing LiveScale OpenRoad
+              LiveMacroPlacers LiveAdaptive LiveCancel LiveBudget LiveFork LiveDocs LiveBoundedSearch LiveHardenedParent
     env:
       SIPATH_LIMITS_IGNORE: max_runtime_s
       PDK_ROOT: /home/runner/pdk
@@ -51,7 +51,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install SiPath and ciel
-        run: python -m pip install -e . ciel
+        run: python -m pip install -e . "ciel==2.6.1"
 
       - name: Locked open_pdks release (ciel)
         run: python -m sipath install-pdk
@@ -59,14 +59,18 @@ jobs:
       - name: Locked ORFS image
         run: docker pull "$(python -c 'from sipath.toolchain import image; print(image("orfs"))')"
 
-      # integrate (Magic) needs the Magic image, which is built here: it is not published, so the
-      # job names it by tag and allows that one unpinned image (its base is the locked ORFS image)
-      - name: Magic image (docker/magic on the locked ORFS image)
+      # integrate, Magic DRC and precheck need the Magic and precheck images, which are built here: they are
+      # not published, so the job names them by tag and allows those unpinned images (the ORFS image is still
+      # the locked digest: nothing configures it otherwise; their base is that image)
+      - name: Magic and precheck images (docker/magic on the locked ORFS image, docker/precheck on it)
         if: matrix.group == 'openframe'
         run: |
           base="$(python -c 'from sipath.toolchain import image; print(image("orfs"))')"
           docker build -q --platform linux/amd64 --build-arg BASE="$base" -t sipath/orfs-magic:8.3.685 docker/magic
+          docker build -q --platform linux/amd64 --build-arg BASE=sipath/orfs-magic:8.3.685 \
+            -t sipath/precheck:1.3.7 docker/precheck
           echo "SIPATH_MAGIC_IMAGE=sipath/orfs-magic:8.3.685" >> "$GITHUB_ENV"
+          echo "SIPATH_PRECHECK_IMAGE=sipath/precheck:1.3.7" >> "$GITHUB_ENV"
           echo "SIPATH_REQUIRE_DIGEST=0" >> "$GITHUB_ENV"
 
       - name: Readiness (sipath doctor)
@@ -80,12 +84,27 @@ jobs:
         if: matrix.group == 'blocks'
         run: python -m sipath validate
 
+      # the unit tests that need an open_pdks tree skip on the unit workflow's runners: here they run
+      - name: Unit tests with the PDK
+        if: matrix.group == 'blocks'
+        run: python -m unittest sipath.tests.test_unit
+
       - name: Live tests
         env:
           SIPATH_TEST_KEEP: ${{ github.workspace }}/live-runs
+          CLASSES: ${{ github.event.inputs.classes }}  # through the environment: never pasted into the script
+          GROUP_CLASSES: ${{ matrix.classes }}
         run: |
-          classes="${{ github.event.inputs.classes }}"
-          python -m sipath.tests.run_live -j 2 ${classes:-${{ matrix.classes }}}
+          run="$GROUP_CLASSES"
+          if [ -n "$CLASSES" ]; then  # the requested classes, each in its own group's job (unlisted ones: blocks)
+            run=""
+            for c in $CLASSES; do
+              case " $GROUP_CLASSES " in *" $c "*) run="$run $c" ;; esac
+              if [ "${{ matrix.group }}" = blocks ] && ! grep -qw -- "$c" .github/workflows/live.yml; then run="$run $c"; fi
+            done
+            [ -n "$run" ] || { echo "no requested class belongs to this group"; exit 0; }
+          fi
+          python -m sipath.tests.run_live -j 2 $run
 
       - name: Keep the logs of a run that did not pass
         if: ${{ !success() }}

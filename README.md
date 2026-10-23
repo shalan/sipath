@@ -45,16 +45,18 @@ steps from the CLI or Python.
 
 To try it without installing anything, open the
 [tutorial notebook](notebooks/sipath_tutorial.ipynb) in Colab or Codespaces
-(the badges above): it runs every example flow.
+(the badges above): it runs the example flows (the full mcu8 and OpenFrame runs,
+an hour each, are left commented out).
 
 SiPath needs Python 3.10+ and either Docker or, on Linux x86_64,
 `python3 -m sipath install-tools`, which unpacks the locked image's OpenROAD,
 Yosys and KLayout; runs then use those without Docker (`runtime: auto`;
-`SIPATH_RUNTIME=docker` keeps the image). The tool images and the open_pdks
-release are locked in `sipath/toolchain.json`.
+`SIPATH_RUNTIME=docker` keeps the image; an `openroad` already on `PATH`, or
+`$SIPATH_OPENROAD`, comes first). The tool images and the open_pdks release
+are locked in `sipath/toolchain.json`.
 
 ```bash
-python3 -m pip install -e .                    # the sipath package and console script
+python3 -m pip install -e . ciel               # the sipath package and console script; ciel installs PDKs
 python3 -m sipath install-pdk                  # the locked open_pdks release (sky130) through ciel
 docker pull openroad/orfs@sha256:751a77afcade9882b51427e6d9d079b8e270e7a8f4aa66df2d0659457d1c29fd
                                                # or, on Linux x86_64 without Docker: python3 -m sipath install-tools
@@ -70,9 +72,13 @@ Run a design (more in [example flows](docs/examples.md)):
 python3 -m sipath run sipath/examples/gcd8.yaml               # RTL to signoff (soft macro, sky130A)
 python3 -m sipath run sipath/examples/gcd8.yaml runs/x --explore   # first-cut PPA in a minute
 python3 -m sipath run mcu8                                     # a die: pad ring, hard macros, analog
-python3 -m sipath run mcu8 runs/mcu8 --resume                  # continue an interrupted run
+python3 -m sipath run mcu8 runs/mcu8 --resume                  # continue an interrupted run (--fresh: start over)
 python3 -m sipath report runs/gcd8 --render                    # the run's report page
 ```
+
+`run` exits 0 when no required check failed, 1 when the run or a required
+check failed, 3 when a check is inconclusive or a budget or cancel stopped it;
+a workdir that already holds a run needs `--resume` or `--fresh`.
 
 Other commands:
 
@@ -85,14 +91,14 @@ Other commands:
 | `sipath install-tools [dir]` | the locked ORFS image's tools without Docker (Linux x86_64, glibc 2.35+: Colab, Ubuntu 22.04+) |
 | `sipath setup-placer` | the Python with CPU PyTorch for the CD-LNS macro placer |
 | `sipath render <run> [step]`, `sipath draw` | OpenROAD's layout picture, or a schematic SVG, of a step's checkpoint (`all`: every step); `sipath run ... --snapshots` draws one after every step |
-| `sipath lvs <gds> <top> <spice>` | full-device LVS of a layout with the PDK's own deck |
+| `sipath lvs <gds> <top> <spice> --pdk <name>` | full-device LVS of a layout with the PDK's own deck |
 | `sipath limits <run> <design>` | a run against its regression limits |
-| `sipath validate`, `sipath docs`, `sipath schema` | check the examples; regenerate the reference; JSON Schema |
-| `docker build --platform linux/amd64 -t sipath/precheck:1.3.7 docker/precheck` | the precheck image (ChipFoundry's cf-precheck, Netgen, CVC) |
+| `sipath validate`, `sipath docs`, `sipath schema` | check the shipped examples (your own file: `sipath run <file> --plan`); regenerate the reference; JSON Schema |
+| `docker build ... docker/magic`, then `docker build ... docker/precheck` | the Magic image, then the precheck image built on it (ChipFoundry's cf-precheck, Netgen, CVC): the commands are in [PDKs and runtimes](docs/pdks-and-runtimes.md#setup) |
 | `sipath mcp` | the MCP server, on stdio |
 | `python3 -m unittest sipath.tests.test_unit` | unit tests (no tools, seconds) |
 | `python3 -m sipath.tests.run_live -j 4` | live tests: real runs, in parallel |
-| `python3 bench/orfs_compare.py gcd aes` | the benchmark against OpenROAD-flow-scripts |
+| `python3 bench/orfs_compare.py gcd aes`, `python3 bench/repeat_compare.py aes` | the benchmark against OpenROAD-flow-scripts: ORFS's run and one SiPath run; SiPath's repeated runs (the tables' SiPath rows) |
 
 ## Features
 
@@ -100,7 +106,7 @@ Other commands:
 |---|---|
 | **Inputs** | Design files checked against a schema before anything runs; typed step parameters (variant > design > PDK > default); PDKs as data; images locked by digest and the open_pdks release by commit; plugins, and steps named by import path ([design files](docs/design-files.md)) |
 | **Synthesis** | Verilog or SystemVerilog (slang), linted by Yosys and Verilator; ABC with 20 measured recipes at the slow corner, the netlist picked by least area meeting timing; Booth and prefix-adder variants; bounded RTL-to-netlist equivalence ([synthesis](docs/synthesis.md)) |
-| **Floorplan and chip** | Soft macro (from a DEF, a die box or a utilization) or full die with a pad ring generated from rules; OpenFrame and Caravel harnesses with the wrapper checked pin by pin, assembled into the frame's chip (optional seal ring) |
+| **Floorplan and chip** | Soft macro (from a DEF, a die box or a utilization) or full die with a pad ring generated from rules; the OpenFrame harness with the wrapper checked pin by pin, assembled into the frame's chip (optional seal ring); Caravel's wrapper checks only (experimental: no chip assembly, its power stripes not verified) |
 | **Hard macros** | Fixed, or placed by a random search with orientation search, OpenROAD's mpl, or the CD-LNS placer from the Macro Placement Challenge 2026; halo, channel, pin-clearance and analog-guard rules; scored by a quick place and route |
 | **Power** | Power grid (rings, straps scaled to the design), straps to supply pins the grid cannot reach, 3.3 V analog supplies routed with a wide rule; grid and IR checks |
 | **Placement and CTS** | Timing- and routability-driven placement; fences, clusters and structured datapaths (column, array, bit-slice) kept intact through sizing |
@@ -219,6 +225,10 @@ the last column). The table is written from the records in `bench/results/`
   them; no gf180mcu yet. No gate-level simulation.
 - Seven sky130 HD cells are kept out of synthesis and sizing: the KLayout LVS
   deck cannot pair them.
+- A PDK whose slow and fast corner files are not found (the ORFS platform tree
+  alone, without the open_pdks release) falls back to the typical corner, and
+  signoff then judges timing there only; `sipath validate` and each run's
+  `corner_source` say which corners were used.
 - The amd64 image's KLayout does not finish the OpenFrame wrapper's LVS
   (under Rosetta, and on CI's native runners); the arm64 runtime matches it in
   843 s, and ChipFoundry's precheck (Netgen LVS) passes it.
@@ -239,7 +249,7 @@ the last column). The table is written from the records in `bench/results/`
 | [Synthesis](docs/synthesis.md) | the synth step, its recipes and why its defaults are what they are |
 | [PDKs and runtimes](docs/pdks-and-runtimes.md) | Sky130 (open_pdks, release pinning, corners, excluded cells), IHP, where OpenROAD comes from, arm64 and native tools, resumable runs |
 | [Signoff](docs/signoff.md) | every check, what it measures, and what it found |
-| [Design files and examples](docs/design-files.md) | the design file, field by field, and the eleven examples (mcu8 in detail) |
+| [Design files and examples](docs/design-files.md) | the design file, field by field, and the examples (mcu8 in detail) |
 | [Agents (MCP)](docs/agents.md) | the MCP server's tools, jobs and resources |
 | [Benchmarks](docs/benchmarks.md) | against ORFS both ways, synthesis, macro placement, analog coupling, amd64 against arm64, explore mode |
 | [Reference](docs/reference.md) | every design-file key and step parameter (generated by `sipath docs`) |

@@ -61,8 +61,9 @@ def _check_limits(tc, workdir, design):
     """The run in ``workdir`` within ``design``'s regression limits (sipath/tests/limits.yaml)."""
     from sipath import limits
     entry = limits.load().get(design)
-    if entry is None:
-        tc.skipTest(f"no limits for {design}")
+    if entry is None:  # a live run checked against nothing would pass whatever it gave
+        tc.fail(f"no limits for {design} in sipath/tests/limits.yaml "
+                f"(python3 -m sipath limits <workdir> {design} --suggest writes an entry)")
     tc.assertEqual(limits.check(workdir, entry), [], f"{design} outside its limits: {limits.run_metrics(workdir, entry.get('until'))}")
 
 

@@ -76,7 +76,7 @@ the lock).
 Apple silicon (see below for the arm64 options).
 
 ```bash
-python3 -m pip install -e .
+python3 -m pip install -e . ciel
 python3 -m sipath install-pdk
 docker pull openroad/orfs@sha256:751a77afcade9882b51427e6d9d079b8e270e7a8f4aa66df2d0659457d1c29fd
 # optional, in this order: Magic (magic_drc, xor, integrate), then the precheck image built on it
@@ -94,7 +94,7 @@ KLayout, without Docker; runs find them by themselves (`runtime: auto`).
 Magic, Netgen and the precheck still need Docker and the images above.
 
 ```bash
-python3 -m pip install -e .
+python3 -m pip install -e . ciel
 python3 -m sipath install-pdk
 python3 -m sipath install-tools
 python3 -m sipath doctor
@@ -149,7 +149,8 @@ silicon). Two ways to avoid the emulation:
   Homebrew's Yosys).
 
 Magic (opt-in checks) runs from `config.magic_image`
-(`docker build -t sipath/orfs-magic:8.3.685 docker/magic`). Each run's
+(`docker build --platform linux/amd64 -t sipath/orfs-magic:8.3.685 docker/magic`, on the locked ORFS
+image). Each run's
 provenance records the image digest, platform, binary, tool versions and the
 PDK release.
 
@@ -191,7 +192,10 @@ unless the caller configures logging.
 ## Run configuration
 
 From a file (`--config`, `$SIPATH_CONFIG`), `SIPATH_*` variables, or a design
-file's `config:` section (all keys in the [reference](reference.md)):
+file's `config:` section (all keys in the [reference](reference.md)). Later
+ones win: the defaults, then the file, then `SIPATH_*`, then the design file's
+`config:`, so a design file's `parallel_cap: 4` holds against
+`SIPATH_PARALLEL_CAP=1`; change the design file to change it:
 
 - **threads:** the run's cores: every core by default, as ORFS (two thirds
   of them on macOS, where Docker's VM shares the host); shared among a step's

@@ -93,8 +93,8 @@ extraction) and `openframe_gcd8.yaml` (the wrapper is mostly empty rows; it
 was signed off and passed cf-precheck's density check without fill; add
 `- step: fill` before `extract` for a design that needs it).
 
-The smallest RTL design file (`name`, `top`, `mode` and `pdk` are required for
-every design; an RTL design adds `rtl`, `sdc`, and `core_utilization` or
+The smallest RTL design file (`name`, `top`, `mode`, `pdk` and `sdc` are
+required for every design; an RTL design adds `rtl`, and `core_utilization` or
 `die`; the clock ports come from the SDC's `create_clock`). Without `flow:` it
 runs the default chain, to signoff on sky130A:
 
@@ -108,7 +108,8 @@ sdc: gcd8.sdc
 core_utilization: 0.4
 ```
 
-See `examples/gcd8.yaml` for the same with its flow spelled out. Field notes:
+`examples/gcd8.yaml` is the same design with its flow spelled out, at 0.35
+utilization, a 6 µm core margin and `is_core: false`. Field notes:
 - **Steps.** A step may run under another name with `fn:` (`{step:
   signoff_fast, fn: signoff}`); `fn:` and `step:` also take `module:function`.
   Without a `flow:` list the default chain is used.
@@ -139,6 +140,9 @@ writes generated inputs under `examples/inputs/` (`examples/designs.py`,
 | `openframe_gcd8.yaml` | a 4-bit gcd in the OpenFrame harness, integrated into the frame (with the seal ring in its live test) |
 | `ihp_add8.yaml` | soft macro on IHP SG13G2 (no tap or endcap cells; one RCX rule file) |
 | `ihp_ring.py` | a pad ring closed on IHP SG13G2 with nothing configured |
+| `gcd8_explore.yaml` | gcd8 at a 4 ns clock with variants at synthesis, placement and routing, in parallel (recipe 15) |
+| `dp8.py`, `mcu8.py` | Python entry points that build dp8 and mcu8 and run them from code |
+| `agent_sdk.py` | an agent session through the Claude Agent SDK and the MCP server ([agents](agents.md)) |
 | `plugin_example.py` | a plugin with one of each extension point (step, score, signoff check, design-file extension) |
 
 **mcu8** in detail. ChipFoundry hard macros (provenance and commits in

@@ -1071,14 +1071,50 @@ class LiveMacroPlacers(unittest.TestCase):
 
 
 def _precheck_image():
-    """The locked precheck image when it is present here (it is built locally: docker/precheck)."""
+    """The precheck image the configuration names (SIPATH_PRECHECK_IMAGE: CI builds one), else the locked one,
+    when it is present here (it is built locally: docker/precheck)."""
     import subprocess
     from sipath import toolchain
-    ref = toolchain.lock()["images"].get("precheck", {}).get("ref")
+    from sipath.config import Config
+    ref = Config.load().precheck_image or toolchain.lock()["images"].get("precheck", {}).get("ref")
     if not ref:
         return None
     r = subprocess.run(["docker", "image", "inspect", ref], capture_output=True)
     return ref if r.returncode == 0 else None
+
+
+@LIVE
+class LiveHardenedParent(unittest.TestCase):
+    """harden, then a parent built from the hardened views (gcd8_pair, recipe 9): two macro instances, the
+    parent's straps on their supply pins, signoff over the macros' insides."""
+
+    def test_harden_gcd8_then_gcd8_pair(self):
+        import yaml
+        from sipath import designfile
+        ex = os.path.join(os.path.dirname(__file__), "..", "examples")
+        wd = _workdir("pair")
+        if not KEEP:
+            self.addCleanup(_rmtree, wd)
+        views = os.path.join(wd, "views")
+        designfile.harden(os.path.join(ex, "gcd8.yaml"), views, os.path.join(wd, "harden"), runner=RUNNER)
+        self.assertTrue(os.path.isfile(os.path.join(views, "macro.yaml")))
+        with open(os.path.join(ex, "gcd8_pair.yaml")) as fh:
+            d = yaml.safe_load(fh)
+        d["rtl"] = [os.path.abspath(os.path.join(ex, p)) for p in d["rtl"]]
+        d["sdc"] = os.path.abspath(os.path.join(ex, d["sdc"]))
+        for m in d["macros"]:
+            m["views"] = views  # the views this test hardened, not the checkout's
+        path = os.path.join(wd, "gcd8_pair.yaml")
+        with open(path, "w") as fh:
+            yaml.safe_dump(d, fh)
+        f = designfile.run(path, os.path.join(wd, "pair"), RUNNER)
+        s = _read_json(f.result("signoff").outputs["signoff"])
+        self.assertTrue(s["pass"], s.get("failures"))
+        self.assertTrue(s["lvs"]["match"])
+        v = f.verification()
+        self.assertEqual(v["execution"], "completed")
+        self.assertEqual((v["verification"], v["omitted"]),  # every check passed; equivalence cannot see inside
+                         ("omitted", ["equivalence (macros are black boxes to the check)"]))
 
 
 def _magic_image():

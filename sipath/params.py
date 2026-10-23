@@ -37,6 +37,7 @@ class Param:
     choices: tuple = ()  # allowed values (for a list: allowed items)
     min: float | None = None
     max: float | None = None
+    validate: Any = None  # fn(value) -> an error text or None, for what type and choices cannot say
 
     def check(self, step: str, value) -> None:
         where = f"{step}.{self.name}"
@@ -63,6 +64,10 @@ class Param:
                 raise ValueError(f"{where}: {v!r} is below the minimum {self.min}")
             if self.max is not None and v > self.max:
                 raise ValueError(f"{where}: {v!r} is above the maximum {self.max}")
+        if self.validate is not None:
+            err = self.validate(value)
+            if err:
+                raise ValueError(f"{where}: {err}")
 
     def schema(self) -> dict:
         base, _, item = self.type.partition("[")
@@ -93,14 +98,27 @@ SIGNOFF_OPTIONAL = ("magic_drc", "xor", "lvs_full")
 _ITERS = "detailed-router iterations"
 _FAIL = "fail the attempt when setup or hold is not met after the step"
 
+def _abc_sweep_error(v: str) -> str | None:
+    """Why ``v`` names no recipe set (checked before a run, not inside the synthesis container)."""
+    from . import recipes
+    if v in ("auto", "off") or v in recipes.SETS:
+        return None
+    bad = [n.strip() for n in v.split(",") if n.strip() and recipes.ALIASES.get(n.strip(), n.strip()) not in recipes.names()]
+    if bad or not v.strip(","):
+        return (f"{bad[0] if bad else v!r} is not auto, off, {', '.join(sorted(recipes.SETS))} or a recipe "
+                f"(python3 -m sipath docs lists them)")
+    return None
+
+
 STEP_PARAMS: dict[str, list[Param]] = {
     "synth": [
         Param("abc", "str", None, "one ABC recipe instead of abc_sweep (sipath/synth_recipes: 18 measured in "
               "shalan/synth_flow, plus area_map and speed_sizing; aliases delay, area, speed)",
               choices=tuple(_recipe_choices())),
         Param("abc_sweep", "str", "auto", "recipes mapped in this attempt, the netlist picked by synth_select "
-              "(least area meeting timing, else the knee): auto (the delay set plus area_map), delay, area, "
-              "balanced (synth_flow's top 5 each), off (delay_map_resyn alone), or names separated by commas"),
+              "(least area meeting timing, else synth_fallback's pick): auto (the delay set plus area_map), delay, "
+              "area, balanced (synth_flow's top 5 each), off (delay_map_resyn alone), or recipe names separated "
+              "by commas (one string, not a list)", validate=_abc_sweep_error),
         Param("synth_fallback", "str", "best_slack", "when no recipe meets timing at synthesis: best_slack (the "
               "fastest netlist; measured best end to end, docs/synthesis.md), knee (of the slack/area front, else "
               "best slack) or least_area",

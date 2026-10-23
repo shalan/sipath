@@ -43,7 +43,8 @@ project server, listed the designs, ran gcd8's synth, floorplan, physical and
 place each from the previous selected attempt, and reported the placement
 heatmap and the setup slack: 10 turns, about a minute, $0.40.
 
-Long steps (aes signoff takes most of an hour) are better run with
+Long steps (aes's detailed routing and post-route repair take half an hour
+each; its signoff about 15 minutes) are better run with
 `background: true` and followed with `job_status`; Claude Code moves a tool
 call still running after two minutes to the background on its own.
 

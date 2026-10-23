@@ -30,7 +30,8 @@ at the slow corner with the Liberty wire-load model).
    (`set_load -pin_load` reads as 0), so SiPath resolves the SDC itself.
 5. **Recipe sweep and selection.** `abc_sweep` maps with several recipes in
    the same attempt (default `auto`: synth_flow's five delay recipes plus
-   `area_map`; `delay`, `area`, `balanced`, a list, or `off`). Each netlist is
+   `area_map`; `delay`, `area`, `balanced`, recipe names separated by commas, or
+   `off`). Each netlist is
    timed by OpenSTA at the slow corner with the wire-load model
    (`synth_wns_ns`, `synth_tns_ns`), and `synth_select` keeps the least area
    that meets timing, else (no recipe meets timing) the fastest netlist

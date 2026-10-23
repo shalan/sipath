@@ -2,11 +2,12 @@
 
 Part of the [SiPath documentation](../README.md#documentation).
 
-Each table says when it was measured. The ORFS comparisons (both ways) and the
-aes step table are written from the benchmark records in `bench/results/`
-(`python3 bench/tables.py`), as is the synthesis fallback table in
-[synthesis](synthesis.md); the synthesis bench, macro placement, analog
-coupling, arm64 and exploration tables are still transcribed from their runs.
+Each table says when it was measured. The ORFS comparisons (both ways), the
+aes step table and the strategy table are written from the benchmark records
+in `bench/results/` (`python3 bench/tables.py`), as is the synthesis fallback
+table in [synthesis](synthesis.md); the synthesis bench, macro placement,
+analog coupling, arm64 and exploration tables are still transcribed from their
+runs.
 
 ## Against ORFS
 
@@ -26,7 +27,7 @@ are its 2026-10-15 runs (same image), measured again.
 when signoff fails. The last column is the verdict of the run's
 `signoff.json` (every required check: DRC, density, LVS, antennas, setup and
 hold on all nine corners, slew/cap/fanout, annotation). ORFS has no signoff
-step to compare. The tables on this page are written from the benchmark
+step to compare. The generated tables (above) are written from the benchmark
 records in `bench/results/` (`python3 bench/tables.py`; a test fails when a
 table and its records disagree): each record holds the run's metrics, its
 verdict, its step times, the SiPath commit (null for runs from before
@@ -70,7 +71,7 @@ not like for like in those.
   less wire and 9% more cell area. Synthesis maps at the slow corner, where
   aes's clock cannot be met, so the selection takes the fastest netlist
   (`delay_map_resyn`, `synth_fallback: best_slack`, the default since
-  2026-10-21; with the former `knee` default: −0.010 ns, 650,995 µm of wire,
+  2026-10-22; with the former `knee` default: −0.010 ns, 650,995 µm of wire,
   148,639 µm², see [synthesis](synthesis.md#the-fallback-when-nothing-meets-timing)).
   Wall time measured with other runs sharing the machine (the same `knee`
   netlist took 9,674 s once and 5,614 s the next time).
@@ -159,7 +160,11 @@ footprint scripts written for them.
 
 ## Synthesis bench
 
-Measured 2026-10-17, and again on 2026-10-19 with identical results. `python3 bench/synth_bench.py` runs the synth step alone on shalan/synth_flow's
+Measured 2026-10-17, and again on 2026-10-19 with identical results, under the
+former synthesis fallback (`knee`; `best_slack` has been the default since
+2026-10-22): for the designs that miss timing at synthesis the default now
+picks the fastest netlist instead, so their row may differ.
+`python3 bench/synth_bench.py` runs the synth step alone on shalan/synth_flow's
 16 designs (`bench/synth`: 12 in-house designs and 4 external IPs at pinned
 commits, each with its SDC) on sky130A, and lists the selected netlist next to
 synth_flow's best pre-repair result per design (its `baseline-noD` run: the

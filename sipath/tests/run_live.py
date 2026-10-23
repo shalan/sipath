@@ -7,7 +7,9 @@ process, longest first (mcu8, dominated by its LVS, starts at once), at most
 ``N`` at a time (default 4). The run's OpenROAD threads are shared among them:
 each process gets ``threads // N`` unless ``SIPATH_THREADS`` is set. ``--keep``
 keeps every run's outputs under DIR (``SIPATH_TEST_KEEP``). Prints each class's
-result and wall time and the slowest tests; exits 1 when any class fails.
+result and wall time and the slowest tests; exits 1 when any class fails, and
+when a class ran nothing but skips (no OpenROAD, no PDK, no image: a pass that
+tested nothing) unless ``--allow-skips``.
 """
 from __future__ import annotations
 
@@ -22,7 +24,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 # rough wall times (s) on the reference machine, for the order only (longest first)
 EXPECTED = {"LiveMcuDie": 2900, "LiveOpenFrame": 2400, "LiveSoftMacro": 300, "LiveMacroPlacers": 120, "LiveHs": 110, "LiveRtl": 90, "LiveAdaptive": 60, "LiveResume": 40,
             "LiveCancel": 200, "LiveBudget": 90, "LiveFork": 60, "LiveDocs": 200, "LiveBoundedSearch": 150,
-            "LiveMcp": 30, "LiveIhp": 30, "LiveScale": 10, "LiveIhpRing": 5, "OpenRoad": 5}
+            "LiveMcp": 30, "LiveIhp": 30, "LiveScale": 10, "LiveIhpRing": 5, "OpenRoad": 5, "LiveMagic": 15,
+            "LiveHardenedParent": 400}
 
 
 def live_classes() -> list[str]:
@@ -37,18 +40,22 @@ def run_class(name: str, env: dict) -> dict:
                        env=env, capture_output=True, text=True)
     out = p.stdout + p.stderr
     ran = re.search(r"^Ran (\d+) tests? in", out, re.M)
+    skipped = re.search(r"skipped=(\d+)", out)
     durations = [(float(s), t) for s, t in re.findall(r"^([\d.]+)s\s+(test_\w+)", out, re.M)]
     return {"class": name, "rc": p.returncode, "seconds": round(time.time() - t0, 1),
-            "tests": int(ran.group(1)) if ran else 0, "durations": durations, "output": out}
+            "tests": int(ran.group(1)) if ran else 0, "skipped": int(skipped.group(1)) if skipped else 0,
+            "durations": durations, "output": out}
 
 
 def main(argv) -> int:
-    jobs, keep, names, it = 4, None, [], iter(argv)
+    jobs, keep, names, allow_skips, it = 4, None, [], False, iter(argv)
     for a in it:
         if a == "-j":
             jobs = int(next(it))
         elif a == "--keep":
             keep = next(it)
+        elif a == "--allow-skips":
+            allow_skips = True
         else:
             names.append(a)
     names = names or live_classes()
@@ -65,8 +72,11 @@ def main(argv) -> int:
     with ThreadPoolExecutor(max_workers=jobs) as ex:  # reported as each class finishes
         for fu in as_completed([ex.submit(run_class, n, env) for n in names]):
             r = fu.result()
-            print(f"  {r['class']:<16} {'ok' if r['rc'] == 0 else 'FAILED'}  {r['tests']:>3} tests  {r['seconds']:>8.1f} s",
-                  flush=True)
+            if r["rc"] == 0 and r["tests"] and r["skipped"] == r["tests"] and not allow_skips:
+                r["rc"], r["output"] = 1, r["output"] + "\nevery test of the class skipped: nothing was tested"
+            status = "ok" if r["rc"] == 0 else "FAILED"
+            skips = f" ({r['skipped']} skipped)" if r["skipped"] else ""
+            print(f"  {r['class']:<16} {status}  {r['tests']:>3} tests{skips}  {r['seconds']:>8.1f} s", flush=True)
             results.append(r)
     wall = time.time() - t0
     failed = [r for r in results if r["rc"] != 0]

@@ -42,7 +42,7 @@ require_pdk_release    SIPATH_REQUIRE_PDK        refuse an open_pdks tree whose 
 debug_failed           SIPATH_DEBUG_FAILED       write a debug ODB for failed attempts
 snapshots              SIPATH_SNAPSHOTS          a layout picture after every step (`sipath run`): off, selected
                                                  (the attempt each step selects) or all (every finished attempt)
-log_level              SIPATH_LOG_LEVEL          ``logging`` level of the ``flow`` logger
+log_level              SIPATH_LOG_LEVEL          ``logging`` level of the ``sipath`` logger
 =====================  ======================  =====================================
 """
 from __future__ import annotations

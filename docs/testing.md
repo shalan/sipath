@@ -49,7 +49,8 @@ Part of the [SiPath documentation](../README.md#documentation).
 `sipath/tests/limits.yaml` holds per-design limits: setup and hold slack, DRC,
 LVS, signoff pass, wirelength, instances, wall time and analog coupling.
 `python3 -m sipath limits <workdir> <design>` checks a run against them (exit
-1 on a violation); `--suggest` writes an entry from a good run. The live tests
+1 on a violation); `--suggest` prints an entry from a good run, to paste into
+the file. The live tests
 check their runs against the file. `SIPATH_LIMITS_IGNORE=max_runtime_s`
 (comma-separated keys) skips limits that belong to another machine, such as
 wall time in CI.
