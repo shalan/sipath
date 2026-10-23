@@ -131,32 +131,17 @@ Magic, `precheck` in its image) run their tools instead, with no OpenROAD
 session. Every
 attempt is kept in `graph.json`.
 
-```mermaid
-flowchart TD
-    Y["<b>design.yaml</b><br/>RTL or netlist · SDC · PDK · utilization<br/>flow: steps, variants, scores"]
-    Y --> S["<b>synth</b><br/>Yosys + ABC recipe sweep · lint · equivalence"]
-    S --> F["<b>floorplan</b><br/>die and core · pins or pad ring · rows"]
-    F --> M["<b>macros</b><br/>hard-macro placement (when there are macros)"]
-    M --> P["<b>physical</b><br/>power grid · taps · endcaps"]
-    F -. no macros .-> P
-    P --> PL["<b>place</b><br/>global and detailed placement · repair"]
-    PL --> C["<b>cts</b><br/>clock tree · repair"]
-    C --> RA["<b>route_analog</b><br/>analog nets: wide rule · shields · frozen"]
-    RA --> RD["<b>route_digital</b><br/>global and detailed routing · antennas"]
-    RD --> RR["<b>route_repair</b><br/>timing repair on extracted parasitics · patch routes"]
-    RR --> FI["<b>fill</b><br/>metal fill"]
-    FI --> X["<b>extract</b><br/>RC extraction per corner · IR drop"]
-    X --> SO["<b>signoff</b><br/>DRC · LVS · density · antennas · nine-corner STA"]
-    SO --> O(["routed DEF · SPEF · signed-off GDS · report.html"])
-    SO -. harness designs .-> PC["<b>precheck</b> → <b>integrate</b><br/>ChipFoundry precheck · chip with seal ring"]
-    SO -. sipath harden .-> V["<b>views</b><br/>LEF · Liberty · GDS · netlists"]
-    H[["place · cts · route_digital · extract:<br/>heatmaps after each checkpoint"]] -.- PL
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/flow-dark.svg">
+  <img src="docs/diagrams/flow-light.svg" width="100%" alt="SiPath's flow: a design file, the Python API or an AI agent over MCP drives an attempt graph. The reference chain runs synth, floorplan, macros, physical, place, cts, then route_analog, route_digital, route_repair, fill, extract and signoff. Inside every step, variants run as attempts in parallel, a score selects one and the next step continues from it; others are kept as branches or rejected. Placement can run adaptive rounds, a failed repair patch is retried with a full re-route, and ECOs patch the signed-off result. A run gives its verdict, the layout and reports, hardened views and, for harness designs, precheck and chip integration.">
+</picture>
 
 `fill` and `signoff` run when the PDK has fill rules and signoff decks; a
 netlist design starts at `floorplan`. Each box is a step with typed
 parameters ([reference](docs/reference.md)); [how the flow
-works](docs/flow.md) describes them.
+works](docs/flow.md) describes them, with the loops: adaptive rounds,
+bounded search (`keep`, decided at a later step), retries and ECOs. The
+diagram is drawn by `docs/diagrams/flow_diagram.py`.
 
 ## EDA tools
 

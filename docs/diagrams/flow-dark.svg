@@ -1,0 +1,161 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 612" width="1280" height="612" role="img" aria-labelledby="t d">
+<title id="t">How SiPath runs a design</title>
+<desc id="d">A design file, the Python API or an AI agent over MCP drives an attempt graph. The reference chain runs synth, floorplan, macros, physical, place, cts, route_analog, route_digital, route_repair, fill, extract and signoff. Every step runs its variants as attempts in parallel, a score selects one and the next step continues from it; others are kept as branches or rejected. Placement can run adaptive rounds, a failed repair patch is retried with a full re-route, and ECOs patch the signed-off result. Outputs are the verdict, the layout and reports, hardened views and, for harness designs, precheck and chip integration.</desc>
+<defs>
+<marker id="a-flow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#9198a1"/></marker>
+<marker id="a-adapt" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4493f8"/></marker>
+<marker id="a-retry" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#d29922"/></marker>
+<marker id="a-eco" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#db6d28"/></marker>
+<marker id="a-keep" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#ab7df8"/></marker>
+<marker id="a-ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#3fb950"/></marker>
+<marker id="a-muted" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#9198a1"/></marker>
+</defs>
+<rect width="1280" height="612" fill="#0d1117"/>
+<text x="20" y="48" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10" font-weight="600" fill="#9198a1" text-anchor="start">DRIVEN BY</text>
+<rect x="20" y="60" width="200" height="58" rx="8" fill="#0d1117" stroke="#3d444d" stroke-width="1.2"/>
+<text x="120" y="84" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#f0f6fc" text-anchor="middle">design file</text>
+<text x="120" y="102" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="normal" fill="#9198a1" text-anchor="middle">sipath run design.yaml</text>
+<path d="M220 89 L242 89" fill="none" stroke="#9198a1" stroke-width="1.4" marker-end="url(#a-flow)"/>
+<rect x="20" y="132" width="200" height="58" rx="8" fill="#0d1117" stroke="#3d444d" stroke-width="1.2"/>
+<text x="120" y="156" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#f0f6fc" text-anchor="middle">Python API</text>
+<text x="120" y="174" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="normal" fill="#9198a1" text-anchor="middle">Flow.step · eco · fork</text>
+<path d="M220 161 L242 161" fill="none" stroke="#9198a1" stroke-width="1.4" marker-end="url(#a-flow)"/>
+<rect x="20" y="204" width="200" height="58" rx="8" fill="#0d1117" stroke="#3d444d" stroke-width="1.2"/>
+<text x="120" y="228" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#f0f6fc" text-anchor="middle">AI agent over MCP</text>
+<text x="120" y="246" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="normal" fill="#9198a1" text-anchor="middle">run_step · adapt · run_eco</text>
+<path d="M220 233 L242 233" fill="none" stroke="#9198a1" stroke-width="1.4" marker-end="url(#a-flow)"/>
+<text x="20" y="296" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10" font-weight="600" fill="#9198a1" text-anchor="start">WITH</text>
+<rect x="20" y="308" width="200" height="74" rx="8" fill="#0d1117" stroke="#3d444d" stroke-width="1.2"/>
+<text x="120" y="332" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#f0f6fc" text-anchor="middle">PDK described as data</text>
+<text x="120" y="350" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="normal" fill="#9198a1" text-anchor="middle">tool images locked by digest</text>
+<text x="120" y="366" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="normal" fill="#9198a1" text-anchor="middle">open_pdks release by commit</text>
+<path d="M220 345 L242 345" fill="none" stroke="#9198a1" stroke-width="1.4" marker-end="url(#a-flow)"/>
+<rect x="244" y="24" width="800" height="568" rx="12" fill="#151b23" stroke="#3d444d" stroke-width="1.2"/>
+<text x="264" y="50" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="700" fill="#f0f6fc" text-anchor="start">attempt graph</text>
+<text x="372" y="50" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="normal" fill="#9198a1" text-anchor="start">graph.json keeps every attempt</text>
+<text x="1024" y="582" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="end">↻ iterates inside the step  ·  dashed: when the design needs it</text>
+<rect x="268" y="104" width="112" height="64" rx="8" fill="#0d1117" stroke="#3d444d" stroke-width="1.2"/>
+<text x="324.0" y="126" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="700" fill="#f0f6fc" text-anchor="middle">synth</text>
+<text x="324.0" y="143" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">Yosys · ABC sweep ↻</text>
+<text x="324.0" y="156" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">lint · equivalence</text>
+<rect x="394" y="104" width="112" height="64" rx="8" fill="#0d1117" stroke="#3d444d" stroke-width="1.2"/>
+<text x="450.0" y="126" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="700" fill="#f0f6fc" text-anchor="middle">floorplan</text>
+<text x="450.0" y="143" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">die · rows · pins</text>
+<text x="450.0" y="156" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">or a pad ring</text>
+<path d="M380 136.0 L393 136.0" fill="none" stroke="#9198a1" stroke-width="1.4" marker-end="url(#a-flow)"/>
+<rect x="520" y="104" width="112" height="64" rx="8" fill="#0d1117" stroke="#3d444d" stroke-width="1.2" stroke-dasharray="5 4"/>
+<text x="576.0" y="126" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="700" fill="#f0f6fc" text-anchor="middle">macros</text>
+<text x="576.0" y="143" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">macro placers</text>
+<text x="576.0" y="156" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">if there are macros</text>
+<path d="M506 136.0 L519 136.0" fill="none" stroke="#9198a1" stroke-width="1.4" marker-end="url(#a-flow)"/>
+<rect x="646" y="104" width="112" height="64" rx="8" fill="#0d1117" stroke="#3d444d" stroke-width="1.2"/>
+<text x="702.0" y="126" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="700" fill="#f0f6fc" text-anchor="middle">physical</text>
+<text x="702.0" y="143" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">power grid</text>
+<text x="702.0" y="156" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">taps · endcaps</text>
+<path d="M632 136.0 L645 136.0" fill="none" stroke="#9198a1" stroke-width="1.4" marker-end="url(#a-flow)"/>
+<rect x="772" y="104" width="112" height="64" rx="8" fill="#0d1117" stroke="#3d444d" stroke-width="1.2"/>
+<text x="828.0" y="126" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="700" fill="#f0f6fc" text-anchor="middle">place</text>
+<text x="828.0" y="143" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">global · detailed</text>
+<text x="828.0" y="156" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">heatmaps</text>
+<path d="M758 136.0 L771 136.0" fill="none" stroke="#9198a1" stroke-width="1.4" marker-end="url(#a-flow)"/>
+<rect x="898" y="104" width="112" height="64" rx="8" fill="#0d1117" stroke="#3d444d" stroke-width="1.2"/>
+<text x="954.0" y="126" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="700" fill="#f0f6fc" text-anchor="middle">cts</text>
+<text x="954.0" y="143" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">clock tree</text>
+<text x="954.0" y="156" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">repair</text>
+<path d="M884 136.0 L897 136.0" fill="none" stroke="#9198a1" stroke-width="1.4" marker-end="url(#a-flow)"/>
+<rect x="268" y="244" width="112" height="64" rx="8" fill="#0d1117" stroke="#3d444d" stroke-width="1.2"/>
+<text x="324.0" y="266" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="700" fill="#f0f6fc" text-anchor="middle">route_analog</text>
+<text x="324.0" y="283" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">analog nets first</text>
+<text x="324.0" y="296" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">wide rule · shields</text>
+<rect x="394" y="244" width="112" height="64" rx="8" fill="#0d1117" stroke="#3d444d" stroke-width="1.2"/>
+<text x="450.0" y="266" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="700" fill="#f0f6fc" text-anchor="middle">route_digital</text>
+<text x="450.0" y="283" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">global · detailed</text>
+<text x="450.0" y="296" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">repair ↻ antennas ↻</text>
+<path d="M380 276.0 L393 276.0" fill="none" stroke="#9198a1" stroke-width="1.4" marker-end="url(#a-flow)"/>
+<rect x="520" y="244" width="112" height="64" rx="8" fill="#0d1117" stroke="#3d444d" stroke-width="1.2"/>
+<text x="576.0" y="266" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="700" fill="#f0f6fc" text-anchor="middle">route_repair</text>
+<text x="576.0" y="283" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">timing repair ↻</text>
+<text x="576.0" y="296" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">on extracted RC</text>
+<path d="M506 276.0 L519 276.0" fill="none" stroke="#9198a1" stroke-width="1.4" marker-end="url(#a-flow)"/>
+<rect x="646" y="244" width="112" height="64" rx="8" fill="#0d1117" stroke="#3d444d" stroke-width="1.2" stroke-dasharray="5 4"/>
+<text x="702.0" y="266" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="700" fill="#f0f6fc" text-anchor="middle">fill</text>
+<text x="702.0" y="283" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">metal fill</text>
+<text x="702.0" y="296" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">PDK fill rules</text>
+<path d="M632 276.0 L645 276.0" fill="none" stroke="#9198a1" stroke-width="1.4" marker-end="url(#a-flow)"/>
+<rect x="772" y="244" width="112" height="64" rx="8" fill="#0d1117" stroke="#3d444d" stroke-width="1.2"/>
+<text x="828.0" y="266" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="700" fill="#f0f6fc" text-anchor="middle">extract</text>
+<text x="828.0" y="283" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">RC per corner</text>
+<text x="828.0" y="296" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">IR drop</text>
+<path d="M758 276.0 L771 276.0" fill="none" stroke="#9198a1" stroke-width="1.4" marker-end="url(#a-flow)"/>
+<rect x="898" y="244" width="112" height="64" rx="8" fill="#0d1117" stroke="#3d444d" stroke-width="1.2"/>
+<text x="954.0" y="266" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="700" fill="#f0f6fc" text-anchor="middle">signoff</text>
+<text x="954.0" y="283" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">DRC · LVS · density</text>
+<text x="954.0" y="296" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">nine-corner STA</text>
+<path d="M884 276.0 L897 276.0" fill="none" stroke="#9198a1" stroke-width="1.4" marker-end="url(#a-flow)"/>
+<path d="M954.0 168 L954.0 206 L324.0 206 L324.0 243" fill="none" stroke="#9198a1" stroke-width="1.4" marker-end="url(#a-flow)"/>
+<path d="M864 104 C864 74 792 74 792 103" fill="none" stroke="#4493f8" stroke-width="1.4" marker-end="url(#a-adapt)"/>
+<text x="828" y="68" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="600" fill="#4493f8" text-anchor="middle">adaptive rounds: hotspots → next variants</text>
+<path d="M540 308 C540 340 612 340 612 309" fill="none" stroke="#d29922" stroke-width="1.4" marker-end="url(#a-retry)"/>
+<text x="576" y="356" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="600" fill="#d29922" text-anchor="middle">a failed patch: one retry,</text>
+<text x="576" y="370" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="600" fill="#d29922" text-anchor="middle">with a full re-route</text>
+<path d="M918 308 C918 340 990 340 990 309" fill="none" stroke="#db6d28" stroke-width="1.4" marker-end="url(#a-eco)"/>
+<text x="954" y="356" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="600" fill="#db6d28" text-anchor="middle">run_eco: resize · buffer,</text>
+<text x="954" y="370" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="600" fill="#db6d28" text-anchor="middle">re-routes changed nets</text>
+<rect x="268" y="384" width="742" height="172" rx="10" fill="#0d1117" stroke="#3d444d" stroke-width="1.2"/>
+<text x="284" y="406" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#f0f6fc" text-anchor="start">inside every step</text>
+<text x="300" y="428" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">parent</text>
+<text x="460" y="428" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">variants run as attempts, in parallel</text>
+<text x="670" y="428" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">a score ranks them</text>
+<text x="895" y="428" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">outcome</text>
+<circle cx="300" cy="487" r="8" fill="#3fb950"/>
+<text x="300" y="512" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">selected</text>
+<text x="300" y="525" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">attempt</text>
+<rect x="380" y="440" width="160" height="26" rx="13" fill="#0d1117" stroke="#3d444d" stroke-width="1.2"/>
+<text x="460" y="457" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="normal" fill="#f0f6fc" text-anchor="middle">place.0 · density 0.6</text>
+<path d="M310 487 C340 487 350 453 379 453" fill="none" stroke="#9198a1" stroke-width="1.4" marker-end="url(#a-flow)"/>
+<path d="M540 453 C570 453 572 487 589 487" fill="none" stroke="#9198a1" stroke-width="1.4" marker-end="url(#a-flow)"/>
+<rect x="380" y="474" width="160" height="26" rx="13" fill="#0d1117" stroke="#3d444d" stroke-width="1.2"/>
+<text x="460" y="491" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="normal" fill="#f0f6fc" text-anchor="middle">place.1 · density 0.7</text>
+<path d="M310 487 C340 487 350 487 379 487" fill="none" stroke="#9198a1" stroke-width="1.4" marker-end="url(#a-flow)"/>
+<path d="M540 487 C570 487 572 487 589 487" fill="none" stroke="#9198a1" stroke-width="1.4" marker-end="url(#a-flow)"/>
+<rect x="380" y="508" width="160" height="26" rx="13" fill="#0d1117" stroke="#3d444d" stroke-width="1.2"/>
+<text x="460" y="525" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="normal" fill="#f0f6fc" text-anchor="middle">place.2 · density 0.8</text>
+<path d="M310 487 C340 487 350 521 379 521" fill="none" stroke="#9198a1" stroke-width="1.4" marker-end="url(#a-flow)"/>
+<path d="M540 521 C570 521 572 487 589 487" fill="none" stroke="#9198a1" stroke-width="1.4" marker-end="url(#a-flow)"/>
+<rect x="590" y="474" width="160" height="26" rx="13" fill="#0d1117" stroke="#3d444d" stroke-width="1.2"/>
+<text x="670" y="491" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#f0f6fc" text-anchor="middle">routability_then_wns</text>
+<rect x="784" y="440" width="212" height="26" rx="13" fill="#0d1117" stroke="#3fb950" stroke-width="1.4"/>
+<text x="890" y="457" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="600" fill="#3fb950" text-anchor="middle">✓ selected: the next step continues</text>
+<path d="M750 487 C768 487 766 453 783 453" fill="none" stroke="#3fb950" stroke-width="1.4" marker-end="url(#a-ok)"/>
+<rect x="784" y="474" width="212" height="26" rx="13" fill="#0d1117" stroke="#ab7df8" stroke-width="1.4"/>
+<text x="890" y="491" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="600" fill="#ab7df8" text-anchor="middle">kept: a branch, decided later</text>
+<path d="M750 487 C768 487 766 487 783 487" fill="none" stroke="#ab7df8" stroke-width="1.4" marker-end="url(#a-keep)"/>
+<rect x="784" y="508" width="212" height="26" rx="13" fill="#0d1117" stroke="#9198a1" stroke-width="1.4"/>
+<text x="890" y="525" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="normal" fill="#9198a1" text-anchor="middle">rejected, still in the graph</text>
+<path d="M750 487 C768 487 766 521 783 521" fill="none" stroke="#9198a1" stroke-width="1.4" marker-end="url(#a-muted)"/>
+<text x="639" y="546" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">each attempt&#x27;s fingerprint (inputs, parameters, parent) lets --resume reuse it; fork starts a new run from any attempt</text>
+<text x="1064" y="48" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10" font-weight="600" fill="#9198a1" text-anchor="start">GIVES</text>
+<rect x="1064" y="60" width="196" height="72" rx="8" fill="#0d1117" stroke="#3d444d" stroke-width="1.2"/>
+<text x="1162" y="82" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#f0f6fc" text-anchor="middle">verdict</text>
+<text x="1162" y="99" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">execution: completed or failed</text>
+<text x="1162" y="113" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">verification: passed · failed ·</text>
+<text x="1162" y="127" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">inconclusive · omitted</text>
+<path d="M1054 96.0 L1063 96.0" fill="none" stroke="#9198a1" stroke-width="1.4" marker-end="url(#a-flow)"/>
+<rect x="1064" y="146" width="196" height="58" rx="8" fill="#0d1117" stroke="#3d444d" stroke-width="1.2"/>
+<text x="1162" y="168" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#f0f6fc" text-anchor="middle">layout and reports</text>
+<text x="1162" y="185" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">DEF · SPEF · GDS</text>
+<text x="1162" y="199" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">report.html · metrics.json</text>
+<path d="M1054 175.0 L1063 175.0" fill="none" stroke="#9198a1" stroke-width="1.4" marker-end="url(#a-flow)"/>
+<rect x="1064" y="218" width="196" height="58" rx="8" fill="#0d1117" stroke="#3d444d" stroke-width="1.2"/>
+<text x="1162" y="240" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#f0f6fc" text-anchor="middle">sipath harden</text>
+<text x="1162" y="257" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">LEF · Liberty · GDS · CDL</text>
+<text x="1162" y="271" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">for a parent design</text>
+<path d="M1054 247.0 L1063 247.0" fill="none" stroke="#9198a1" stroke-width="1.4" marker-end="url(#a-flow)"/>
+<rect x="1064" y="290" width="196" height="58" rx="8" fill="#0d1117" stroke="#3d444d" stroke-width="1.2"/>
+<text x="1162" y="312" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#f0f6fc" text-anchor="middle">harness designs</text>
+<text x="1162" y="329" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">precheck → integrate</text>
+<text x="1162" y="343" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">into the frame · seal ring</text>
+<path d="M1054 319.0 L1063 319.0" fill="none" stroke="#9198a1" stroke-width="1.4" marker-end="url(#a-flow)"/>
+<path d="M1010 276.0 L1054 276.0" fill="none" stroke="#9198a1" stroke-width="1.4"/>
+<path d="M1054 97 L1054 319.0" fill="none" stroke="#9198a1" stroke-width="1.4"/>
+</svg>
