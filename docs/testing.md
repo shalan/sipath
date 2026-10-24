@@ -63,13 +63,15 @@ wall time in CI.
   must not). Tests that need an open_pdks tree skip there, with the reason.
 - **`live`** runs nightly and on demand (a dispatch may name classes; each runs
   in its own group's job): the locked ORFS image and the locked open_pdks
-  release (fetched by `sipath install-pdk`), in three parallel jobs, with the
+  release (fetched by `sipath install-pdk`), in four parallel design jobs, with the
   regression limits except wall time, keeping the logs of any run that does
   not pass (failed, timed out or cancelled):
   - **chip**: mcu8 (`LiveMcuDie`);
   - **openframe**: builds the Magic image and the precheck image on the
     locked ORFS image, then `LiveOpenFrame` (signoff, cf-precheck, chip
     integration with the seal ring) and `LiveMagic`;
+  - **route-search-openframe**: builds both images and runs `LiveRouteSearchOpenFrame`,
+    requiring cf-precheck before chip integration;
   - **blocks**: `sipath validate`, the unit tests with the PDK (those that skip
     in `unit`), then every other live class.
 
@@ -83,5 +85,12 @@ wall time in CI.
   native path, no Docker (`install-tools`, `install-pdk`, gcd8 to signoff,
   explore mode) through `notebooks/smoke.py`: a cell fails when it raises or
   when any of its `!` commands exits non-zero.
+- The unit workflow also installs Icarus Verilog and runs
+  `sipath.tests.test_route_search`: both example plans, GCD8 functional tests,
+  and the OpenFrame wrapper's GCD and pad-control tests. The live classes
+  `LiveRouteSearchMacro` and `LiveRouteSearchOpenFrame` exercise the shipped
+  YAMLs, stop/resume inside placement, check the extracted decision and final
+  artifacts, then verify a completed resume reuses its results. They have no
+  measured PPA regression limits yet.
 - On Linux the containers run as the calling user (`--user`), so the files
   they write stay the user's; `SIPATH_DOCKER_AS_ROOT=1` keeps the image's user.
