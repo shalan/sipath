@@ -533,7 +533,7 @@ class Flow:
         elif not same_call:
             why = "its variants or score changed"
         else:
-            why = "; ".join(self.input_changes) or "the step's code (outside sipath) or declared parameter defaults changed"
+            why = "; ".join(self.input_changes) or "the step's function, its code (outside sipath) or its declared parameter defaults changed"
         self._make_stale(name, why)
         return None
 

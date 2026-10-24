@@ -3628,6 +3628,26 @@ class ResumeIntegrity(unittest.TestCase):
             designfile.run_items(f3, items())
             self.assertEqual([s["step"] for s in f3.stale], ["mystep"])
 
+    def test_two_functions_of_one_module_are_two_steps(self):
+        from sipath import designfile, params, steps
+        with tempfile.TemporaryDirectory() as td:
+            mod = os.path.join(td, "mods")
+            os.makedirs(mod)
+            with open(os.path.join(mod, "review_two_mod.py"), "w") as fh:
+                fh.write("def one(ctx):\n    ctx.metrics['wns'] = 1.0\n\n\ndef two(ctx):\n    ctx.metrics['wns'] = 2.0\n")
+            sys.path.insert(0, mod)
+            self.addCleanup(sys.path.remove, mod)
+            for ref in ("review_two_mod:one", "review_two_mod:two"):
+                self.addCleanup(lambda r=ref: (steps.STEPS.pop(r, None), params.STEP_PARAMS.pop(r, None),
+                                               params.DECLARED.pop(r, None)))
+            self.addCleanup(sys.modules.pop, "review_two_mod", None)
+            run = os.path.join(td, "run")
+            designfile.run_items(self.flow(run), designfile.resolve_steps([{"step": "x", "fn": "review_two_mod:one"}]))
+            f2 = self.flow(run, resume=True)  # the same name and parameters, the module unchanged: another function
+            designfile.run_items(f2, designfile.resolve_steps([{"step": "x", "fn": "review_two_mod:two"}]))
+            self.assertEqual([s["step"] for s in f2.stale], ["x"])
+            self.assertEqual(f2.steps["x"].selected.metrics["wns"], 2.0)
+
     def test_a_step_registered_under_another_name_gets_its_declared_defaults(self):
         from sipath import params, registry, steps
         seen = {}
@@ -4222,8 +4242,11 @@ class Adaptive(unittest.TestCase):
         d = Design("fake", "fake", "x.v", "x.sdc", "macro", floorplan_def="x.def")
         return Flow(d, sky130hd("/p"), td, demo.fake_factory(), validate_inputs=False)
 
+    CALLS: list = []
+
     @staticmethod
     def step(ctx):  # density lower is better here; blockages better still
+        Adaptive.CALLS.append(ctx.params.get("density"))
         ctx.metrics["wns"] = 1.0 - ctx.params.get("density", 0.8) + 0.5 * len(ctx.params.get("blockages") or [])
 
     def test_extend_reselects_records_and_resumes(self):
@@ -4241,12 +4264,12 @@ class Adaptive(unittest.TestCase):
             g = _read_json(os.path.join(td, "graph.json"))
             self.assertEqual(g["steps"]["place"]["rounds"][-1]["stopped"], "nothing hot")
             self.assertEqual(g["steps"]["place"]["variants"], [{"density": 0.8}])  # the base variants
-            ran = []
+            Adaptive.CALLS.clear()  # the same step function on resume (another function would run again)
             f2 = Flow(f.design, f.pdk, td, demo.fake_factory(), validate_inputs=False, resume=True)
-            r2 = f2.step("place", lambda c: ran.append(1), variants=[{"density": 0.8}], score="setup_wns")
-            self.assertEqual((r2.selected.id, len(r2.rounds), ran), ("place.2", 2, []))  # recorded, not rerun
-            r3 = f2.extend("place", lambda c: ran.append(1), [{"density": 0.7}])
-            self.assertEqual((ran, r3.rounds[-1]["attempts"]), ([], []))  # tried before: not run again
+            r2 = f2.step("place", self.step, variants=[{"density": 0.8}], score="setup_wns")
+            self.assertEqual((r2.selected.id, len(r2.rounds), Adaptive.CALLS), ("place.2", 2, []))  # recorded
+            r3 = f2.extend("place", self.step, [{"density": 0.7}])
+            self.assertEqual((Adaptive.CALLS, r3.rounds[-1]["attempts"]), ([], []))  # tried before: not run again
             with self.assertRaisesRegex(ValueError, "nothing to extend"):
                 f2.extend("cts", self.step, [{}])
 
