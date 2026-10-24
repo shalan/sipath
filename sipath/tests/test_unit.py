@@ -434,6 +434,41 @@ class TutorialNotebook(unittest.TestCase):
                 self.assertTrue(os.path.isfile(os.path.join(self.ROOT, "sipath", "examples", m.group(1) + ".yaml")), m.group(0))
 
 
+class TutorialSmoke(unittest.TestCase):
+    """notebooks/smoke.py: any `!` command that fails fails its cell; a retry the notebook means (a subprocess
+    loop, only its last try counting) is not a failure."""
+    ROOT = TutorialNotebook.ROOT
+
+    def test_no_cell_retries_through_shell_commands(self):
+        nb = TutorialNotebook.setUp.__get__(self)  # build_tutorial's cells
+        nb()
+        for kind, src in self.nb.CELLS:
+            if kind == "code" and "_exit_code" in src:  # a `!` retry: smoke.py counts its failed tries
+                self.fail("a cell retries through `!` and _exit_code: use a subprocess loop\n" + src)
+
+    def smoke(self, cells):
+        import subprocess
+        try:
+            import IPython  # noqa: F401
+        except ImportError:
+            self.skipTest("IPython is not installed (the tutorial job installs it)")
+        with tempfile.TemporaryDirectory() as td:
+            nb = os.path.join(td, "nb.ipynb")
+            _write_json(nb, {"cells": [{"cell_type": "code", "source": c} for c in cells], "metadata": {},
+                             "nbformat": 4, "nbformat_minor": 5})
+            return subprocess.run([sys.executable, os.path.join(self.ROOT, "notebooks", "smoke.py"), nb],
+                                  capture_output=True, text=True).returncode
+
+    def test_a_meant_retry_passes_and_a_failed_command_fails(self):
+        retry = ("import subprocess, sys, os, tempfile\nf = os.path.join(tempfile.gettempdir(), 'smoke_retry_try')\n"
+                 "open(f, 'w').close() if not os.path.exists(f) else None\n"
+                 "for k in range(3):\n"
+                 "    r = subprocess.run(['sh', '-c', f'test -s {f} || {{ echo x > {f}; exit 1; }}'])\n"
+                 "    if r.returncode == 0:\n        break\nos.remove(f)\n")
+        self.assertEqual(self.smoke([retry]), 0)
+        self.assertEqual(self.smoke(["!false\n!true\n"]), 1)
+
+
 class NativeTools(unittest.TestCase):
     """install-tools: the locked image unpacked without Docker (no network here)."""
 
