@@ -236,7 +236,8 @@ def from_orfs_compare(design_dir: str, backfilled: bool = False) -> list[dict]:
                    "cell_area_um2": m.get("cell_area_um2"), "drc_klayout": m.get("klayout_drc"),
                    "drc_router": r.get("drt_drc"), "wall_s": r.get("seconds"), "exit": r.get("exit")}
         run_dir = os.path.join(design_dir, flow, "run")
-        outcome, failure = _outcome(r.get("exit"), m.get("error"))
+        run = from_run(run_dir) if flow != "orfs" and os.path.isfile(os.path.join(run_dir, "graph.json")) else {}
+        outcome, failure = _outcome(r.get("exit"), m.get("error"), (run.get("verification") or {}).get("execution"))
         if flow == "orfs":
             stages = orfs_stages(os.path.join(design_dir, "orfs"))
             when = os.path.join(design_dir, "orfs", "time.json")
@@ -248,13 +249,10 @@ def from_orfs_compare(design_dir: str, backfilled: bool = False) -> list[dict]:
                             toolchain_={"orfs": c.get("orfs_image")} if c.get("orfs_image") else None,
                             image_platform="linux/amd64", outcome=outcome, **({"failure": failure} if failure else {}),
                             **({"orfs_unmapped": cfg["orfs_unmapped"]} if cfg.get("orfs_unmapped") else {})))
-        elif os.path.isfile(os.path.join(run_dir, "graph.json")):
-            run = from_run(run_dir)
+        elif run:
             metrics.update(drc_router=run["router_drc"], wns_worst_ns=run["worst_setup"])
             with open(os.path.join(run_dir, "graph.json")) as f:
                 rins, rnote = run_inputs(json.load(f))
-            if outcome == "completed" and run["verification"]["execution"] != "completed":
-                outcome, failure = "execution_failed", run.get("failure") or "the run did not complete"
             out.append(make("orfs_compare", design, "sipath", metrics, run=run, source=run_dir, inputs_=rins,
                             **({"inputs_note": rnote} if rnote else {}),
                             measured=_mtime_date(os.path.join(run_dir, "graph.json")), backfilled=backfilled,
@@ -264,9 +262,15 @@ def from_orfs_compare(design_dir: str, backfilled: bool = False) -> list[dict]:
     return out
 
 
-def _outcome(exit_code, measure_error) -> tuple[str, str | None]:
-    """(outcome, failure) of a run from its exit status and its measurement: a missing exit status is a failed
-    run, never a completed one."""
+def _outcome(exit_code, measure_error, execution: str | None = None) -> tuple[str, str | None]:
+    """(outcome, failure) of a run. A SiPath run with a graph is judged by its own execution status: one that
+    completed and failed verification exits 1 (`sipath run`'s exit codes), and is still measured, its verdict
+    kept apart (``verification``). Without a graph (ORFS, a run that died first), by its exit status: a missing
+    one is a failed run, never a completed one."""
+    if execution is not None:
+        if execution != "completed":
+            return "execution_failed", f"the run's execution: {execution}"
+        return ("measurement_failed", measure_error) if measure_error else ("completed", None)
     if exit_code != 0:
         return "execution_failed", f"exit {exit_code}" if exit_code is not None else "no exit status recorded"
     if measure_error:
@@ -298,8 +302,10 @@ def from_repeat(design_dir: str, backfilled: bool = False) -> list[dict]:
                        "exit": r.get("exit"), "synth_recipe": r.get("synth_recipe"), "netlist_sha": r.get("netlist_sha")}
             run = from_run(run_dir) if os.path.isfile(os.path.join(run_dir, "graph.json")) else {}
             log_failure = _log_failure(os.path.join(design_dir, tag, "run.log")) if r.get("exit") else None
-            if run and r.get("exit") and run["verification"]["execution"] == "completed":
-                # the directory was resumed later: its graph is not this result's; the run's own log says what failed
+            if run and r.get("exit") and run["verification"]["execution"] == "completed" and \
+                    run["verification"]["verification"] in ("passed", "completed", "omitted"):
+                # a graph that would have exited 0 under a run that exited non-zero: the directory was resumed
+                # later and its graph is not this result's (a run that failed only verification exits 1 too)
                 run = {"graph_not_this_result": True}
             if run.get("graph_not_this_result"):
                 metrics["note"] = "run directory resumed after this result; its graph describes the later run"
@@ -307,7 +313,8 @@ def from_repeat(design_dir: str, backfilled: bool = False) -> list[dict]:
                 metrics.update(drc_router=run["router_drc"], wns_worst_ns=run["worst_setup"])
                 rm = run_metrics(run_dir)
                 metrics.update(synth_area_um2=rm["synth_area_um2"], instances=rm["instances"])
-            outcome, why = _outcome(r.get("exit"), r.get("measure_error") or r.get("error"))
+            outcome, why = _outcome(r.get("exit"), r.get("measure_error") or r.get("error"),
+                                    (run.get("verification") or {}).get("execution"))
             failure = run.get("failure") or log_failure or why
             extra = {"failure": failure} if failure else {}
             src = run_dir if run and not run.get("graph_not_this_result") else os.path.join(design_dir, tag)

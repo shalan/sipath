@@ -285,6 +285,9 @@ def sipath_result(w: str, tag: str = "sipath", typical: str = "tt_nom") -> dict:
         r["steps"] = {a["step"]: round(a.get("seconds") or 0, 1) for a in chain}
         r["failed"] = [f"{a['id']}: {(a.get('error') or '').strip().splitlines()[-1:]}" for a in g["attempts"]
                        if a.get("status") == "failed"]
+        from sipath import verdict
+        r["execution"] = (g.get("verification") or verdict.verify(g))["execution"]  # not the exit code: a run
+        # that failed only verification exits 1
     return r
 
 
@@ -454,7 +457,8 @@ def main(argv):
             r = res.get(tag, {})
             m = r.get("measured", {})
             label = "ORFS" if tag == "orfs" else VARIANTS[tag][0]
-            if r.get("exit") or r.get("failed") or m.get("error"):
+            failed = (r.get("execution") != "completed") if tag != "orfs" else bool(r.get("exit"))
+            if failed or m.get("error"):
                 label += f" (failed: {(r.get('failed') or [m.get('error') or 'exit %s' % r.get('exit')])[0][:80]})"
             lines.append(f"| {d} | {label} | {m.get('wns_ns', '-')} | {m.get('tns_ns', '-')} | "
                          f"{m.get('wirelength_um', '-')} | {m.get('cells', '-')} | {m.get('cell_area_um2', '-')} | "

@@ -3265,7 +3265,7 @@ class BenchmarkRobustness(unittest.TestCase):
     def setUp(self):
         sys.path.insert(0, os.path.join(self.ROOT, "bench"))
 
-    def graph(self, run_dir, signoff_fails=False, inputs=None):
+    def graph(self, run_dir, signoff_fails=False, inputs=None, failed_step=None):
         os.makedirs(run_dir, exist_ok=True)
         so = os.path.join(run_dir, "signoff.json")
         _write_json(so, {"checks": ["setup"], "required": ["setup"], "pass": not signoff_fails,
@@ -3278,6 +3278,10 @@ class BenchmarkRobustness(unittest.TestCase):
                            "outputs": {"signoff": so}, "metrics": {}}]}
         if inputs is not None:
             g["inputs"] = {"files": inputs}
+        if failed_step:  # the run stopped at a later step, whose every attempt failed
+            g["attempts"].append({"id": f"{failed_step}.0", "step": failed_step, "parent": "signoff.0",
+                                  "status": "failed", "kind": "step", "seconds": 1.0,
+                                  "error": "RuntimeError: [ERROR DRT-0206] checkConnectivity error."})
         _write_json(os.path.join(run_dir, "graph.json"), g)
 
     def drive(self, td, behaviour):
@@ -3313,21 +3317,23 @@ class BenchmarkRobustness(unittest.TestCase):
             self.assertTrue(os.path.isfile(os.path.join(td, "results", "strategy", "x__defaults__r1.json")))
         with tempfile.TemporaryDirectory() as td:
             def fails_late(out):
-                self.graph(os.path.join(out, "run"))
+                self.graph(os.path.join(out, "run"), failed_step="route_repair")
                 with open(os.path.join(out, "run.log"), "w") as fh:
                     fh.write("[ERROR DRT-0206] checkConnectivity error.\n")
                 return 1
             r = self.drive(td, fails_late)
-            self.assertEqual((r["outcome"], r["failure"]), ("execution_failed", "[ERROR DRT-0206] checkConnectivity error."))
+            self.assertEqual((r["outcome"], r["failure"]),
+                             ("execution_failed", "route_repair.0: [ERROR DRT-0206] checkConnectivity error."))
         with tempfile.TemporaryDirectory() as td:
             self.measure = staticmethod(lambda *a: {"error": "measurement failed (log)"})
             r = self.drive(td, lambda out: (self.graph(os.path.join(out, "run")), 0)[1])
             self.assertEqual(r["outcome"], "measurement_failed")
         with tempfile.TemporaryDirectory() as td:
             self.measure = BenchmarkRobustness.measure
-            r = self.drive(td, lambda out: (self.graph(os.path.join(out, "run"), signoff_fails=True), 0)[1])
-            self.assertEqual(r["outcome"], "completed")  # a signoff that fails its checks is a result...
+            r = self.drive(td, lambda out: (self.graph(os.path.join(out, "run"), signoff_fails=True), 1)[1])
+            self.assertEqual(r["outcome"], "completed")  # a signoff that fails its checks is a result (exit 1) ...
             self.assertEqual(r["verification"]["verification"], "failed")  # ... and its verdict says so
+            self.assertEqual(r["metrics"]["wns_tt_ns"], 1.0)  # measured
 
     def test_the_driver_exits_nonzero_when_a_run_did_not_complete(self):
         from unittest import mock
@@ -4146,6 +4152,19 @@ class BenchmarkIntegrity(unittest.TestCase):
         self.assertEqual(r["toolchain"]["orfs"], "openroad/orfs@sha256:" + "0" * 64)
         self.assertNotIn("toolchain: the lock at export, not recorded by the run", r.get("provenance_gaps", []))
         self.assertEqual(records._outcome(None, None), ("execution_failed", "no exit status recorded"))
+
+    def test_a_run_that_failed_only_verification_is_measured(self):
+        """`sipath run` exits 1 when a required check fails; the benchmarks judge the run by its own execution
+        status, keep measuring it and keep its verdict apart."""
+        import records
+        self.assertEqual(records._outcome(1, None, "completed"), ("completed", None))
+        self.assertEqual(records._outcome(1, "no SPEF", "completed"), ("measurement_failed", "no SPEF"))
+        self.assertEqual(records._outcome(1, None, "failed")[0], "execution_failed")
+        self.assertEqual(records._outcome(0, None, "budget")[0], "execution_failed")
+        with open(os.path.join(self.ROOT, "bench", "strategy_compare.py")) as fh:
+            src = fh.read()
+        self.assertNotIn('"completed" if not rc', src)  # the exit code no longer decides
+        self.assertIn('if execution == "completed":', src)
 
     def test_records_list_what_the_run_did_not_record(self):
         import records

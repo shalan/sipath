@@ -136,10 +136,13 @@ def run(name: str, strategy: str, repeat: int) -> dict:
                                   source_snapshot=SOURCE)
     m = rec["metrics"]
     m.update(exit=rc, wall_s=wall, core_seconds=core_seconds(run_dir), tool_seconds=tool_seconds(run_dir))
-    rec["outcome"] = "completed" if not rc else "execution_failed"
-    if rc and not rec.get("failure"):
-        rec["failure"] = records._log_failure(log) or f"exit {rc}"
-    if not rc:
+    # the run's own execution status decides, not its exit code: a run that completed and failed verification
+    # exits 1 and is measured like any other (its verdict is the record's verification)
+    execution = (rec.get("verification") or {}).get("execution")
+    rec["outcome"] = "completed" if execution == "completed" else "execution_failed"
+    if execution != "completed" and not rec.get("failure"):
+        rec["failure"] = records._log_failure(log) or f"exit {rc}, execution {execution}"
+    if execution == "completed":
         from sipath.pdk import load
         lib = [c.liberty for c in load("sky130A").analysis_corners() if c.name == "tt_nom"][0]
         meas = oc.measure(oc.sipath_result(w, tag), {"sdc": d["sdc"], "top": d["top"], "drc_deck": None}, lib, tag, w)
