@@ -3472,6 +3472,23 @@ class RunHeadThirdReview(unittest.TestCase):
     def setUp(self):
         RunHeadThirdReview.RESULT = {}
 
+    def test_retried_losing_failure_is_handled_by_reused_decision(self):
+        from sipath import designfile
+        with tempfile.TemporaryDirectory() as td:
+            f = self.flow(td)
+            designfile.run_items(f, self.items({"fail": [0]}, then_sign=True))
+            winner = f.decisions[-1]["winner"]
+            failed = f.decisions[-1]["failed_branches"]
+            for _ in range(2):
+                f = self.flow(td, resume=True)
+                designfile.run_items(f, self.items({"fail": [0]}, then_sign=True))
+                self.assertEqual(f.decisions[-1]["winner"], winner)
+                self.assertNotEqual(f.decisions[-1]["failed_branches"], failed)
+                failed = f.decisions[-1]["failed_branches"]
+                self.assertEqual(f.verification()["execution"], "completed")
+                g = _read_json(os.path.join(td, "graph.json"))
+                self.assertEqual(g["verification"]["execution"], "completed")
+
     def test_a_rebuilt_candidate_is_decided_again(self):
         from sipath import designfile
         with tempfile.TemporaryDirectory() as td:
@@ -3956,7 +3973,22 @@ class SignoffJudgment(unittest.TestCase):
         self.assertIn("no constrained path", f[0])
         self.assertEqual(sta_failures(st, ["drv"]), [])  # left out of the checks: not judged
         st["corners"]["ss"].update(wns=-0.2, whs=0.1)
-        self.assertEqual(sta_failures(st, ["setup", "hold"]), ["setup: worst -0.200 ns (['ss'])"])
+        self.assertEqual(sta_failures(st, ["setup", "hold"]),
+                         ["setup: missing constrained timing at corners ['tt']",
+                          "setup: worst -0.200 ns (['ss'])",
+                          "hold: missing constrained timing at corners ['tt']"])
+
+    def test_each_expected_corner_needs_finite_setup_and_hold(self):
+        from sipath.signoff import sta_failures
+        st = {"expected_corners": ["tt", "ss"], "corners": {"tt": {"wns": 1.0, "whs": 0.1}}}
+        self.assertEqual(len(sta_failures(st, ["setup", "hold"])), 2)  # whole corner missing
+        for missing in (None, float("nan"), float("inf"), -float("inf")):
+            st["corners"]["ss"] = {"wns": missing, "whs": 0.2}
+            self.assertEqual(sta_failures(st, ["setup", "hold"]),
+                             ["setup: missing constrained timing at corners ['ss']"])
+            self.assertEqual(sta_failures(st, ["hold"]), [])
+        st["corners"]["ss"]["wns"] = 0.5
+        self.assertEqual(sta_failures(st, ["setup", "hold"]), [])
 
     def test_timing_met_is_unknown_without_constrained_paths(self):
         from sipath.steps.common import timing_met

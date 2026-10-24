@@ -708,7 +708,7 @@ def timing(ctx, verilog: str, spef_corners: dict) -> dict:
     os.makedirs(wd, exist_ok=True)
     every = pdk.signoff_corners()  # signoff checks every corner, not only those the flow repaired against
     corners = [c.name for c in every]
-    res = {"corners": {}}
+    res = {"corners": {}, "expected_corners": corners}
     with OpenRoadSession(wd, r, timeout=getattr(ctx.session, "timeout", 3600)) as s:
         if getattr(ctx, "job_threads", None):  # its share among signoff's concurrent checks
             s.run(f"set_thread_count {int(ctx.job_threads)}")
@@ -773,17 +773,24 @@ def _analog_ports(session, d) -> set[str]:
 
 
 def sta_failures(st: dict, checks) -> list[str]:
-    """What the signoff STA fails on. A check with nothing to judge fails too: no corner with a constrained setup
-    (hold) path means no clock reached an endpoint, not that timing was met (leave setup/hold out of ``require``
-    for a design without timing)."""
+    """Every expected corner needs finite constrained setup/hold results.
+
+    Missing timing is not a pass; leave setup/hold out of ``require`` for a
+    design without timing. Older reports use their recorded corner set.
+    """
+    import math
     out = []
+    corners = set(st.get("expected_corners", [])) | set(st["corners"])
     for key, kind in (("wns", "setup"), ("whs", "hold")):
         if kind not in checks:
             continue
-        vals = {c: v[key] for c, v in st["corners"].items() if v.get(key) is not None}
+        vals = {c: v[key] for c, v in st["corners"].items()
+                if v.get(key) is not None and math.isfinite(v[key])}
         if not vals:
-            out.append(f"{kind}: no constrained path at any corner ({sorted(st['corners'])})")
-        elif min(vals.values()) < 0:
+            out.append(f"{kind}: no constrained path at any corner ({sorted(corners)})")
+        elif corners - vals.keys():
+            out.append(f"{kind}: missing constrained timing at corners {sorted(corners - vals.keys())}")
+        if vals and min(vals.values()) < 0:
             out.append(f"{kind}: worst {min(vals.values()):.3f} ns ({[c for c, v in vals.items() if v < 0]})")
     if "drv" in checks and not st["drv_clean"]:
         out.append(f"drv: slew {st['drv_slew']}, cap {st['drv_cap']}, fanout {st['drv_fanout']} on standard cells")
