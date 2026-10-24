@@ -3561,6 +3561,11 @@ class RunHeadThirdReview(unittest.TestCase):
                 {"id": "extract.0", "step": "extract", "parent": None, "outputs": {"def_": "/missing.def"}},
                 {"id": "signoff.0", "step": "signoff", "parent": "extract.0", "outputs": {"def_": d}}]}
             self.assertEqual(records.final_def_digest(g), hashlib.sha256(b"DESIGN x ;\n").hexdigest()[:16])
+            g["attempts"].append({"id": "eco_1.0", "step": "eco_1", "kind": "eco", "parent": "signoff.0", "outputs": {}})
+            g["head"] = "eco_1.0"
+            self.assertIsNone(records.final_def_digest(g))  # signoff's DEF predates the ECO: stale, not final
+            g["attempts"].pop()
+            g["head"] = "signoff.0"
             g["attempts"][1]["outputs"] = {}
             self.assertIsNone(records.final_def_digest(g))  # extraction's is missing: no digest, not a guess
 

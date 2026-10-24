@@ -169,16 +169,22 @@ def run_metrics(run_dir: str) -> dict:
 
 
 def final_def_digest(g) -> str | None:
-    """The layout the run ended with: sha256 (16 hex) of the result chain's final DEF (signoff's, else
-    extraction's), so two results can be told to be the same layout, not only the same numbers."""
+    """The layout the run ended with: sha256 (16 hex) of the DEF written by the latest attempt of the result
+    chain that wrote one, when nothing after it changed the design (sipath.verdict's rule: an ECO or any step
+    but signoff, the check steps and the like); None when the latest DEF is stale (a later ECO) or missing.
+    Two results can then be told to be the same layout, not only the same numbers."""
     import hashlib
-    from sipath.scheduler import in_chain, run_chain
-    ch = run_chain(g)
-    for step in ("signoff", "extract"):
-        p = (in_chain(ch, step).get("outputs") or {}).get("def_")
-        if p and os.path.isfile(p):
+    from sipath.scheduler import run_chain
+    from sipath.verdict import _modifies
+    changed_after = False
+    for a in reversed(run_chain(g)):
+        p = (a.get("outputs") or {}).get("def_")
+        if p:
+            if changed_after or not os.path.isfile(p):
+                return None
             with open(p, "rb") as f:
                 return hashlib.sha256(f.read()).hexdigest()[:16]
+        changed_after = changed_after or _modifies(a)
     return None
 
 
