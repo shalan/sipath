@@ -4,11 +4,16 @@
     export ANTHROPIC_API_KEY=...
     python3 -m sipath.examples.agent_sdk                       # the default goal on gcd8
     python3 -m sipath.examples.agent_sdk "your goal" --model claude-opus-5-5 --max-turns 40
+    python3 -m sipath.examples.agent_sdk "..." --allow-tcl        # query_checkpoint too (arbitrary Tcl)
 
-The agent gets SiPath's MCP tools and nothing else (no shell, no file access):
-it opens a run, runs steps, reads attempts, heatmaps and slacks, and decides
-the next step itself. Every tool call and its answer are printed; the run stays
-under runs/ like any other (graph.json, report).
+The agent gets SiPath's MCP tools and none of the SDK's (Bash, Read, ...): it
+opens a run, runs steps, reads attempts, heatmaps and slacks, and decides the
+next step itself. Those tools still act on this machine: they run the flow's
+tools (OpenROAD, Yosys, KLayout; in Docker or natively) and write under runs/.
+query_checkpoint runs whatever Tcl it is given with the tool's access, so it is
+left out unless --allow-tcl: without that, no tool the agent has runs code of
+its choosing. Every tool call and its answer are printed; the run stays under
+runs/ like any other (graph.json, report).
 """
 from __future__ import annotations
 
@@ -33,6 +38,13 @@ SYSTEM = ("You drive the SiPath physical-design flow through its MCP tools only.
 # the agent may only use SiPath's tools: the SDK's own tools are removed
 BUILTIN = ["Bash", "Read", "Write", "Edit", "MultiEdit", "Glob", "Grep", "WebFetch", "WebSearch",
            "NotebookEdit", "Task", "TodoWrite"]
+ARBITRARY_CODE = {"query_checkpoint"}  # runs any Tcl it is given (sipath.mcp_server)
+
+
+def allowed_tools(allow_tcl: bool = False) -> list[str]:
+    """SiPath's MCP tools by name (never a wildcard): every one but those running arbitrary code, unless asked."""
+    from sipath.mcp_server import TOOLS
+    return [f"mcp__sipath__{t['name']}" for t in TOOLS if allow_tcl or t["name"] not in ARBITRARY_CODE]
 
 
 def _short(value, limit: int = 400) -> str:
@@ -40,7 +52,7 @@ def _short(value, limit: int = 400) -> str:
     return text if len(text) <= limit else text[:limit] + f" ... ({len(text)} chars)"
 
 
-async def run(goal: str, model: str, max_turns: int) -> int:
+async def run(goal: str, model: str, max_turns: int, allow_tcl: bool = False) -> int:
     from claude_agent_sdk import (AssistantMessage, ClaudeAgentOptions, ResultMessage, SystemMessage, TextBlock,
                                   ToolResultBlock, ToolUseBlock, UserMessage, query)
     options = ClaudeAgentOptions(
@@ -50,8 +62,8 @@ async def run(goal: str, model: str, max_turns: int) -> int:
                                 "env": {"PYTHONPATH": ROOT}}},
         strict_mcp_config=True,  # only the server above: none from your Claude Code settings or plugins
         setting_sources=[],  # nor their permissions, hooks or CLAUDE.md
-        allowed_tools=["mcp__sipath__*"],
-        disallowed_tools=BUILTIN,
+        allowed_tools=allowed_tools(allow_tcl),
+        disallowed_tools=BUILTIN + ([] if allow_tcl else [f"mcp__sipath__{n}" for n in sorted(ARBITRARY_CODE)]),
         permission_mode="dontAsk",  # anything not allowed above is refused, never asked
         max_turns=max_turns,
         cwd=ROOT,
@@ -89,13 +101,14 @@ def main(argv=None) -> int:
     p.add_argument("goal", nargs="?", default=GOAL)
     p.add_argument("--model", default="claude-sonnet-5-5")
     p.add_argument("--max-turns", type=int, default=30)
+    p.add_argument("--allow-tcl", action="store_true", help="also query_checkpoint, which runs arbitrary Tcl")
     a = p.parse_args(argv)
     try:
         import claude_agent_sdk  # noqa: F401
     except ImportError:
         print("needs the Claude Agent SDK: python3 -m pip install claude-agent-sdk", file=sys.stderr)
         return 2
-    return asyncio.run(run(a.goal, a.model, a.max_turns))
+    return asyncio.run(run(a.goal, a.model, a.max_turns, a.allow_tcl))
 
 
 if __name__ == "__main__":

@@ -3955,6 +3955,18 @@ class McpSafety(unittest.TestCase):
             r = subprocess.run(["tclsh"], input=guard + f"puts [catch {{{probe}}} m]\n", capture_output=True, text=True)
             self.assertEqual(r.stdout.strip().splitlines()[-1], "1", (probe, r.stdout, r.stderr))
 
+    def test_the_agent_example_leaves_arbitrary_tcl_out(self):
+        from sipath import mcp_server
+        from sipath.examples import agent_sdk
+        names = {f"mcp__sipath__{t['name']}" for t in mcp_server.TOOLS}
+        default = agent_sdk.allowed_tools()
+        self.assertNotIn("mcp__sipath__query_checkpoint", default)
+        self.assertEqual(set(default), names - {"mcp__sipath__query_checkpoint"})  # by name, no wildcard
+        self.assertFalse(any("*" in n for n in default))
+        self.assertIn("mcp__sipath__query_checkpoint", agent_sdk.allowed_tools(allow_tcl=True))
+        with open(agent_sdk.__file__) as fh:
+            self.assertNotIn('"mcp__sipath__*"', fh.read())
+
     def test_tool_arguments_are_checked(self):
         from sipath.mcp_server import Server, ToolError
         s = Server()
