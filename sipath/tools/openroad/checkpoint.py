@@ -59,11 +59,16 @@ class OpenRoadCheckpoints:
             session.run(tcl.load_checkpoint(pdk, design, parent.checkpoint))
 
     def metrics(self, session) -> dict:
-        """Every attempt's metrics, as the flow's helpers report them, with the parasitics they used and the
-        process's peak memory (``mem_peak_mb``: VmHWM of /proc/<pid>/status; absent where there is no /proc)."""
+        """Every attempt's metrics, as the flow's helpers report them, with the parasitics they used, the threads
+        the OpenROAD process ran with (``openroad_threads``: its own count, however it got it: started with it
+        or set_thread_count) and the process's peak memory (``mem_peak_mb``: VmHWM of /proc/<pid>/status;
+        absent where there is no /proc)."""
         parasitics = session.value("::flow_timing_prep")
         metrics = parse_metrics(session.value("::flow_metrics"))
         metrics["parasitics"] = parasitics
+        n = session.value("ord::thread_count").strip()
+        if n.isdigit():
+            metrics["openroad_threads"] = int(n)
         mem = session.value(PEAK_MEMORY_TCL)
         if mem.strip().isdigit():
             metrics["mem_peak_mb"] = round(int(mem) / 1024, 1)

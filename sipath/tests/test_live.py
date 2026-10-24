@@ -1298,11 +1298,10 @@ class LiveCancel(unittest.TestCase):
 
 @LIVE
 class LiveBudget(unittest.TestCase):
-    """B2.2: a 3-way sweep under a 6-core budget runs within it (2 threads each, seen in each attempt's own
-    transcript); a wall-time budget stops a real run cleanly (status budget) and --resume finishes it."""
+    """B2.2: a 3-way sweep under a 6-core budget runs within it (2 threads each, as each attempt's OpenROAD process
+    reports its own count); a wall-time budget stops a real run cleanly (status budget) and --resume finishes it."""
 
     def test_core_budget_and_wall_budget(self):
-        import re
         from sipath import designfile
         from sipath.config import Config
         from sipath.examples import dp8
@@ -1316,10 +1315,9 @@ class LiveBudget(unittest.TestCase):
         f = designfile.run(dp8.make_design(), os.path.join(wd, "sweep"), RUNNER, flow_steps=sweep,
                            config=Config(threads=6))
         self.assertEqual((f.allocation["place"]["at_once"], f.allocation["place"]["threads_each"]), (3, 2))
-        for a in f.steps["place"].attempts:
-            with open(os.path.join(a.dir, "openroad.log"), errors="replace") as fh:
-                counts = set(re.findall(r"set_thread_count (\d+)", fh.read()))
-            self.assertEqual(counts, {"2"}, a.id)  # its share, not the machine's cores
+        for a in f.steps["place"].attempts:  # its share, not the machine's cores: the process's own count (started
+            # with 2, or set to 2), not a set_thread_count line a process already at 2 does not need
+            self.assertEqual((a.threads, a.metrics.get("openroad_threads")), (2, 2), a.id)
         steps = [{"step": s} for s in ("floorplan", "physical", "place", "cts", "route_analog", "route_digital",
                                        "route_repair", "extract")]
         run = os.path.join(wd, "wall")
