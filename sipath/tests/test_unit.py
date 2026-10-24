@@ -3867,10 +3867,25 @@ class WorkdirSafety(unittest.TestCase):
             old = self.flow(td)
             old.step("a", demo.fake_step())
             new = self.flow(td, resume=True)
-            with self.assertRaisesRegex(RuntimeError, "opened again"):
-                old.step("b", demo.fake_step(), parent=old.steps["a"].selected)
+            ran = []
+            for call in (lambda: old.step("b", lambda ctx: ran.append(1), parent=old.steps["a"].selected),
+                         lambda: old.extend("a", lambda ctx: ran.append(1), [{"k": 9}]),
+                         lambda: old.keep("a", 2),
+                         lambda: old.fork(old.steps["a"].selected.id, os.path.join(td, "fork"))):
+                with self.assertRaisesRegex(RuntimeError, "opened again"):
+                    call()
+            self.assertEqual(ran, [])  # refused before any step function ran
             new.step("b", demo.fake_step(), parent=new.steps["a"].selected)
             self.assertIn("b", _read_json(os.path.join(td, "graph.json"))["steps"])
+
+    def test_a_closed_flow_gives_the_workdir_up_and_refuses_work(self):
+        with tempfile.TemporaryDirectory() as td:
+            f = self.flow(td)
+            f.step("a", demo.fake_step())
+            f.close()
+            with self.assertRaisesRegex(RuntimeError, "closed"):
+                f.step("b", demo.fake_step(), parent=f.steps["a"].selected)
+            self.flow(td, resume=True).step("b", demo.fake_step())  # the workdir is free
 
     def test_the_cli_never_overwrites_a_recorded_run(self):
         import contextlib
