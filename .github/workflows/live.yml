@@ -29,10 +29,13 @@ jobs:
             classes: LiveMcuDie
           - group: openframe  # the OpenFrame harness, chip assembly with the seal ring, precheck, Magic DRC
             classes: LiveOpenFrame LiveMagic
+          - group: route-search-openframe  # multiple routed branches; its own time/resource budget
+            classes: LiveRouteSearchOpenFrame
           - group: blocks
             classes: >-
               LiveRtl LiveSoftMacro LiveHs LiveResume LiveMcp LiveIhp LiveIhpRing LiveScale OpenRoad
               LiveMacroPlacers LiveAdaptive LiveCancel LiveBudget LiveFork LiveDocs LiveBoundedSearch LiveHardenedParent
+              LiveRouteSearchMacro
     env:
       SIPATH_LIMITS_IGNORE: max_runtime_s
       PDK_ROOT: /home/runner/pdk
@@ -63,7 +66,7 @@ jobs:
       # not published, so the job names them by tag and allows those unpinned images (the ORFS image is still
       # the locked digest: nothing configures it otherwise; their base is that image)
       - name: Magic and precheck images (docker/magic on the locked ORFS image, docker/precheck on it)
-        if: matrix.group == 'openframe'
+        if: matrix.group == 'openframe' || matrix.group == 'route-search-openframe'
         run: |
           base="$(python -c 'from sipath.toolchain import image; print(image("orfs"))')"
           docker build -q --platform linux/amd64 --build-arg BASE="$base" -t sipath/orfs-magic:8.3.685 docker/magic
@@ -146,4 +149,3 @@ jobs:
 
       - name: Tutorial, first part
         run: python notebooks/smoke.py --until 13
-

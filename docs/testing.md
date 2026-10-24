@@ -61,10 +61,19 @@ wall time in CI.
   3.14: the unit tests, a check that the generated reference is current, and
   a check of the wheel's package data.
 - **`live`** runs nightly and on demand: the locked ORFS image and the locked
-  open_pdks release (fetched by `sipath install-pdk`), in three parallel jobs
-  (mcu8; the OpenFrame harness; everything else), with the regression limits
+  open_pdks release (fetched by `sipath install-pdk`), in four parallel design jobs
+  (mcu8; the OpenFrame harness; the OpenFrame route-search example; everything
+  else), with the regression limits
   except wall time, keeping the logs of any run that does not pass (failed,
-  timed out or cancelled). The precheck image is built locally, so CI runs
-  OpenFrame without cf-precheck.
+  timed out or cancelled). The Magic and precheck images are built locally
+  in both OpenFrame jobs. The route-search example requires cf-precheck,
+  including its Netgen LVS, before chip integration.
+- The unit workflow also installs Icarus Verilog and runs
+  `sipath.tests.test_route_search`: both example plans, GCD8 functional tests,
+  and the OpenFrame wrapper's GCD and pad-control tests. The live classes
+  `LiveRouteSearchMacro` and `LiveRouteSearchOpenFrame` exercise the shipped
+  YAMLs, stop/resume inside placement, check the extracted decision and final
+  artifacts, then verify a completed resume reuses its results. They have no
+  measured PPA regression limits yet.
 - On Linux the containers run as the calling user (`--user`), so the files
   they write stay the user's; `SIPATH_DOCKER_AS_ROOT=1` keeps the image's user.

@@ -1,0 +1,32 @@
+# Route-aware placement search; docs/examples.md, recipe 17.
+# python3 -m sipath run sipath/examples/gcd8_macro_route_search.yaml runs/gcd8-macro-search
+# Reuses gcd8's RTL, clock and physical settings; exports a reusable macro.
+name: gcd8_macro_route_search
+top: gcd8
+mode: macro
+pdk: sky130A
+rtl: [rtl/gcd8.v]
+sdc: rtl/gcd8.sdc
+core_utilization: 0.35
+core_margin: 6.0
+is_core: false
+config: {threads: 6, parallel_cap: 3}
+flow:
+- step: synth
+- step: floorplan
+- step: physical
+- step: place
+  variants: [{}, {density: 0.50}, {density: 0.70}]
+  parallel: 3
+  score: routability_then_wns
+  keep: 2                         # best two, plus the baseline if not among them
+  decide_at: extract
+  decide_score: setup_wns          # measured after routing and RC extraction
+- step: cts
+- step: route_analog
+- step: route_digital
+- step: route_repair
+- step: fill
+- step: extract
+- step: signoff
+- step: views                     # reusable LEF/GDS/Liberty/SPEF and macro.yaml

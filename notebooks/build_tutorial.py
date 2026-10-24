@@ -506,6 +506,34 @@ show("place.0"); show(sel)
 pictures("runs/gcd8_adapt", "place.0", sel)
 """)
 
+recipe(17, "Route-aware search: an OpenFrame wrapper and a reusable macro",
+       "17-route-aware-search-an-openframe-wrapper-and-a-reusable-macro", """
+Two complete examples keep the best two placements plus the baseline through
+routing and extraction, choose by extracted setup slack, then sign off the
+winner. The GCD8 example exports reusable macro views; the OpenFrame example
+requires cf-precheck and integrates the wrapper with a seal ring. These are
+optional, longer runs with no measured PPA claims yet. Configure the Magic
+and precheck images as in recipe 8 before running OpenFrame.
+""")
+code("""
+# optional: an 8-bit GCD macro, routed branches, signoff and reusable views
+!python3 -m sipath run sipath/examples/gcd8_macro_route_search.yaml runs/gcd8_macro_search --resume
+g = json.load(open("runs/gcd8_macro_search/graph.json"))
+decision = g["decisions"][-1]
+by_id = {a["id"]: a for a in g["attempts"]}
+print("winner:", decision["winner"], "verdict:", g["verification"])
+pd.DataFrame([{"attempt": c["attempt"], "score": c["score"],
+               "setup_ns": by_id[c["attempt"]]["metrics"].get("wns"),
+               "hold_ns": by_id[c["attempt"]]["metrics"].get("whs"),
+               "parasitics": by_id[c["attempt"]]["metrics"].get("parasitics")}
+              for c in decision["candidates"]])
+""")
+code("""
+# optional: OpenFrame template, routed branches, mandatory precheck, chip integration
+!python3 -m sipath run sipath/examples/openframe_gcd8_route_search.yaml runs/openframe_search --resume
+!python3 -m sipath report runs/openframe_search
+""")
+
 md("""
 ## Next
 

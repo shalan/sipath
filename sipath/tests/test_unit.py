@@ -5196,7 +5196,9 @@ class McpProtocol(unittest.TestCase):
         self.assertEqual(c.rpc("resources/list")["result"], {"resources": []})
         err, out, _ = c.call("list_designs")
         self.assertFalse(err)
-        self.assertEqual(set(out["designs"]), {"dp8", "dp8_hs", "mcu8", "ihp_add8", "gcd8", "gcd8_sv", "openframe_gcd8", "gcd8_pair", "sram8", "gcd8_explore"})
+        self.assertEqual(set(out["designs"]), {"dp8", "dp8_hs", "mcu8", "ihp_add8", "gcd8", "gcd8_sv",
+                                             "openframe_gcd8", "gcd8_pair", "sram8", "gcd8_explore",
+                                             "openframe_gcd8_route_search", "gcd8_macro_route_search"})
         self.assertTrue(c.call("run_step", run_id="nope", step="floorplan")[0])
         self.assertTrue(c.call("no_such_tool")[0])
         self.assertEqual(c.rpc("no/such/method")["error"]["code"], -32601)

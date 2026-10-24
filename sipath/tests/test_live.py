@@ -1466,3 +1466,75 @@ class LiveBoundedSearch(unittest.TestCase):
         self.run_search(ex, [{"step": "synth"}, {"step": "floorplan"}, {"step": "physical"},
                              {"step": "place", "variants": [{}, {"density": 0.75}], "parallel": 2, "keep": 2,
                               "decide_at": "extract"}] + tail, "search_gcd8")
+
+
+def _run_route_search_example(tc, name):
+    """Execute the shipped YAML unchanged, including its final signoff/export steps.
+
+    First stop with an attempt budget inside the placement sweep, then resume.
+    A final complete resume must reuse every successful result and keep the winner.
+    """
+    from sipath import designfile
+    from sipath.config import Config
+    from sipath.scheduler import BudgetExceeded
+    path = os.path.join(os.path.dirname(__file__), "..", "examples", name + ".yaml")
+    wd = _workdir(name)
+    if not KEEP:
+        tc.addCleanup(_rmtree, wd)
+    cfg = Config.load(**dict(designfile.file_config(path), max_attempts=4))
+    with tc.assertRaises(BudgetExceeded):
+        designfile.run(path, wd, RUNNER, config=cfg)
+    stopped = _read_json(os.path.join(wd, "graph.json"))
+    tc.assertEqual(stopped["verification"]["execution"], "budget")
+    tc.assertFalse(stopped.get("decisions"))
+    f = designfile.run(path, wd, RUNNER, resume=True)
+    tc.assertTrue(f.steps["synth"].selected.resumed)
+    decision = f.decisions[-1]
+    tc.assertEqual((decision["at"], decision["score"]), ("extract", "setup_wns"))
+    tc.assertGreaterEqual(len(decision["candidates"]), 2)
+    place = f.steps["place"]
+    baseline = next(a for a in place.attempts if a.params == {})
+    tc.assertIn(baseline.id, place.kept)
+    for c in decision["candidates"]:
+        a = next(a for a in f.attempts if a.id == c["attempt"])
+        tc.assertEqual(a.metrics["parasitics"], "rcx")
+        tc.assertIsNotNone(a.metrics["wns"])
+    best = max(decision["candidates"], key=lambda c: c["score"])
+    tc.assertEqual(decision["winner"], best["attempt"])
+    tc.assertEqual(f.result("signoff").parent.id, decision["winner"])
+    signoff = _read_json(f.result("signoff").outputs["signoff"])
+    tc.assertTrue(signoff["pass"], signoff.get("failures"))
+    tc.assertEqual(f.verification()["execution"], "completed")
+    before = [(a.id, a.finished_at) for a in f.attempts if a.status != "failed"]
+    again = designfile.run(path, wd, RUNNER, resume=True)
+    tc.assertEqual(again.decisions[-1]["winner"], decision["winner"])
+    tc.assertEqual([(a.id, a.finished_at) for a in again.attempts if a.status != "failed"], before)
+    tc.assertEqual(again.verification()["execution"], "completed")
+    return again
+
+
+@LIVE
+class LiveRouteSearchMacro(unittest.TestCase):
+    def test_gcd8_to_reusable_views(self):
+        f = _run_route_search_example(self, "gcd8_macro_route_search")
+        views = f.result("views").outputs["views"]
+        for key in ("lef", "gds", "verilog", "cdl", "macro_yaml"):
+            self.assertTrue(views[key] and os.path.isfile(views[key]), key)
+        self.assertEqual(set(views["lib"]), {c.name for c in f.pdk.analysis_corners()})
+        self.assertTrue(all(os.path.isfile(p) for p in views["lib"].values()))
+        self.assertEqual(f.verification()["verification"], "passed", f.verification())
+
+
+@LIVE
+class LiveRouteSearchOpenFrame(unittest.TestCase):
+    def test_template_search_to_integrated_chip(self):
+        # These are mandatory for this example, so missing images fail this test.
+        self.assertTrue(_magic_image(), "build/configure the Magic image")
+        self.assertTrue(_precheck_image(), "build/configure the cf-precheck image")
+        f = _run_route_search_example(self, "openframe_gcd8_route_search")
+        signoff = _read_json(f.result("signoff").outputs["signoff"])
+        self.assertTrue(signoff["harness"]["pass"])
+        pc = f.result("precheck").outputs["precheck"]
+        self.assertTrue(pc["pass"], pc.get("failed"))
+        self.assertIn("lvs", pc["passed"])
+        self.assertTrue(f.result("integrate").metrics["chip_check_pass"])

@@ -141,6 +141,8 @@ writes generated inputs under `examples/inputs/` (`examples/designs.py`,
 | `ihp_add8.yaml` | soft macro on IHP SG13G2 (no tap or endcap cells; one RCX rule file) |
 | `ihp_ring.py` | a pad ring closed on IHP SG13G2 with nothing configured |
 | `gcd8_explore.yaml` | gcd8 at a 4 ns clock with variants at synthesis, placement and routing, in parallel (recipe 15) |
+| `openframe_gcd8_route_search.yaml` | route-aware placement search in the OpenFrame template, mandatory cf-precheck, then integration with seal ring (recipe 17) |
+| `gcd8_macro_route_search.yaml` | route-aware placement search for an 8-bit GCD macro, then signoff and reusable views (recipe 17) |
 | `dp8.py`, `mcu8.py` | Python entry points that build dp8 and mcu8 and run them from code |
 | `agent_sdk.py` | an agent session through the Claude Agent SDK and the MCP server ([agents](agents.md)) |
 | `plugin_example.py` | a plugin with one of each extension point (step, score, signoff check, design-file extension) |
