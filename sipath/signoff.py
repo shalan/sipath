@@ -772,18 +772,22 @@ def _analog_ports(session, d) -> set[str]:
     return set(ports) | set(d.analog_nets)
 
 
-def sta_failures(st: dict, checks) -> list[str]:
-    """What the signoff STA fails on. A check with nothing to judge fails too: no corner with a constrained setup
-    (hold) path means no clock reached an endpoint, not that timing was met (leave setup/hold out of ``require``
-    for a design without timing)."""
+def sta_failures(st: dict, checks, expected=None) -> list[str]:
+    """What the signoff STA fails on. Every corner of ``expected`` (default: those the STA was set up with, the
+    PDK's signoff corners) must have a result: a corner without one fails the check, so "met on every corner"
+    never rests on fewer (leave setup/hold out of ``require`` for a design without timing)."""
     out = []
+    corners = st["corners"]
+    expected = list(expected) if expected is not None else list(corners)
     for key, kind in (("wns", "setup"), ("whs", "hold")):
         if kind not in checks:
             continue
-        vals = {c: v[key] for c, v in st["corners"].items() if v.get(key) is not None}
-        if not vals:
-            out.append(f"{kind}: no constrained path at any corner ({sorted(st['corners'])})")
-        elif min(vals.values()) < 0:
+        vals = {c: corners[c][key] for c in expected if (corners.get(c) or {}).get(key) is not None}
+        missing = [c for c in expected if c not in vals]
+        if missing:
+            out.append(f"{kind}: no result at {len(missing)} of {len(expected)} corners ({missing})"
+                       + ("" if vals else ": no clock reaches an endpoint"))
+        if vals and min(vals.values()) < 0:
             out.append(f"{kind}: worst {min(vals.values()):.3f} ns ({[c for c, v in vals.items() if v < 0]})")
     if "drv" in checks and not st["drv_clean"]:
         out.append(f"drv: slew {st['drv_slew']}, cap {st['drv_cap']}, fanout {st['drv_fanout']} on standard cells")
@@ -1026,7 +1030,7 @@ def run(ctx) -> dict:
     if "sta" in results:
         st = results["sta"]
         summary["timing"] = st
-        failures += sta_failures(st, checks)
+        failures += sta_failures(st, checks, [c.name for c in ctx.pdk.signoff_corners()])
     if "harness" in checks:  # the routed wrapper against the frame's template
         if d.harness:
             from . import harness as harness_mod

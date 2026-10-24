@@ -3973,10 +3973,20 @@ class SignoffJudgment(unittest.TestCase):
               "unannotated_loaded": [], "unconstrained": ["out_q"]}
         f = sta_failures(st, ["setup", "hold", "drv", "annotation"])
         self.assertEqual([x.split(":")[0] for x in f], ["setup", "hold"])
-        self.assertIn("no constrained path", f[0])
+        self.assertIn("no clock reaches an endpoint", f[0])
         self.assertEqual(sta_failures(st, ["drv"]), [])  # left out of the checks: not judged
         st["corners"]["ss"].update(wns=-0.2, whs=0.1)
+        st["corners"]["tt"].update(wns=0.3, whs=0.1)
         self.assertEqual(sta_failures(st, ["setup", "hold"]), ["setup: worst -0.200 ns (['ss'])"])
+
+    def test_a_corner_without_a_result_fails_its_check(self):
+        from sipath.signoff import sta_failures
+        st = {"corners": {"tt": {"wns": 0.4, "whs": 0.1}, "ss": {"wns": None, "whs": 0.2}}, "drv_clean": True,
+              "unannotated_loaded": [], "unconstrained": []}
+        self.assertEqual(sta_failures(st, ["setup", "hold"]), ["setup: no result at 1 of 2 corners (['ss'])"])
+        # a corner the PDK signs off at but the STA never reported is missing too
+        self.assertEqual(sta_failures(st, ["hold"], expected=["tt", "ss", "ff"]),
+                         ["hold: no result at 1 of 3 corners (['ff'])"])
 
     def test_timing_met_is_unknown_without_constrained_paths(self):
         from sipath.steps.common import timing_met
