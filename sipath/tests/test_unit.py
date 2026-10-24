@@ -3520,6 +3520,27 @@ class RunHeadThirdReview(unittest.TestCase):
                 self.assertEqual(f.verification()["execution"], "completed")
             self.assertEqual(_read_json(os.path.join(td, "graph.json"))["verification"]["execution"], "completed")
 
+    def test_a_selector_decides_among_the_branches_as_asked(self):
+        from sipath import designfile, registry, scores
+
+        def lowest(attempts):  # a rule over attempts: the branch with the least slack (not what auto would pick)
+            a = min((a for a in attempts if a.metrics.get("wns") is not None), key=lambda a: a.metrics["wns"])
+            return a, "least slack"
+        lowest.selector = True
+        registry.register_score(lowest, "review_lowest")
+        self.addCleanup(scores.SCORES.pop, "review_lowest", None)
+        with tempfile.TemporaryDirectory() as td:
+            f = self.flow(td)
+            it = self.items()
+            it[0][3]["decide_score"] = "review_lowest"
+            designfile.run_items(f, it)
+            d = f.decisions[-1]
+            routed = [a for a in f.attempts if a.step.startswith("route") and a.status != "failed"]
+            self.assertEqual(d["score"], "review_lowest")  # the policy asked for, not auto
+            self.assertEqual(d["winner"], min(routed, key=lambda a: a.metrics["wns"]).id)
+            self.assertEqual(d["why"], "least slack")
+        self.assertIsNot(scores.get("review_lowest"), scores.get("auto"))
+
     def test_a_named_picture_is_the_results_step(self):
         from sipath import designfile, viz
         with tempfile.TemporaryDirectory() as td:

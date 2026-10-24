@@ -936,8 +936,6 @@ class Flow:
         reaches the same comparison reuses the recorded decision."""
         self._check_owner()
         fn = score_mod.get(score)
-        if getattr(fn, "selector", False):  # a rule over attempts, not a value per attempt: rank by auto
-            score, fn = "auto", score_mod.get("auto")
         # reused only for the same place, scoring policy and candidate results: each candidate's id, fingerprint and
         # finish time (an attempt rebuilt under the same id has another finish time); anything else decides again
         # (over the reused candidates when only the policy changed) and replaces the old decision
@@ -959,12 +957,20 @@ class Flow:
                 self.save_graph()
             return best
         self.decisions = [d for d in self.decisions if d["at"] != at]
-        scored = [(fn(a.metrics), a) for a in candidates]
-        ok = [(s, a) for s, a in scored if s is not None]
-        if not ok:
-            raise StepFailed(f"decide at {at}: no branch has a {score} score")
-        best = max(ok, key=lambda x: x[0])[1]
+        why = None
+        if getattr(fn, "selector", False):  # a rule over the attempts (synth_select): applied to the branches, as
+            best, why = fn(list(candidates))  # a step's selection applies it to its attempts
+            if best is None:
+                raise StepFailed(f"decide at {at}: {score} picked no branch ({why})")
+            scored = [(None, a) for a in candidates]
+        else:
+            scored = [(fn(a.metrics), a) for a in candidates]
+            ok = [(s, a) for s, a in scored if s is not None]
+            if not ok:
+                raise StepFailed(f"decide at {at}: no branch has a {score} score")
+            best = max(ok, key=lambda x: x[0])[1]
         self.decisions.append({"at": at, "score": score, "winner": best.id, "complete": True,
+                               **({"why": why} if why else {}),
                                "candidates": [{"attempt": a.id, "score": s if isinstance(s, (int, float, type(None)))
                                                else list(s), "fingerprint": a.fingerprint,
                                                "finished_at": a.finished_at} for s, a in scored],
