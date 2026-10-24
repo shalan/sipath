@@ -3508,6 +3508,18 @@ class RunHeadThirdReview(unittest.TestCase):
                 designfile.run_items(f2, it)
             self.assertEqual(f2.verification()["execution"], "cancelled")
 
+    def test_a_losing_branch_that_fails_again_on_resume_stays_handled(self):
+        from sipath import designfile
+        with tempfile.TemporaryDirectory() as td:
+            f = self.flow(td)
+            designfile.run_items(f, self.items({"fail": [0]}))  # the baseline's branch fails; the search decides
+            self.assertEqual(f.verification()["execution"], "completed")
+            for _ in range(2):  # every resume tries the failed branch again, and it fails again
+                f = self.flow(td, resume=True)
+                designfile.run_items(f, self.items({"fail": [0]}))
+                self.assertEqual(f.verification()["execution"], "completed")
+            self.assertEqual(_read_json(os.path.join(td, "graph.json"))["verification"]["execution"], "completed")
+
     def test_a_named_picture_is_the_results_step(self):
         from sipath import designfile, viz
         with tempfile.TemporaryDirectory() as td:

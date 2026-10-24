@@ -923,7 +923,14 @@ class Flow:
                                for c in d["candidates"]) == now), None)
         if rec is not None:
             best = next(a for a in candidates if a.id == rec["winner"])
-            if self.head is not best:
+            # the failed branches are this run's evidence, not the recorded one's: a losing branch that failed again
+            # on resume is a new attempt (another finish time), which the verdict must find handled
+            changed = (rec.get("failed_branches") or None) != (failed or None)
+            if failed:
+                rec["failed_branches"] = failed
+            else:
+                rec.pop("failed_branches", None)
+            if self.head is not best or changed:
                 self.head = best
                 self.save_graph()
             return best
