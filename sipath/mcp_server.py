@@ -312,7 +312,12 @@ class Server:
         except ValueError as e:
             raise ToolError(str(e)) from e
         self.runs[run_id] = {"flow": flow, "design": name, "job": None}
-        return {"run_id": run_id, "workdir": workdir, "openroad": f"{runner.kind} {runner.version()}",
+        from .tools.openroad.session import VersionError
+        try:
+            version = f"{runner.kind} {runner.version()}"
+        except VersionError as e:
+            raise ToolError(f"OpenROAD ({runner.kind}) does not start: {e}") from e
+        return {"run_id": run_id, "workdir": workdir, "openroad": version,
                 "pdk": flow.pdk.name, "steps": [s for s in STEPS if d.macros or s != "macros"],
                 "recorded_steps": {k: v.selected.id for k, v in flow.steps.items() if v.selected}}
 

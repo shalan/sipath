@@ -91,7 +91,15 @@ def validate() -> int:
     from .scheduler import EcoRefused, Flow, StepFailed
     from .tools.openroad.session import ORFS_PLATFORMS, find_openroad
 
+    from .tools.openroad.session import VersionError
     runner = find_openroad()
+    version = None
+    if runner is not None:
+        try:  # first: an OpenROAD that is found but does not start fails every run
+            version = runner.version()
+        except VersionError as e:
+            print(f"openroad: {runner.kind}, but it does not start: {e}", file=sys.stderr)
+            return 1
     prefixes = runner.runner_prefixes() if runner else (os.path.dirname(ORFS_PLATFORMS),)
     examples = os.path.join(os.path.dirname(os.path.abspath(__file__)), "examples")
     pdk = None
@@ -139,7 +147,7 @@ def validate() -> int:
                 pass
         assert e1.selected is not None
         print("scheduler rules ok (FakeSession stand-in; this is not a design run)")
-    print(f"openroad: {runner.kind + ' ' + runner.version() if runner else 'NOT AVAILABLE'}")
+    print(f"openroad: {runner.kind + ' ' + version if runner else 'NOT AVAILABLE'}")
     return 0
 
 

@@ -4028,6 +4028,39 @@ class UserSurface(unittest.TestCase):
             self.assertEqual(run_live.main(["-j", "1", "--allow-skips", "LiveX"]), 0)
 
 
+class ToolStartup(unittest.TestCase):
+    """Review: a tool that does not say its version is reported with its own diagnostic, not an IndexError."""
+
+    def test_a_version_probe_reports_what_the_tool_said(self):
+        import subprocess
+        from unittest import mock
+        from sipath.tools.openroad import session
+        r = session.NativeRunner("/x/openroad")
+        for proc, want in ((subprocess.CompletedProcess([], 0, "26Q3-1867\n", ""), "26Q3-1867"),):
+            with mock.patch.object(session.subprocess, "run", return_value=proc):
+                self.assertEqual(r.version(), want)
+        for proc, said in ((subprocess.CompletedProcess([], 0, "", ""), "no output at all"),
+                           (subprocess.CompletedProcess([], 127, "", "error while loading shared libraries: libX.so"),
+                            "libX.so"),
+                           (subprocess.CompletedProcess([], 1, "\n\n", "Segmentation fault"), "Segmentation fault")):
+            with mock.patch.object(session.subprocess, "run", return_value=proc):
+                with self.assertRaisesRegex(session.VersionError, said):
+                    r.version()
+
+    def test_validate_says_when_openroad_does_not_start(self):
+        import contextlib
+        import io
+        from unittest import mock
+        from sipath import __main__ as cli
+        from sipath.tools.openroad import session
+        runner = mock.Mock(kind="native", version=mock.Mock(side_effect=session.VersionError("openroad -version exited 127: libX.so")))
+        err = io.StringIO()
+        with mock.patch.object(session, "find_openroad", return_value=runner), contextlib.redirect_stderr(err), \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(cli.validate(), 1)
+        self.assertIn("does not start", err.getvalue())
+
+
 class SignoffJudgment(unittest.TestCase):
     """Project review, batch 1: a check with nothing to judge is not a pass."""
 
