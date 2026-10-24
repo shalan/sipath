@@ -89,8 +89,8 @@ class NativeRunner:
         return self
 
     def version(self) -> str:
-        out = subprocess.run([self.binary, "-version"], capture_output=True, text=True, timeout=60)
-        return out.stdout.strip().splitlines()[0]
+        cmd = [self.binary, "-version"]
+        return version_line(cmd, subprocess.run(cmd, capture_output=True, text=True, timeout=60))
 
     def platform_root(self) -> str | None:
         return os.environ.get("SIPATH_PLATFORMS") or self.platforms
@@ -202,9 +202,8 @@ class DockerRunner:
         return self
 
     def version(self) -> str:
-        out = subprocess.run(["docker", "run", "--rm", "--platform", self.platform, self.image, self.binary, "-version"],
-                             capture_output=True, text=True, timeout=300)
-        return out.stdout.strip().splitlines()[0]
+        cmd = ["docker", "run", "--rm", "--platform", self.platform, self.image, self.binary, "-version"]
+        return version_line(cmd, subprocess.run(cmd, capture_output=True, text=True, timeout=300))
 
     def platform_root(self) -> str:
         return ORFS_PLATFORMS
@@ -259,6 +258,23 @@ def installed_tools(config: Config | None = None) -> NativeRunner | None:
         return None
     return NativeRunner(binary, threads=cfg.threads, bindir=os.path.dirname(binary),
                         platforms=os.path.join(root, "OpenROAD-flow-scripts", "flow", "platforms"))
+
+
+class VersionError(RuntimeError):
+    """The tool did not say its version: it failed to start, or printed none (its diagnostic in the message)."""
+
+
+def version_line(cmd, proc) -> str:
+    """The first line of a ``-version`` command's output; VersionError naming the command, its exit status and
+    what it printed when it failed or printed nothing (a tool that cannot start: a missing library, a wrong
+    platform), never an IndexError."""
+    lines = [ln for ln in (proc.stdout or "").splitlines() if ln.strip()]
+    if proc.returncode == 0 and lines:
+        return lines[0].strip()
+    said = " / ".join(ln.strip() for ln in ((proc.stderr or "") + "\n" + (proc.stdout or "")).splitlines()
+                      if ln.strip())[-600:]
+    raise VersionError(f"{' '.join(map(str, cmd))} exited {proc.returncode} "
+                       f"{'without a version line' if proc.returncode == 0 else ''}: {said or 'no output at all'}")
 
 
 def find_openroad(config: Config | None = None):

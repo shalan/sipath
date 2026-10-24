@@ -152,3 +152,4 @@ Found by running it: SiPath's signoff squared a zero-extension point the
 router writes right after a via (`( * * 0 )`, no metal) as if it were a corner,
 which drew a zero-length met1 path; cf-precheck's zero-area and spike checks
 flagged it and SiPath's own DRC did not. Repeated points are now left alone.
+

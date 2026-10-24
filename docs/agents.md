@@ -52,9 +52,12 @@ call still running after two minutes to the background on its own.
 
 [`sipath/examples/agent_sdk.py`](../sipath/examples/agent_sdk.py) runs an agent
 on a goal with the [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk/overview).
-It gives the model SiPath's MCP tools and nothing else: no shell, no file
-access, and none of your own Claude Code settings, servers or plugins. It
-prints every tool call and answer.
+It gives the model SiPath's MCP tools, by name, and none of the SDK's own
+(no Bash, Read, Write, ...) nor your Claude Code settings, servers or plugins.
+SiPath's tools still act on the machine: they run the flow's tools and write
+under `runs/`. `query_checkpoint`, which runs any Tcl it is given with the
+tool's access, is left out unless `--allow-tcl`; without it no tool the agent
+has runs code of its choosing. It prints every tool call and answer.
 
 ```bash
 python3 -m pip install claude-agent-sdk

@@ -434,6 +434,41 @@ class TutorialNotebook(unittest.TestCase):
                 self.assertTrue(os.path.isfile(os.path.join(self.ROOT, "sipath", "examples", m.group(1) + ".yaml")), m.group(0))
 
 
+class TutorialSmoke(unittest.TestCase):
+    """notebooks/smoke.py: any `!` command that fails fails its cell; a retry the notebook means (a subprocess
+    loop, only its last try counting) is not a failure."""
+    ROOT = TutorialNotebook.ROOT
+
+    def test_no_cell_retries_through_shell_commands(self):
+        nb = TutorialNotebook.setUp.__get__(self)  # build_tutorial's cells
+        nb()
+        for kind, src in self.nb.CELLS:
+            if kind == "code" and "_exit_code" in src:  # a `!` retry: smoke.py counts its failed tries
+                self.fail("a cell retries through `!` and _exit_code: use a subprocess loop\n" + src)
+
+    def smoke(self, cells):
+        import subprocess
+        try:
+            import IPython  # noqa: F401
+        except ImportError:
+            self.skipTest("IPython is not installed (the tutorial job installs it)")
+        with tempfile.TemporaryDirectory() as td:
+            nb = os.path.join(td, "nb.ipynb")
+            _write_json(nb, {"cells": [{"cell_type": "code", "source": c} for c in cells], "metadata": {},
+                             "nbformat": 4, "nbformat_minor": 5})
+            return subprocess.run([sys.executable, os.path.join(self.ROOT, "notebooks", "smoke.py"), nb],
+                                  capture_output=True, text=True).returncode
+
+    def test_a_meant_retry_passes_and_a_failed_command_fails(self):
+        retry = ("import subprocess, sys, os, tempfile\nf = os.path.join(tempfile.gettempdir(), 'smoke_retry_try')\n"
+                 "open(f, 'w').close() if not os.path.exists(f) else None\n"
+                 "for k in range(3):\n"
+                 "    r = subprocess.run(['sh', '-c', f'test -s {f} || {{ echo x > {f}; exit 1; }}'])\n"
+                 "    if r.returncode == 0:\n        break\nos.remove(f)\n")
+        self.assertEqual(self.smoke([retry]), 0)
+        self.assertEqual(self.smoke(["!false\n!true\n"]), 1)
+
+
 class NativeTools(unittest.TestCase):
     """install-tools: the locked image unpacked without Docker (no network here)."""
 
@@ -3265,7 +3300,7 @@ class BenchmarkRobustness(unittest.TestCase):
     def setUp(self):
         sys.path.insert(0, os.path.join(self.ROOT, "bench"))
 
-    def graph(self, run_dir, signoff_fails=False, inputs=None):
+    def graph(self, run_dir, signoff_fails=False, inputs=None, failed_step=None):
         os.makedirs(run_dir, exist_ok=True)
         so = os.path.join(run_dir, "signoff.json")
         _write_json(so, {"checks": ["setup"], "required": ["setup"], "pass": not signoff_fails,
@@ -3278,6 +3313,10 @@ class BenchmarkRobustness(unittest.TestCase):
                            "outputs": {"signoff": so}, "metrics": {}}]}
         if inputs is not None:
             g["inputs"] = {"files": inputs}
+        if failed_step:  # the run stopped at a later step, whose every attempt failed
+            g["attempts"].append({"id": f"{failed_step}.0", "step": failed_step, "parent": "signoff.0",
+                                  "status": "failed", "kind": "step", "seconds": 1.0,
+                                  "error": "RuntimeError: [ERROR DRT-0206] checkConnectivity error."})
         _write_json(os.path.join(run_dir, "graph.json"), g)
 
     def drive(self, td, behaviour):
@@ -3313,21 +3352,23 @@ class BenchmarkRobustness(unittest.TestCase):
             self.assertTrue(os.path.isfile(os.path.join(td, "results", "strategy", "x__defaults__r1.json")))
         with tempfile.TemporaryDirectory() as td:
             def fails_late(out):
-                self.graph(os.path.join(out, "run"))
+                self.graph(os.path.join(out, "run"), failed_step="route_repair")
                 with open(os.path.join(out, "run.log"), "w") as fh:
                     fh.write("[ERROR DRT-0206] checkConnectivity error.\n")
                 return 1
             r = self.drive(td, fails_late)
-            self.assertEqual((r["outcome"], r["failure"]), ("execution_failed", "[ERROR DRT-0206] checkConnectivity error."))
+            self.assertEqual((r["outcome"], r["failure"]),
+                             ("execution_failed", "route_repair.0: [ERROR DRT-0206] checkConnectivity error."))
         with tempfile.TemporaryDirectory() as td:
             self.measure = staticmethod(lambda *a: {"error": "measurement failed (log)"})
             r = self.drive(td, lambda out: (self.graph(os.path.join(out, "run")), 0)[1])
             self.assertEqual(r["outcome"], "measurement_failed")
         with tempfile.TemporaryDirectory() as td:
             self.measure = BenchmarkRobustness.measure
-            r = self.drive(td, lambda out: (self.graph(os.path.join(out, "run"), signoff_fails=True), 0)[1])
-            self.assertEqual(r["outcome"], "completed")  # a signoff that fails its checks is a result...
+            r = self.drive(td, lambda out: (self.graph(os.path.join(out, "run"), signoff_fails=True), 1)[1])
+            self.assertEqual(r["outcome"], "completed")  # a signoff that fails its checks is a result (exit 1) ...
             self.assertEqual(r["verification"]["verification"], "failed")  # ... and its verdict says so
+            self.assertEqual(r["metrics"]["wns_tt_ns"], 1.0)  # measured
 
     def test_the_driver_exits_nonzero_when_a_run_did_not_complete(self):
         from unittest import mock
@@ -3519,6 +3560,39 @@ class RunHeadThirdReview(unittest.TestCase):
                 designfile.run_items(f2, it)
             self.assertEqual(f2.verification()["execution"], "cancelled")
 
+    def test_a_losing_branch_that_fails_again_on_resume_stays_handled(self):
+        from sipath import designfile
+        with tempfile.TemporaryDirectory() as td:
+            f = self.flow(td)
+            designfile.run_items(f, self.items({"fail": [0]}))  # the baseline's branch fails; the search decides
+            self.assertEqual(f.verification()["execution"], "completed")
+            for _ in range(2):  # every resume tries the failed branch again, and it fails again
+                f = self.flow(td, resume=True)
+                designfile.run_items(f, self.items({"fail": [0]}))
+                self.assertEqual(f.verification()["execution"], "completed")
+            self.assertEqual(_read_json(os.path.join(td, "graph.json"))["verification"]["execution"], "completed")
+
+    def test_a_selector_decides_among_the_branches_as_asked(self):
+        from sipath import designfile, registry, scores
+
+        def lowest(attempts):  # a rule over attempts: the branch with the least slack (not what auto would pick)
+            a = min((a for a in attempts if a.metrics.get("wns") is not None), key=lambda a: a.metrics["wns"])
+            return a, "least slack"
+        lowest.selector = True
+        registry.register_score(lowest, "review_lowest")
+        self.addCleanup(scores.SCORES.pop, "review_lowest", None)
+        with tempfile.TemporaryDirectory() as td:
+            f = self.flow(td)
+            it = self.items()
+            it[0][3]["decide_score"] = "review_lowest"
+            designfile.run_items(f, it)
+            d = f.decisions[-1]
+            routed = [a for a in f.attempts if a.step.startswith("route") and a.status != "failed"]
+            self.assertEqual(d["score"], "review_lowest")  # the policy asked for, not auto
+            self.assertEqual(d["winner"], min(routed, key=lambda a: a.metrics["wns"]).id)
+            self.assertEqual(d["why"], "least slack")
+        self.assertIsNot(scores.get("review_lowest"), scores.get("auto"))
+
     def test_a_named_picture_is_the_results_step(self):
         from sipath import designfile, viz
         with tempfile.TemporaryDirectory() as td:
@@ -3560,6 +3634,11 @@ class RunHeadThirdReview(unittest.TestCase):
                 {"id": "extract.0", "step": "extract", "parent": None, "outputs": {"def_": "/missing.def"}},
                 {"id": "signoff.0", "step": "signoff", "parent": "extract.0", "outputs": {"def_": d}}]}
             self.assertEqual(records.final_def_digest(g), hashlib.sha256(b"DESIGN x ;\n").hexdigest()[:16])
+            g["attempts"].append({"id": "eco_1.0", "step": "eco_1", "kind": "eco", "parent": "signoff.0", "outputs": {}})
+            g["head"] = "eco_1.0"
+            self.assertIsNone(records.final_def_digest(g))  # signoff's DEF predates the ECO: stale, not final
+            g["attempts"].pop()
+            g["head"] = "signoff.0"
             g["attempts"][1]["outputs"] = {}
             self.assertIsNone(records.final_def_digest(g))  # extraction's is missing: no digest, not a guess
 
@@ -3644,6 +3723,26 @@ class ResumeIntegrity(unittest.TestCase):
             f3 = self.flow(run, resume=True)
             designfile.run_items(f3, items())
             self.assertEqual([s["step"] for s in f3.stale], ["mystep"])
+
+    def test_two_functions_of_one_module_are_two_steps(self):
+        from sipath import designfile, params, steps
+        with tempfile.TemporaryDirectory() as td:
+            mod = os.path.join(td, "mods")
+            os.makedirs(mod)
+            with open(os.path.join(mod, "review_two_mod.py"), "w") as fh:
+                fh.write("def one(ctx):\n    ctx.metrics['wns'] = 1.0\n\n\ndef two(ctx):\n    ctx.metrics['wns'] = 2.0\n")
+            sys.path.insert(0, mod)
+            self.addCleanup(sys.path.remove, mod)
+            for ref in ("review_two_mod:one", "review_two_mod:two"):
+                self.addCleanup(lambda r=ref: (steps.STEPS.pop(r, None), params.STEP_PARAMS.pop(r, None),
+                                               params.DECLARED.pop(r, None)))
+            self.addCleanup(sys.modules.pop, "review_two_mod", None)
+            run = os.path.join(td, "run")
+            designfile.run_items(self.flow(run), designfile.resolve_steps([{"step": "x", "fn": "review_two_mod:one"}]))
+            f2 = self.flow(run, resume=True)  # the same name and parameters, the module unchanged: another function
+            designfile.run_items(f2, designfile.resolve_steps([{"step": "x", "fn": "review_two_mod:two"}]))
+            self.assertEqual([s["step"] for s in f2.stale], ["x"])
+            self.assertEqual(f2.steps["x"].selected.metrics["wns"], 2.0)
 
     def test_a_step_registered_under_another_name_gets_its_declared_defaults(self):
         from sipath import params, registry, steps
@@ -3841,10 +3940,25 @@ class WorkdirSafety(unittest.TestCase):
             old = self.flow(td)
             old.step("a", demo.fake_step())
             new = self.flow(td, resume=True)
-            with self.assertRaisesRegex(RuntimeError, "opened again"):
-                old.step("b", demo.fake_step(), parent=old.steps["a"].selected)
+            ran = []
+            for call in (lambda: old.step("b", lambda ctx: ran.append(1), parent=old.steps["a"].selected),
+                         lambda: old.extend("a", lambda ctx: ran.append(1), [{"k": 9}]),
+                         lambda: old.keep("a", 2),
+                         lambda: old.fork(old.steps["a"].selected.id, os.path.join(td, "fork"))):
+                with self.assertRaisesRegex(RuntimeError, "opened again"):
+                    call()
+            self.assertEqual(ran, [])  # refused before any step function ran
             new.step("b", demo.fake_step(), parent=new.steps["a"].selected)
             self.assertIn("b", _read_json(os.path.join(td, "graph.json"))["steps"])
+
+    def test_a_closed_flow_gives_the_workdir_up_and_refuses_work(self):
+        with tempfile.TemporaryDirectory() as td:
+            f = self.flow(td)
+            f.step("a", demo.fake_step())
+            f.close()
+            with self.assertRaisesRegex(RuntimeError, "closed"):
+                f.step("b", demo.fake_step(), parent=f.steps["a"].selected)
+            self.flow(td, resume=True).step("b", demo.fake_step())  # the workdir is free
 
     def test_the_cli_never_overwrites_a_recorded_run(self):
         import contextlib
@@ -3892,6 +4006,18 @@ class McpSafety(unittest.TestCase):
         for probe in ('open "|echo PIPE"', "interp create x"):
             r = subprocess.run(["tclsh"], input=guard + f"puts [catch {{{probe}}} m]\n", capture_output=True, text=True)
             self.assertEqual(r.stdout.strip().splitlines()[-1], "1", (probe, r.stdout, r.stderr))
+
+    def test_the_agent_example_leaves_arbitrary_tcl_out(self):
+        from sipath import mcp_server
+        from sipath.examples import agent_sdk
+        names = {f"mcp__sipath__{t['name']}" for t in mcp_server.TOOLS}
+        default = agent_sdk.allowed_tools()
+        self.assertNotIn("mcp__sipath__query_checkpoint", default)
+        self.assertEqual(set(default), names - {"mcp__sipath__query_checkpoint"})  # by name, no wildcard
+        self.assertFalse(any("*" in n for n in default))
+        self.assertIn("mcp__sipath__query_checkpoint", agent_sdk.allowed_tools(allow_tcl=True))
+        with open(agent_sdk.__file__) as fh:
+            self.assertNotIn('"mcp__sipath__*"', fh.read())
 
     def test_tool_arguments_are_checked(self):
         from sipath.mcp_server import Server, ToolError
@@ -3954,6 +4080,39 @@ class UserSurface(unittest.TestCase):
             self.assertEqual(run_live.main(["-j", "1", "--allow-skips", "LiveX"]), 0)
 
 
+class ToolStartup(unittest.TestCase):
+    """Review: a tool that does not say its version is reported with its own diagnostic, not an IndexError."""
+
+    def test_a_version_probe_reports_what_the_tool_said(self):
+        import subprocess
+        from unittest import mock
+        from sipath.tools.openroad import session
+        r = session.NativeRunner("/x/openroad")
+        for proc, want in ((subprocess.CompletedProcess([], 0, "26Q3-1867\n", ""), "26Q3-1867"),):
+            with mock.patch.object(session.subprocess, "run", return_value=proc):
+                self.assertEqual(r.version(), want)
+        for proc, said in ((subprocess.CompletedProcess([], 0, "", ""), "no output at all"),
+                           (subprocess.CompletedProcess([], 127, "", "error while loading shared libraries: libX.so"),
+                            "libX.so"),
+                           (subprocess.CompletedProcess([], 1, "\n\n", "Segmentation fault"), "Segmentation fault")):
+            with mock.patch.object(session.subprocess, "run", return_value=proc):
+                with self.assertRaisesRegex(session.VersionError, said):
+                    r.version()
+
+    def test_validate_says_when_openroad_does_not_start(self):
+        import contextlib
+        import io
+        from unittest import mock
+        from sipath import __main__ as cli
+        from sipath.tools.openroad import session
+        runner = mock.Mock(kind="native", version=mock.Mock(side_effect=session.VersionError("openroad -version exited 127: libX.so")))
+        err = io.StringIO()
+        with mock.patch.object(session, "find_openroad", return_value=runner), contextlib.redirect_stderr(err), \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(cli.validate(), 1)
+        self.assertIn("does not start", err.getvalue())
+
+
 class SignoffJudgment(unittest.TestCase):
     """Project review, batch 1: a check with nothing to judge is not a pass."""
 
@@ -3970,25 +4129,34 @@ class SignoffJudgment(unittest.TestCase):
               "unannotated_loaded": [], "unconstrained": ["out_q"]}
         f = sta_failures(st, ["setup", "hold", "drv", "annotation"])
         self.assertEqual([x.split(":")[0] for x in f], ["setup", "hold"])
-        self.assertIn("no constrained path", f[0])
+        self.assertIn("no clock reaches an endpoint", f[0])
         self.assertEqual(sta_failures(st, ["drv"]), [])  # left out of the checks: not judged
         st["corners"]["ss"].update(wns=-0.2, whs=0.1)
-        self.assertEqual(sta_failures(st, ["setup", "hold"]),
-                         ["setup: missing constrained timing at corners ['tt']",
-                          "setup: worst -0.200 ns (['ss'])",
-                          "hold: missing constrained timing at corners ['tt']"])
+        st["corners"]["tt"].update(wns=0.3, whs=0.1)
+        self.assertEqual(sta_failures(st, ["setup", "hold"]), ["setup: worst -0.200 ns (['ss'])"])
 
     def test_each_expected_corner_needs_finite_setup_and_hold(self):
         from sipath.signoff import sta_failures
         st = {"expected_corners": ["tt", "ss"], "corners": {"tt": {"wns": 1.0, "whs": 0.1}}}
-        self.assertEqual(len(sta_failures(st, ["setup", "hold"])), 2)  # whole corner missing
+        self.assertEqual(len(sta_failures(st, ["setup", "hold"])), 2)
         for missing in (None, float("nan"), float("inf"), -float("inf")):
             st["corners"]["ss"] = {"wns": missing, "whs": 0.2}
             self.assertEqual(sta_failures(st, ["setup", "hold"]),
-                             ["setup: missing constrained timing at corners ['ss']"])
+                             ["setup: no result at 1 of 2 corners (['ss'])"])
             self.assertEqual(sta_failures(st, ["hold"]), [])
+            self.assertEqual(sta_failures(st, ["setup"], expected=["tt", "ss"]),
+                             ["setup: no result at 1 of 2 corners (['ss'])"])
         st["corners"]["ss"]["wns"] = 0.5
         self.assertEqual(sta_failures(st, ["setup", "hold"]), [])
+
+    def test_a_corner_without_a_result_fails_its_check(self):
+        from sipath.signoff import sta_failures
+        st = {"corners": {"tt": {"wns": 0.4, "whs": 0.1}, "ss": {"wns": None, "whs": 0.2}}, "drv_clean": True,
+              "unannotated_loaded": [], "unconstrained": []}
+        self.assertEqual(sta_failures(st, ["setup", "hold"]), ["setup: no result at 1 of 2 corners (['ss'])"])
+        # a corner the PDK signs off at but the STA never reported is missing too
+        self.assertEqual(sta_failures(st, ["hold"], expected=["tt", "ss", "ff"]),
+                         ["hold: no result at 1 of 3 corners (['ff'])"])
 
     def test_timing_met_is_unknown_without_constrained_paths(self):
         from sipath.steps.common import timing_met
@@ -4149,6 +4317,19 @@ class BenchmarkIntegrity(unittest.TestCase):
         self.assertNotIn("toolchain: the lock at export, not recorded by the run", r.get("provenance_gaps", []))
         self.assertEqual(records._outcome(None, None), ("execution_failed", "no exit status recorded"))
 
+    def test_a_run_that_failed_only_verification_is_measured(self):
+        """`sipath run` exits 1 when a required check fails; the benchmarks judge the run by its own execution
+        status, keep measuring it and keep its verdict apart."""
+        import records
+        self.assertEqual(records._outcome(1, None, "completed"), ("completed", None))
+        self.assertEqual(records._outcome(1, "no SPEF", "completed"), ("measurement_failed", "no SPEF"))
+        self.assertEqual(records._outcome(1, None, "failed")[0], "execution_failed")
+        self.assertEqual(records._outcome(0, None, "budget")[0], "execution_failed")
+        with open(os.path.join(self.ROOT, "bench", "strategy_compare.py")) as fh:
+            src = fh.read()
+        self.assertNotIn('"completed" if not rc', src)  # the exit code no longer decides
+        self.assertIn('if execution == "completed":', src)
+
     def test_records_list_what_the_run_did_not_record(self):
         import records
         r = records.make("repeat", "aes", "knee", {"exit": 0}, run={"sipath": {"commit": None}}, inputs_={})
@@ -4254,8 +4435,11 @@ class Adaptive(unittest.TestCase):
         d = Design("fake", "fake", "x.v", "x.sdc", "macro", floorplan_def="x.def")
         return Flow(d, sky130hd("/p"), td, demo.fake_factory(), validate_inputs=False)
 
+    CALLS: list = []
+
     @staticmethod
     def step(ctx):  # density lower is better here; blockages better still
+        Adaptive.CALLS.append(ctx.params.get("density"))
         ctx.metrics["wns"] = 1.0 - ctx.params.get("density", 0.8) + 0.5 * len(ctx.params.get("blockages") or [])
 
     def test_extend_reselects_records_and_resumes(self):
@@ -4273,12 +4457,12 @@ class Adaptive(unittest.TestCase):
             g = _read_json(os.path.join(td, "graph.json"))
             self.assertEqual(g["steps"]["place"]["rounds"][-1]["stopped"], "nothing hot")
             self.assertEqual(g["steps"]["place"]["variants"], [{"density": 0.8}])  # the base variants
-            ran = []
+            Adaptive.CALLS.clear()  # the same step function on resume (another function would run again)
             f2 = Flow(f.design, f.pdk, td, demo.fake_factory(), validate_inputs=False, resume=True)
-            r2 = f2.step("place", lambda c: ran.append(1), variants=[{"density": 0.8}], score="setup_wns")
-            self.assertEqual((r2.selected.id, len(r2.rounds), ran), ("place.2", 2, []))  # recorded, not rerun
-            r3 = f2.extend("place", lambda c: ran.append(1), [{"density": 0.7}])
-            self.assertEqual((ran, r3.rounds[-1]["attempts"]), ([], []))  # tried before: not run again
+            r2 = f2.step("place", self.step, variants=[{"density": 0.8}], score="setup_wns")
+            self.assertEqual((r2.selected.id, len(r2.rounds), Adaptive.CALLS), ("place.2", 2, []))  # recorded
+            r3 = f2.extend("place", self.step, [{"density": 0.7}])
+            self.assertEqual((Adaptive.CALLS, r3.rounds[-1]["attempts"]), ([], []))  # tried before: not run again
             with self.assertRaisesRegex(ValueError, "nothing to extend"):
                 f2.extend("cts", self.step, [{}])
 

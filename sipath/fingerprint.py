@@ -171,16 +171,20 @@ def step(run_digest: str, step_name: str, variants, score, parent_fp: str | None
 
 
 def step_code(fn) -> str | None:
-    """The source a step function from outside sipath runs: the hash of its module's file (a plugin package's
-    module, a design file's ``module:function``); None for sipath's own steps (the run's code identity covers
-    them) and for a function without a source file."""
+    """Which function a step runs, and its source: ``module:qualified_name`` (two functions of one module are two
+    steps), and for a function from outside sipath (a plugin's, a design file's ``module:function``) the hash of
+    its module's file, which holds the function and what it calls there. sipath's own steps: the name alone (the
+    run's code identity covers their source). None without a function."""
     import inspect
     import sys
-    mod = getattr(fn, "__module__", None) or ""
-    if not mod or mod == "sipath" or mod.startswith("sipath."):
+    if fn is None:
         return None
+    mod = getattr(fn, "__module__", None) or ""
+    ident = f"{mod}:{getattr(fn, '__qualname__', None) or getattr(fn, '__name__', None) or type(fn).__qualname__}"
+    if not mod or mod == "sipath" or mod.startswith("sipath."):
+        return ident
     try:
         f = inspect.getsourcefile(sys.modules[mod]) or inspect.getfile(fn)
     except (KeyError, TypeError, OSError):
-        return None
-    return file_hash(f) if f else None
+        f = None
+    return f"{ident}@{file_hash(f)}" if f else ident
