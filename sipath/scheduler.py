@@ -423,6 +423,25 @@ class Flow:
                 self._lock_fd = fd
             _OPEN[key] = weakref.ref(self)
 
+    def _check_owner(self):
+        """Refuse work on a Flow that no longer owns its workdir (a newer Flow took it over) or was closed: before
+        any step function, tool or graph write, never after."""
+        if self._superseded:
+            raise RuntimeError(f"{self.workdir} was opened again by a newer run in this process; this one no "
+                               "longer runs or writes anything")
+        if self._lock_fd is None and getattr(self, "_closed", False):
+            raise RuntimeError(f"this run of {self.workdir} was closed")
+
+    def close(self):
+        """Give the workdir up: the lock is released and this Flow refuses further work."""
+        self._closed = True
+        fd, self._lock_fd = self._lock_fd, None
+        if fd is not None:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+
     def __del__(self):
         fd = getattr(self, "_lock_fd", None)
         if fd is not None:
@@ -533,7 +552,7 @@ class Flow:
         elif not same_call:
             why = "its variants or score changed"
         else:
-            why = "; ".join(self.input_changes) or "the step's code (outside sipath) or declared parameter defaults changed"
+            why = "; ".join(self.input_changes) or "the step's function, its code (outside sipath) or its declared parameter defaults changed"
         self._make_stale(name, why)
         return None
 
@@ -734,6 +753,7 @@ class Flow:
     # ------------------------------------------------------------------ steps
     def step(self, name: str, fn: Callable, parent: Attempt | None = None, variants: list[dict] | None = None,
              score: str | None = None, parallel: int = 1) -> StepRun:
+        self._check_owner()
         variants = variants or [{}]
         score = score or "auto"
         score_fn = score_mod.get(score)
@@ -831,6 +851,7 @@ class Flow:
         {"from": attempt id, "reason": text}, recorded as the attempt's ``adapted_from`` and ``adapt_reason``.
         A variant equal to an attempt the step already has (a resumed round) is not run again. The round is
         recorded in the step's ``rounds``."""
+        self._check_owner()
         run = self.steps.get(name)
         if run is None:
             raise ValueError(f"step {name} has not run: nothing to extend")
@@ -865,6 +886,7 @@ class Flow:
 
     def stop_rounds(self, name: str, reason: str) -> StepRun:
         """Record why a step's adaptive rounds stopped (nothing hot, nothing new to try), so a resume stops too."""
+        self._check_owner()
         run = self.steps[name]
         run.rounds = run.rounds + [{"from": run.selected.id if run.selected else None, "stopped": reason}]
         self.save_graph()
@@ -883,6 +905,7 @@ class Flow:
         attempts by value; a selector score (a rule over the attempts, e.g. synth_select) is applied again to
         what remains, so the second is the one the rule would pick without the first, and so on. The others
         than the selected one get status "kept" (a parent like a selected attempt); the list is recorded."""
+        self._check_owner()
         run = self.steps[name]
         done = [a for a in run.attempts if a.status in ("selected", "rejected", "kept")]
         fn = score_mod.get(run.score_name)
@@ -911,9 +934,8 @@ class Flow:
         """Bounded search: compare the branches' attempts at step ``at`` by ``score``, record which won (and the
         branches that failed before ``at``: ``failed``), and make the winner the run's head. A resume that
         reaches the same comparison reuses the recorded decision."""
+        self._check_owner()
         fn = score_mod.get(score)
-        if getattr(fn, "selector", False):  # a rule over attempts, not a value per attempt: rank by auto
-            score, fn = "auto", score_mod.get("auto")
         # reused only for the same place, scoring policy and candidate results: each candidate's id, fingerprint and
         # finish time (an attempt rebuilt under the same id has another finish time); anything else decides again
         # (over the reused candidates when only the policy changed) and replaces the old decision
@@ -923,17 +945,32 @@ class Flow:
                                for c in d["candidates"]) == now), None)
         if rec is not None:
             best = next(a for a in candidates if a.id == rec["winner"])
-            if self.head is not best:
+            # the failed branches are this run's evidence, not the recorded one's: a losing branch that failed again
+            # on resume is a new attempt (another finish time), which the verdict must find handled
+            changed = (rec.get("failed_branches") or None) != (failed or None)
+            if failed:
+                rec["failed_branches"] = failed
+            else:
+                rec.pop("failed_branches", None)
+            if self.head is not best or changed:
                 self.head = best
                 self.save_graph()
             return best
         self.decisions = [d for d in self.decisions if d["at"] != at]
-        scored = [(fn(a.metrics), a) for a in candidates]
-        ok = [(s, a) for s, a in scored if s is not None]
-        if not ok:
-            raise StepFailed(f"decide at {at}: no branch has a {score} score")
-        best = max(ok, key=lambda x: x[0])[1]
+        why = None
+        if getattr(fn, "selector", False):  # a rule over the attempts (synth_select): applied to the branches, as
+            best, why = fn(list(candidates))  # a step's selection applies it to its attempts
+            if best is None:
+                raise StepFailed(f"decide at {at}: {score} picked no branch ({why})")
+            scored = [(None, a) for a in candidates]
+        else:
+            scored = [(fn(a.metrics), a) for a in candidates]
+            ok = [(s, a) for s, a in scored if s is not None]
+            if not ok:
+                raise StepFailed(f"decide at {at}: no branch has a {score} score")
+            best = max(ok, key=lambda x: x[0])[1]
         self.decisions.append({"at": at, "score": score, "winner": best.id, "complete": True,
+                               **({"why": why} if why else {}),
                                "candidates": [{"attempt": a.id, "score": s if isinstance(s, (int, float, type(None)))
                                                else list(s), "fingerprint": a.fingerprint,
                                                "finished_at": a.finished_at} for s, a in scored],
@@ -948,6 +985,7 @@ class Flow:
         this run, a rejected one included. The new run's graph starts with that attempt and its ancestors, each
         selected there and pointing at this run's checkpoints (read, never written; ``forked_from`` names the
         original); this run's graph is not touched. The fork resumes like any run."""
+        self._check_owner()
         a = attempt if isinstance(attempt, Attempt) else next((x for x in self.attempts if x.id == attempt), None)
         if a is None:
             raise ValueError(f"no attempt {attempt!r} in {self.workdir}")
@@ -996,6 +1034,7 @@ class Flow:
         """ECO from ``parent``. Rejected (checkpoint kept, StepFailed raised) when
         setup or hold slack drops by more than ``max_slack_loss`` ns against the
         parent (None disables the check)."""
+        self._check_owner()
         score = score or "drc_then_slack"
         params = {"ops": ops, "max_patch_nets": max_patch_nets}
         efp = fp_mod.attempt(self.inputs["digest"], name,  # eco's declarations, and what accepts its result
@@ -1079,6 +1118,7 @@ class Flow:
         return max(1, int(getattr(self.config, "threads", 1) or 1) // max(1, together))
 
     def _run_attempt(self, a: Attempt, fn: Callable, together: int = 1):
+        self._check_owner()  # a newer Flow may have taken the workdir while this one's attempts were queued
         if self.cancelled:
             a.status, a.error = "cancelled", "cancelled before it started"
             self.save_graph()
@@ -1285,9 +1325,7 @@ class Flow:
         return verdict.verify(self.graph())
 
     def save_graph(self):
-        if self._superseded:
-            raise RuntimeError(f"{self.workdir} was opened again by a newer run in this process; this one no "
-                               "longer writes its graph")
+        self._check_owner()
         with self._lock:  # attempts finish concurrently
             data = self.graph()
             try:  # the verdict follows the graph; reading a result file never fails the run

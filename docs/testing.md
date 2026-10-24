@@ -57,17 +57,34 @@ wall time in CI.
 
 ## CI (GitHub Actions)
 
-- **`unit`** runs on every push and pull request, on Python 3.10, 3.12 and
-  3.14: the unit tests, a check that the generated reference is current, and
-  a check of the wheel's package data.
-- **`live`** runs nightly and on demand: the locked ORFS image and the locked
-  open_pdks release (fetched by `sipath install-pdk`), in four parallel design jobs
-  (mcu8; the OpenFrame harness; the OpenFrame route-search example; everything
-  else), with the regression limits
-  except wall time, keeping the logs of any run that does not pass (failed,
-  timed out or cancelled). The Magic and precheck images are built locally
-  in both OpenFrame jobs. The route-search example requires cf-precheck,
-  including its Netgen LVS, before chip integration.
+- **`unit`** runs on pushes to `main` and on pull requests, on Python 3.10,
+  3.12 and 3.14: the unit tests, a check that the generated reference is
+  current, and a check of the wheel's contents (what it must carry and what it
+  must not). Tests that need an open_pdks tree skip there, with the reason.
+- **`live`** runs nightly and on demand (a dispatch may name classes; each runs
+  in its own group's job): the locked ORFS image and the locked open_pdks
+  release (fetched by `sipath install-pdk`), in four parallel design jobs, with the
+  regression limits except wall time, keeping the logs of any run that does
+  not pass (failed, timed out or cancelled):
+  - **chip**: mcu8 (`LiveMcuDie`);
+  - **openframe**: builds the Magic image and the precheck image on the
+    locked ORFS image, then `LiveOpenFrame` (signoff, cf-precheck, chip
+    integration with the seal ring) and `LiveMagic`;
+  - **route-search-openframe**: builds both images and runs `LiveRouteSearchOpenFrame`,
+    requiring cf-precheck before chip integration;
+  - **blocks**: `sipath validate`, the unit tests with the PDK (those that skip
+    in `unit`), then every other live class.
+
+  A class whose every test skipped fails (`run_live`), so a missing tool,
+  PDK or image cannot pass as tested; a live run with no regression limits
+  fails too. What may skip, with the reason in the log: a test of a tool the
+  job does not have (cdlns without PyTorch, `LiveMagic` without the Magic
+  image); `LiveOpenFrame` leaves its precheck step out when the precheck image
+  is missing, which the openframe job builds.
+- **`tutorial`** (with `live`) runs the tutorial notebook's first part on the
+  native path, no Docker (`install-tools`, `install-pdk`, gcd8 to signoff,
+  explore mode) through `notebooks/smoke.py`: a cell fails when it raises or
+  when any of its `!` commands exits non-zero.
 - The unit workflow also installs Icarus Verilog and runs
   `sipath.tests.test_route_search`: both example plans, GCD8 functional tests,
   and the OpenFrame wrapper's GCD and pad-control tests. The live classes

@@ -105,11 +105,14 @@ else:
 print("runtime:", "docker" if DOCKER else "native (unpacked image)")
 """)
 code("""
-# The Sky130 PDK through ciel (about 1 GB); retried, since a large download can time out.
+# The Sky130 PDK through ciel (about 1 GB); retried, since a large download can time out
+# (a failed try is not this cell's failure: only the last one counts)
 for attempt in range(3):
-    !python3 -m sipath install-pdk
-    if _exit_code == 0:
+    r = subprocess.run([sys.executable, "-m", "sipath", "install-pdk"], capture_output=True, text=True)
+    print((r.stdout + r.stderr)[-2000:])
+    if r.returncode == 0:
         break
+    print(f"install-pdk failed (try {attempt + 1} of 3, exit {r.returncode})")
 else:
     raise RuntimeError("install-pdk failed three times")
 """)

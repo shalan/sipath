@@ -1133,10 +1133,24 @@ class LiveMagic(unittest.TestCase):
 
     def test_magic_drc_refuses_a_cell_it_did_not_load(self):
         import types
+        from unittest import mock
         from sipath import signoff
+        from sipath.config import Config
         from sipath.pdk import load
-        if not _magic_image():
+        from sipath.tools import magic
+        image = _magic_image()
+        if not image:
             self.skipTest("no Magic image (docker build -t <magic_image> docker/magic)")
+        cfg = Config.load()  # the configuration whose image was found here (CI: SIPATH_MAGIC_IMAGE, built locally)
+        self.assertEqual(cfg.magic_image, image)
+        used = []
+        real = magic.run_tool
+
+        def run_tool(ctx, args, log, **kw):  # the image the check really ran in
+            used.append(kw.get("image"))
+            return real(ctx, args, log, **kw)
+        self.enterContext(mock.patch.object(magic, "run_tool", run_tool)) if hasattr(self, "enterContext") else \
+            (lambda p: (p.start(), self.addCleanup(p.stop)))(mock.patch.object(magic, "run_tool", run_tool))
         pdk = load("sky130A")
         gds = pdk.signoff["cell_gds"][0]
         wd = _workdir("magic")
@@ -1145,12 +1159,13 @@ class LiveMagic(unittest.TestCase):
         RUNNER.mount(os.path.realpath(gds), os.path.realpath(pdk.signoff["magic_rc"]))
         for top, want in (("sky130_fd_sc_hd__inv_1", None), ("no_such_cell", "has no cell no_such_cell")):
             ctx = types.SimpleNamespace(dir=wd, pdk=pdk, design=types.SimpleNamespace(top=top), runner=RUNNER,
-                                        config=None, path=lambda n: os.path.join(wd, n))
+                                        config=cfg, path=lambda n: os.path.join(wd, n))
             if want:
                 with self.assertRaisesRegex(signoff.SignoffError, want):
                     signoff.magic_drc(ctx, gds)
             else:
                 self.assertGreater(signoff.magic_drc(ctx, gds)["count"], 0)  # a bare cell: its tap rules fire
+        self.assertEqual(set(used), {image})  # checked one image and ran in it
 
 
 @LIVE
@@ -1283,11 +1298,10 @@ class LiveCancel(unittest.TestCase):
 
 @LIVE
 class LiveBudget(unittest.TestCase):
-    """B2.2: a 3-way sweep under a 6-core budget runs within it (2 threads each, seen in each attempt's own
-    transcript); a wall-time budget stops a real run cleanly (status budget) and --resume finishes it."""
+    """B2.2: a 3-way sweep under a 6-core budget runs within it (2 threads each, as each attempt's OpenROAD process
+    reports its own count); a wall-time budget stops a real run cleanly (status budget) and --resume finishes it."""
 
     def test_core_budget_and_wall_budget(self):
-        import re
         from sipath import designfile
         from sipath.config import Config
         from sipath.examples import dp8
@@ -1301,10 +1315,9 @@ class LiveBudget(unittest.TestCase):
         f = designfile.run(dp8.make_design(), os.path.join(wd, "sweep"), RUNNER, flow_steps=sweep,
                            config=Config(threads=6))
         self.assertEqual((f.allocation["place"]["at_once"], f.allocation["place"]["threads_each"]), (3, 2))
-        for a in f.steps["place"].attempts:
-            with open(os.path.join(a.dir, "openroad.log"), errors="replace") as fh:
-                counts = set(re.findall(r"set_thread_count (\d+)", fh.read()))
-            self.assertEqual(counts, {"2"}, a.id)  # its share, not the machine's cores
+        for a in f.steps["place"].attempts:  # its share, not the machine's cores: the process's own count (started
+            # with 2, or set to 2), not a set_thread_count line a process already at 2 does not need
+            self.assertEqual((a.threads, a.metrics.get("openroad_threads")), (2, 2), a.id)
         steps = [{"step": s} for s in ("floorplan", "physical", "place", "cts", "route_analog", "route_digital",
                                        "route_repair", "extract")]
         run = os.path.join(wd, "wall")

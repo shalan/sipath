@@ -334,7 +334,9 @@ for all, `box` for those in a box).
   execution failed (every branch failing does). With a
   selector score (a rule over the attempts, such as `synth_select`), the
   branches are the rule's choice, then its choice among the rest, and so on;
-  the baseline is found by its parameters. Branches run one after
+  the baseline is found by its parameters; a selector as the deciding score
+  is applied to the branches' attempts the same way (its reason recorded in
+  the decision). Branches run one after
   another, each within the budgets; `--plan` shows the steps on branches.
   Measured with `keep: 2` to `extract`: on gcd8 the selected placement
   (density 0.75) also won after extraction (setup slack 4.364 against 4.249
