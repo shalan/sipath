@@ -26,6 +26,8 @@ check can also run as a step of its own.
   Liberty, SDC and per-corner SPEF: setup and hold on all nine corners,
   slew/cap/fanout on standard cells, parasitic annotation (a loaded net
   without parasitics fails), unconstrained endpoints.
+  Each expected corner must have finite setup and hold results for those
+  checks to pass; a missing corner or missing slack is not a timing pass.
 - **Opt-in:** `magic_drc` (Magic `drc(full)`), `xor` (Magic's stream-out of the
   routed DEF against KLayout's; fill not compared), `lvs_full`: full-device
   LVS with the PDK's own deck (open_pdks `sky130.lvs`: high-voltage MOS, MIM

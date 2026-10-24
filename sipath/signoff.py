@@ -708,7 +708,7 @@ def timing(ctx, verilog: str, spef_corners: dict) -> dict:
     os.makedirs(wd, exist_ok=True)
     every = pdk.signoff_corners()  # signoff checks every corner, not only those the flow repaired against
     corners = [c.name for c in every]
-    res = {"corners": {}}
+    res = {"corners": {}, "expected_corners": corners}
     with OpenRoadSession(wd, r, timeout=getattr(ctx.session, "timeout", 3600)) as s:
         if getattr(ctx, "job_threads", None):  # its share among signoff's concurrent checks
             s.run(f"set_thread_count {int(ctx.job_threads)}")
@@ -776,13 +776,15 @@ def sta_failures(st: dict, checks, expected=None) -> list[str]:
     """What the signoff STA fails on. Every corner of ``expected`` (default: those the STA was set up with, the
     PDK's signoff corners) must have a result: a corner without one fails the check, so "met on every corner"
     never rests on fewer (leave setup/hold out of ``require`` for a design without timing)."""
+    import math
     out = []
     corners = st["corners"]
-    expected = list(expected) if expected is not None else list(corners)
+    expected = list(expected) if expected is not None else sorted(set(st.get("expected_corners", [])) | set(corners))
     for key, kind in (("wns", "setup"), ("whs", "hold")):
         if kind not in checks:
             continue
-        vals = {c: corners[c][key] for c in expected if (corners.get(c) or {}).get(key) is not None}
+        vals = {c: corners[c][key] for c in expected
+                if (corners.get(c) or {}).get(key) is not None and math.isfinite(corners[c][key])}
         missing = [c for c in expected if c not in vals]
         if missing:
             out.append(f"{kind}: no result at {len(missing)} of {len(expected)} corners ({missing})"
