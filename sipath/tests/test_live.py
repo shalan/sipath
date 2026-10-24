@@ -1133,10 +1133,24 @@ class LiveMagic(unittest.TestCase):
 
     def test_magic_drc_refuses_a_cell_it_did_not_load(self):
         import types
+        from unittest import mock
         from sipath import signoff
+        from sipath.config import Config
         from sipath.pdk import load
-        if not _magic_image():
+        from sipath.tools import magic
+        image = _magic_image()
+        if not image:
             self.skipTest("no Magic image (docker build -t <magic_image> docker/magic)")
+        cfg = Config.load()  # the configuration whose image was found here (CI: SIPATH_MAGIC_IMAGE, built locally)
+        self.assertEqual(cfg.magic_image, image)
+        used = []
+        real = magic.run_tool
+
+        def run_tool(ctx, args, log, **kw):  # the image the check really ran in
+            used.append(kw.get("image"))
+            return real(ctx, args, log, **kw)
+        self.enterContext(mock.patch.object(magic, "run_tool", run_tool)) if hasattr(self, "enterContext") else \
+            (lambda p: (p.start(), self.addCleanup(p.stop)))(mock.patch.object(magic, "run_tool", run_tool))
         pdk = load("sky130A")
         gds = pdk.signoff["cell_gds"][0]
         wd = _workdir("magic")
@@ -1145,12 +1159,13 @@ class LiveMagic(unittest.TestCase):
         RUNNER.mount(os.path.realpath(gds), os.path.realpath(pdk.signoff["magic_rc"]))
         for top, want in (("sky130_fd_sc_hd__inv_1", None), ("no_such_cell", "has no cell no_such_cell")):
             ctx = types.SimpleNamespace(dir=wd, pdk=pdk, design=types.SimpleNamespace(top=top), runner=RUNNER,
-                                        config=None, path=lambda n: os.path.join(wd, n))
+                                        config=cfg, path=lambda n: os.path.join(wd, n))
             if want:
                 with self.assertRaisesRegex(signoff.SignoffError, want):
                     signoff.magic_drc(ctx, gds)
             else:
                 self.assertGreater(signoff.magic_drc(ctx, gds)["count"], 0)  # a bare cell: its tap rules fire
+        self.assertEqual(set(used), {image})  # checked one image and ran in it
 
 
 @LIVE
