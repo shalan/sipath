@@ -12,7 +12,7 @@ rtl: [rtl/gcd8.v, rtl/openframe_gcd8.v]
 rtl_defines: {OPENFRAME_IO_PADS: 44, GCD_W: 4}
 sdc: rtl/openframe_gcd8.sdc
 clock_ports: ["gpio_in[0]"]
-config: {threads: 6, parallel_cap: 3, tool_timeout: 21600}
+config: {parallel_cap: 3, tool_timeout: 21600}
 step_defaults:
   place: {timing_driven: false, density: 0.4}
 flow:

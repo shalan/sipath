@@ -7,6 +7,47 @@ from .common import _big_def, _check_limits, _check_outputs, _lib, _pins, _read_
 
 
 # ----------------------------------------------------------------------------- units
+class RouteSearchPlans(unittest.TestCase):
+    def test_both_examples_have_valid_bounded_plans(self):
+        from pathlib import Path
+        from sipath import designfile
+        examples = Path(__file__).resolve().parents[1] / "examples"
+        for name, tail in (("openframe_gcd8_route_search", ["signoff", "precheck", "integrate"]),
+                           ("gcd8_macro_route_search", ["signoff", "views"])):
+            with self.subTest(name=name):
+                path = examples / (name + ".yaml")
+                d, spec = designfile.load(str(path))
+                plan = designfile.plan(str(path))
+                self.assertEqual(plan["problems"], [])
+                self.assertTrue(all(os.path.isfile(p) for p in d.input_files()))
+                place = next(s for s in spec if s["step"] == "place")
+                self.assertEqual(place["variants"][0], {})
+                self.assertEqual((place["keep"], place["decide_at"], place["decide_score"]),
+                                 (2, "extract", "setup_wns"))
+                self.assertEqual([s["step"] for s in spec][-len(tail):], tail)
+                if d.harness:
+                    original, _ = designfile.load(str(examples / "openframe_gcd8.yaml"))
+                    self.assertEqual(d.rtl, original.rtl)
+                    self.assertEqual(d.sdc, original.sdc)
+                    self.assertEqual(d.harness_options, original.harness_options)
+                else:
+                    original, _ = designfile.load(str(examples / "gcd8.yaml"))
+                    self.assertEqual(d.rtl, original.rtl)
+                    self.assertEqual(d.sdc, original.sdc)
+                    self.assertEqual(d.core_utilization, original.core_utilization)
+
+    def test_examples_respect_the_callers_thread_budget(self):
+        from pathlib import Path
+        from sipath import designfile
+        examples = Path(__file__).resolve().parents[1] / "examples"
+        for name in ("openframe_gcd8_route_search", "gcd8_macro_route_search"):
+            for threads in (2, 12):
+                with self.subTest(name=name, threads=threads), unittest.mock.patch.dict(
+                        os.environ, {"SIPATH_THREADS": str(threads)}):
+                    plan = designfile.plan(str(examples / (name + ".yaml")))
+                    self.assertEqual(plan["budget"]["threads"], threads)
+
+
 class Netlist(unittest.TestCase):
     def test_roundtrip_and_function(self):
         m, meta = designs.dp8_netlist()

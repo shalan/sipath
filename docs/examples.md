@@ -590,6 +590,12 @@ adapt_step    {"run_id": R, "step": "place", "rounds": 1, "options": {"max_densi
 
 ## 17. Route-aware search: an OpenFrame wrapper and a reusable macro
 
+**Before running OpenFrame:** install/configure both the Magic and cf-precheck
+images as described in [PDKs and runtimes](pdks-and-runtimes.md). They are
+required for precheck and chip integration. `--plan` does not check image
+availability; run `python3 -m sipath doctor` and confirm both images are ready
+before starting the physical flow.
+
 The **route-aware search** recipe keeps multiple placements until their
 routed parasitics are extracted. It uses the existing bounded-search
 mechanism (`keep` / `decide_at`); both examples are ordinary design YAMLs.
@@ -610,7 +616,8 @@ other two use density 0.50 and 0.70. Placement ranks by global-route overflow,
 then setup slack and wirelength (`routability_then_wns`); the best two and
 the baseline, if otherwise excluded, continue through routing. This is at
 most three routed branches. They run sequentially after the placement sweep;
-the YAMLs allow three placements concurrently under a six-thread budget.
+the YAMLs allow at most three placements concurrently within the caller's
+thread budget (`SIPATH_THREADS` or the runtime default).
 The decision at `extract` uses `setup_wns`, so it measures extracted timing
 rather than the placement estimate. Missing slack is ineligible.
 
@@ -688,16 +695,20 @@ inputs, parameters and final checks identical.
 **Validation status.** Functional simulation and plan tests accompany these
 examples. Both live classes passed locally on 2026-10-24 with the locked
 toolchain, including budget/resume and completed-run reuse checks. The macro
-passed configured signoff and exported its views. OpenFrame passed required
+passed configured signoff and exported its views; it passed again on
+2026-10-26 with a caller-provided two-thread budget. OpenFrame passed required
 wrapper signoff, cf-precheck (including Netgen LVS and OEB), and chip/seal-ring
 geometry checks; its aggregate verification remains `omitted` as described
 above. This is a local validation result, not a PPA regression guarantee or
 full-chip DRC claim. `LiveRouteSearchMacro` and `LiveRouteSearchOpenFrame`
-run the complete YAMLs with real tools. The latter has its own CI job because
-the template and its checks are large. Local fast checks require Icarus Verilog:
+run the complete YAMLs with real tools. The macro runs in the nightly blocks
+job; the OpenFrame search runs only on dispatch within the existing OpenFrame
+job, sharing its image builds. Plan tests run in every unit matrix entry;
+Icarus simulations run only in the Python 3.12 entry. Local fast checks:
 
 ```bash
-python3 -m unittest -v sipath.tests.test_route_search
+python3 -m unittest -v sipath.tests.test_unit.RouteSearchPlans
+python3 -m unittest -v sipath.tests.test_route_search.RouteSearchRtl  # requires Icarus
 python3 -m sipath.tests.run_live -j 1 LiveRouteSearchMacro --keep runs/live-search
 python3 -m sipath.tests.run_live -j 1 LiveRouteSearchOpenFrame --keep runs/live-search
 ```

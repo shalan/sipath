@@ -1,45 +1,16 @@
-"""Route-aware examples: plans and functional RTL (Icarus required for simulation).
+"""Functional RTL test hook for the GCD8 block and OpenFrame wrapper (Icarus required).
 
 python3 -m unittest -v sipath.tests.test_route_search
+Plan tests live in test_unit.RouteSearchPlans.
 Physical verification lives in LiveRouteSearchMacro and LiveRouteSearchOpenFrame.
 """
-import os
 from pathlib import Path
 import shutil
 import subprocess
 import tempfile
 import unittest
 
-from sipath import designfile
-
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
-
-
-class RouteSearchPlans(unittest.TestCase):
-    def test_both_examples_have_valid_bounded_plans(self):
-        for name, tail in (("openframe_gcd8_route_search", ["signoff", "precheck", "integrate"]),
-                           ("gcd8_macro_route_search", ["signoff", "views"])):
-            with self.subTest(name=name):
-                path = EXAMPLES / (name + ".yaml")
-                d, spec = designfile.load(str(path))
-                plan = designfile.plan(str(path))
-                self.assertEqual(plan["problems"], [])
-                self.assertTrue(all(os.path.isfile(p) for p in d.input_files()))
-                place = next(s for s in spec if s["step"] == "place")
-                self.assertEqual(place["variants"][0], {})
-                self.assertEqual((place["keep"], place["decide_at"], place["decide_score"]),
-                                 (2, "extract", "setup_wns"))
-                self.assertEqual([s["step"] for s in spec][-len(tail):], tail)
-                if d.harness:
-                    original, _ = designfile.load(str(EXAMPLES / "openframe_gcd8.yaml"))
-                    self.assertEqual(d.rtl, original.rtl)
-                    self.assertEqual(d.sdc, original.sdc)
-                    self.assertEqual(d.harness_options, original.harness_options)
-                else:
-                    original, _ = designfile.load(str(EXAMPLES / "gcd8.yaml"))
-                    self.assertEqual(d.rtl, original.rtl)
-                    self.assertEqual(d.sdc, original.sdc)
-                    self.assertEqual(d.core_utilization, original.core_utilization)
 
 
 @unittest.skipUnless(shutil.which("iverilog") and shutil.which("vvp"), "needs Icarus Verilog (iverilog and vvp)")

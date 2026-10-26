@@ -10,7 +10,7 @@ sdc: rtl/gcd8.sdc
 core_utilization: 0.35
 core_margin: 6.0
 is_core: false
-config: {threads: 6, parallel_cap: 3}
+config: {parallel_cap: 3}
 flow:
 - step: synth
 - step: floorplan

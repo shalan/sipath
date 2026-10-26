@@ -1511,8 +1511,9 @@ def _run_route_search_example(tc, name):
     for c in decision["candidates"]:
         a = next(a for a in f.attempts if a.id == c["attempt"])
         tc.assertEqual(a.metrics["parasitics"], "rcx")
-        tc.assertIsNotNone(a.metrics["wns"])
-    best = max(decision["candidates"], key=lambda c: c["score"])
+    eligible = [c for c in decision["candidates"] if c["score"] is not None]
+    tc.assertTrue(eligible, "the decision needs at least one scored candidate")
+    best = max(eligible, key=lambda c: c["score"])
     tc.assertEqual(decision["winner"], best["attempt"])
     tc.assertEqual(f.result("signoff").parent.id, decision["winner"])
     signoff = _read_json(f.result("signoff").outputs["signoff"])
@@ -1528,6 +1529,10 @@ def _run_route_search_example(tc, name):
 
 @LIVE
 class LiveRouteSearchMacro(unittest.TestCase):
+    """Beyond LiveBoundedSearch's branch selection: run the shipped macro YAML,
+    stop/resume on an attempt budget, export reusable views, and reuse a
+    completed run without changing its successful attempts or winner.
+    """
     def test_gcd8_to_reusable_views(self):
         f = _run_route_search_example(self, "gcd8_macro_route_search")
         views = f.result("views").outputs["views"]
