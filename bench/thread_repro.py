@@ -22,20 +22,21 @@ def sha(path):
         return None
     h = hashlib.sha256()
     with open(path, "rb") as f:
-        for block in iter(lambda: f.read(1024*1024), b""):
+        for block in iter(lambda: f.read(1024 * 1024), b""):
             h.update(block)
     return h.hexdigest()
 
 
 def snapshot(run):
     from sipath.scheduler import run_chain
-    path = Path(run)/"graph.json"
+    path = Path(run) / "graph.json"
     if not path.exists():
         return {"stages": {}, "verification": None}
     g = json.loads(path.read_text())
     stages = {}
     for a in run_chain(g):
-        out = a.get("outputs") or {}; m = a.get("metrics") or {}
+        out = a.get("outputs") or {}
+        m = a.get("metrics") or {}
         stages[a["step"]] = {"checkpoint_sha256": sha(a.get("checkpoint")),
                              "def_sha256": sha(out.get("def_")),
                              "metrics": {k: m[k] for k in METRICS if k in m},
@@ -61,6 +62,19 @@ def compare(a, b):
     return result
 
 
+def run_one(design, workdir, threads):
+    """Use the same success policy as the CLI, including documented omissions."""
+    from sipath import designfile, verdict
+    from sipath.config import Config
+    cfg = Config.load(**{**designfile.file_config(design), "threads": threads,
+                         "strict_reproducibility": True})
+    flow = designfile.run(design, workdir, config=cfg)
+    try:
+        return verdict.exit_code(flow.verification())
+    finally:
+        flow.close()
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("design")
@@ -70,17 +84,13 @@ def main(argv=None):
     args = ap.parse_args(argv)
     if args.repeats < 2 or any(n < 1 for n in args.threads) or len(set(args.threads)) != len(args.threads):
         ap.error("need >=2 repeats and distinct positive thread counts")
-    out = Path(args.out).resolve(); out.mkdir(parents=True, exist_ok=False)
+    out = Path(args.out).resolve()
+    out.mkdir(parents=True, exist_ok=False)
     design = str(Path(args.design).resolve())
-    child = '''import sys
-from sipath import designfile
-from sipath.config import Config
-cfg=Config.load(**{**designfile.file_config(sys.argv[1]), "threads":int(sys.argv[3]), "strict_reproducibility":True})
-f=designfile.run(sys.argv[1],sys.argv[2],config=cfg)
-f.close()
-v=f.verification()
-sys.exit(0 if v["execution"]=="completed" and v["verification"]=="passed" else 1)
-'''
+    child = """import sys
+from bench.thread_repro import run_one
+sys.exit(run_one(sys.argv[1], sys.argv[2], int(sys.argv[3])))
+"""
     from bench import records
     from sipath.config import Config
     report = {"source": records.archive_source(), "machine": records.machine(Config.load().platform),
@@ -88,19 +98,20 @@ sys.exit(0 if v["execution"]=="completed" and v["verification"]=="passed" else 1
               "comparison": "exact checkpoint/DEF bytes and recorded metrics; not semantic equivalence", "runs": []}
     failed = False
     for n in args.threads:
-        for i in range(1, args.repeats+1):
-            work = out/f"t{n}-r{i}"; start = time.monotonic()
-            with open(out/f"t{n}-r{i}.log", "w") as log:
+        for i in range(1, args.repeats + 1):
+            work = out / f"t{n}-r{i}"
+            start = time.monotonic()
+            with open(out / f"t{n}-r{i}.log", "w") as log:
                 rc = subprocess.run([sys.executable, "-c", child, design, str(work), str(n)], cwd=ROOT,
                                     stdout=log, stderr=subprocess.STDOUT).returncode
-            record = {"threads": n, "repeat": i, "exit": rc, "seconds": time.monotonic()-start, **snapshot(work)}
+            record = {"threads": n, "repeat": i, "exit": rc, "seconds": time.monotonic() - start, **snapshot(work)}
             if report["runs"]:
                 record["against_first_run"] = compare(report["runs"][0], record)
                 previous = next((r for r in report["runs"] if r["threads"] == n), None)
                 if previous:
                     record["against_same_threads"] = compare(previous, record)
             report["runs"].append(record)
-            (out/"comparison.json").write_text(json.dumps(report, indent=2)+"\n")
+            (out / "comparison.json").write_text(json.dumps(report, indent=2) + "\n")
             print(f"threads={n} repeat={i} exit={rc} seconds={record['seconds']:.1f}", flush=True)
             failed |= rc != 0
     return int(failed)

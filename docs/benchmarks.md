@@ -365,3 +365,31 @@ against the SDC's 10 ns, suggested `create_clock -period 3.56`, 1,637 µm² of
 cells, 0.87 mW.
 
 Thread-count experiments are documented under [strict reproducibility](pdks-and-runtimes.md#strict-reproducibility-and-thread-experiments). Run multiple fresh repeats per thread count before assuming that changing resources preserves physical results.
+
+
+## Thread-count reproducibility observation
+
+On 2026-10-26, six fresh `gcd8.yaml` runs (two each at 1, 2 and 4 threads)
+completed with configured verification passed. Every available selected-stage
+checkpoint and DEF matched byte for byte across all six runs, and the compared
+metrics had no differences. Absent DEF outputs are unknown, not equality evidence.
+
+| Threads | Repeat 1 (s) | Repeat 2 (s) |
+|---|---:|---:|
+| 1 | 84.8 | 87.5 |
+| 2 | 79.0 | 77.7 |
+| 4 | 75.4 | 76.2 |
+
+The machine was macOS (Darwin 25.6.0), arm64, 18 logical cores, Python 3.14.7;
+the locked `linux/amd64` ORFS image ran under emulation. The recorded base commit
+was `1b33dc7d9b48-dirty`, with the strict-mode implementation under development:
+code digest `7fc8c9155725a153`, tracked-diff digest `fb6597cec99fcde9`, and
+untracked benchmark-driver digest `27c6214604b06aec`. This was **not a clean
+committed-source benchmark**; it predates the driver's source-archive metadata.
+The locked ORFS image digest was
+`sha256:751a77afcade9882b51427e6d9d079b8e270e7a8f4aa66df2d0659457d1c29fd`,
+and the open_pdks release was `8afc8346a57fe1ab7934ba5a6056ea8b43078e71`.
+
+Other physical validation ran on the host concurrently. The elapsed times are
+observations, not a controlled scaling comparison. Matching artifacts on one
+small design do not establish general thread invariance or determinism.

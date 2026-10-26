@@ -5129,6 +5129,20 @@ class ResumeAndCancel(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "fresh workdir"):
                 self.make_real(td, files, resume=True, config=Config(strict_reproducibility=True))
 
+    def test_strict_resume_refuses_forks_with_an_actionable_error(self):
+        from sipath.config import Config
+        with tempfile.TemporaryDirectory() as td:
+            files = self.inputs(td)
+            cfg = Config(threads=2, strict_reproducibility=True)
+            flow, _ = self.make_real(td, files, config=cfg)
+            _, tip = self.chain(flow)
+            forkdir = os.path.join(td, "fork")
+            fork = flow.fork(tip.selected, forkdir)
+            fork.close()
+            with self.assertRaisesRegex(ValueError, "cannot resume forked graphs.*fresh workdir"):
+                Flow(flow.design, flow.pdk, forkdir, demo.fake_factory(), validate_inputs=False,
+                     config=cfg, resume=True)
+
     def test_resume_reruns_a_step_whose_variants_changed(self):
         with tempfile.TemporaryDirectory() as td:
             files = self.inputs(td)
@@ -5943,10 +5957,10 @@ class ThreadReproComparison(unittest.TestCase):
         a = {"stages": {"place": {"checkpoint_sha256": None, "def_sha256": "abc", "metrics": {"wns": 1}}}}
         b = {"stages": {"place": {"checkpoint_sha256": None, "def_sha256": "abc", "metrics": {"wns": 2}},
                         "extract": {"metrics": {}}}}
-        r = thread_repro.compare(a,b)
+        r = thread_repro.compare(a, b)
         self.assertIsNone(r["place"]["checkpoint_sha256"])
         self.assertTrue(r["place"]["def_sha256"])
-        self.assertEqual(r["place"]["metric_differences"], {"wns": [1,2]})
+        self.assertEqual(r["place"]["metric_differences"], {"wns": [1, 2]})
         self.assertTrue(r["extract"]["missing_stage"])
 
     def test_driver_keeps_failures_and_refuses_existing_output(self):
@@ -5959,7 +5973,23 @@ class ThreadReproComparison(unittest.TestCase):
                  mock.patch.object(thread_repro.subprocess, "run", return_value=types.SimpleNamespace(returncode=1)):
                 self.assertEqual(thread_repro.main(["missing.yaml", "--threads", "1", "--repeats", "2", "--out", out]), 1)
             record = _read_json(os.path.join(out, "comparison.json"))
-            self.assertEqual([r["exit"] for r in record["runs"]], [1,1])
+            self.assertEqual([r["exit"] for r in record["runs"]], [1, 1])
             self.assertEqual(record["source"]["commit"], "test")
             with self.assertRaises(FileExistsError):
                 thread_repro.main(["missing.yaml", "--out", out])
+
+    def test_child_uses_cli_verdict_policy_and_closes_flow(self):
+        from bench import thread_repro
+        from sipath import designfile, verdict
+        from unittest import mock
+        for execution, verification in (("completed", "passed"), ("completed", "omitted"),
+                                        ("completed", "completed"), ("completed", "failed"),
+                                        ("failed", "passed")):
+            with self.subTest(execution=execution, verification=verification):
+                v = {"execution": execution, "verification": verification}
+                flow = mock.Mock()
+                flow.verification.return_value = v
+                with mock.patch.object(designfile, "file_config", return_value={}), \
+                     mock.patch.object(designfile, "run", return_value=flow):
+                    self.assertEqual(thread_repro.run_one("design.yaml", "run", 2), verdict.exit_code(v))
+                flow.close.assert_called_once()

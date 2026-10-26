@@ -234,7 +234,11 @@ per-step thread settings still apply. `threads`, container CPU/memory limits,
 and recorded runtime resource settings then participate in cache identity;
 changing them invalidates reuse. Switching into or out of strict mode also
 invalidates reuse. Legacy graphs lacking fingerprints are refused in strict
-mode; use a fresh directory. `--plan` reflects serial admission.
+mode; use a fresh directory. Forked graphs cannot be resumed in strict mode:
+`Flow.fork` copies a selected ancestry without the original step fingerprints,
+so strict reuse cannot validate those steps. Start a fresh fully fingerprinted
+run when strict resume is required. Ordinary-mode fork resume is unchanged.
+`--plan` reflects serial admission.
 
 This is conservative cache behavior, not a promise of bit-identical output.
 Tool internals, machine differences and nondeterminism can still change a
