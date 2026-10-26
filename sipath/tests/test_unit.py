@@ -8,27 +8,6 @@ from .common import _big_def, _check_limits, _check_outputs, _lib, _pins, _read_
 
 # ----------------------------------------------------------------------------- units
 
-class UartExamples(unittest.TestCase):
-    def test_uart_flows_plan_without_tools(self):
-        from pathlib import Path
-        from sipath import designfile
-        root = Path(__file__).resolve().parents[1] / "examples"
-        for name in ("uart_fifo", "openframe_uart"):
-            with self.subTest(name=name):
-                self.assertEqual(designfile.plan(str(root / (name + ".yaml")))["problems"], [])
-
-    def test_clock_clustering_options_are_opt_in_and_validated(self):
-        from sipath import params
-        from sipath.tools.openroad import tcl
-        pdk = sky130hd("/p")
-        self.assertNotIn("-distance_between_buffers", tcl.cts(pdk, ["clk"]))
-        cmd = tcl.cts(pdk, ["clk"], 8, 2, 20.0)
-        for flag in ("-sink_clustering_size 8", "-sink_clustering_levels 2", "-distance_between_buffers 20.0"):
-            self.assertIn(flag, cmd)
-        with self.assertRaises(ValueError):
-            params.check("cts", {"sink_clustering_size": 0})
-
-
 class RouteSearchPlans(unittest.TestCase):
     def test_both_examples_have_valid_bounded_plans(self):
         from pathlib import Path
@@ -2192,6 +2171,27 @@ Xd VSS VSS VDD VDD X__decap_4
         self.assertEqual(box[2], 48695)  # grows west only: the east side keeps its spacing
         self.assertEqual(minarea.plan_patch(isl, r["layers"]["met3"], 1000,
                                             [(47000, 61300, 47750, 61800), (49000, 61300, 50000, 61800)])[0], "blocked")
+
+
+class UartExamples(unittest.TestCase):
+    def test_uart_flows_plan_without_tools(self):
+        from pathlib import Path
+        from sipath import designfile
+        root = Path(__file__).resolve().parents[1] / "examples"
+        for name in ("uart_fifo", "openframe_uart"):
+            with self.subTest(name=name):
+                self.assertEqual(designfile.plan(str(root / (name + ".yaml")))["problems"], [])
+
+    def test_clock_clustering_options_are_opt_in_and_validated(self):
+        from sipath import params
+        from sipath.tools.openroad import tcl
+        pdk = sky130hd("/p")
+        self.assertNotIn("-distance_between_buffers", tcl.cts(pdk, ["clk"]))
+        cmd = tcl.cts(pdk, ["clk"], 8, 2, 20.0)
+        for flag in ("-sink_clustering_size 8", "-sink_clustering_levels 2", "-distance_between_buffers 20.0"):
+            self.assertIn(flag, cmd)
+        with self.assertRaises(ValueError):
+            params.check("cts", {"sink_clustering_size": 0})
 
 
 class DesignFiles(unittest.TestCase):
@@ -5507,7 +5507,8 @@ class McpProtocol(unittest.TestCase):
         self.assertFalse(err)
         self.assertEqual(set(out["designs"]), {"dp8", "dp8_hs", "mcu8", "ihp_add8", "gcd8", "gcd8_sv",
                                              "openframe_gcd8", "gcd8_pair", "sram8", "gcd8_explore",
-                                             "openframe_gcd8_route_search", "gcd8_macro_route_search", "uart_fifo", "openframe_uart"})
+                                             "openframe_gcd8_route_search", "gcd8_macro_route_search",
+                                             "uart_fifo", "openframe_uart"})
         self.assertTrue(c.call("run_step", run_id="nope", step="floorplan")[0])
         self.assertTrue(c.call("no_such_tool")[0])
         self.assertEqual(c.rpc("no/such/method")["error"]["code"], -32601)
@@ -5584,7 +5585,8 @@ class Limits(unittest.TestCase):
     def test_limits_file_names_the_live_designs(self):
         from sipath import limits
         lim = limits.load()
-        self.assertEqual(sorted(lim), ["dp8", "dp8_hs", "gcd8", "ihp_add8", "mcu8"])
+        self.assertEqual(sorted(lim), ["dp8", "dp8_hs", "gcd8", "ihp_add8", "mcu8",
+                                       "openframe_uart", "uart_fifo"])
         for d, e in lim.items():
             self.assertIn("max_drc", e, d)
             self.assertIn("max_runtime_s", e, d)

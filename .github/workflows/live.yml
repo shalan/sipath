@@ -13,6 +13,11 @@ on:
         description: "live test classes (space-separated); empty: every group"
         required: false
         default: ""
+      openframe_extra:
+        description: "extra OpenFrame class (ignored when classes is set)"
+        type: choice
+        options: [none, uart, search]
+        default: none
 
 permissions:
   contents: read
@@ -28,8 +33,8 @@ jobs:
           - group: chip       # mcu8: pad ring, macros, analog, full signoff (about an hour)
             classes: LiveMcuDie
           - group: openframe  # the OpenFrame harness, chip assembly with the seal ring, precheck, Magic DRC
-            # The additional search runs only on dispatch, sharing these image builds.
-            classes: ${{ github.event_name == 'workflow_dispatch' && 'LiveOpenFrame LiveMagic LiveRouteSearchOpenFrame LiveOpenFrameUart' || 'LiveOpenFrame LiveMagic' }}
+            # Catalog for explicit class selection; default runs choose at most one extra below.
+            classes: LiveOpenFrame LiveMagic LiveRouteSearchOpenFrame LiveOpenFrameUart
           - group: blocks
             classes: >-
               LiveRtl LiveSoftMacro LiveHs LiveResume LiveMcp LiveIhp LiveIhpRing LiveScale OpenRoad
@@ -96,17 +101,28 @@ jobs:
           SIPATH_TEST_KEEP: ${{ github.workspace }}/live-runs
           CLASSES: ${{ github.event.inputs.classes }}  # through the environment: never pasted into the script
           GROUP_CLASSES: ${{ matrix.classes }}
+          GROUP: ${{ matrix.group }}
+          OPENFRAME_EXTRA: ${{ inputs.openframe_extra }}
         run: |
           run="$GROUP_CLASSES"
+          jobs=2
+          if [ "$GROUP" = openframe ]; then
+            jobs=1  # full wrappers must not compete for a 4-core runner's memory
+            run="LiveOpenFrame LiveMagic"
+            case "$OPENFRAME_EXTRA" in
+              uart) run="$run LiveOpenFrameUart" ;;
+              search) run="$run LiveRouteSearchOpenFrame" ;;
+            esac
+          fi
           if [ -n "$CLASSES" ]; then  # the requested classes, each in its own group's job (unlisted ones: blocks)
             run=""
             for c in $CLASSES; do
               case " $GROUP_CLASSES " in *" $c "*) run="$run $c" ;; esac
-              if [ "${{ matrix.group }}" = blocks ] && ! grep -qw -- "$c" .github/workflows/live.yml; then run="$run $c"; fi
+              if [ "$GROUP" = blocks ] && ! grep -qw -- "$c" .github/workflows/live.yml; then run="$run $c"; fi
             done
             [ -n "$run" ] || { echo "no requested class belongs to this group"; exit 0; }
           fi
-          python -m sipath.tests.run_live -j 2 $run
+          python -m sipath.tests.run_live -j "$jobs" $run
 
       - name: Keep the logs of a run that did not pass
         if: ${{ !success() }}

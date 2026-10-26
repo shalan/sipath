@@ -49,3 +49,25 @@ ihp_add8:
   max_wirelength_um: 2744
   max_insts: 756
   max_runtime_s: 76
+
+# UART baselines: 2026-10-26, locked ORFS/open_pdks, 4 threads on arm64 macOS
+# with linux/amd64 emulation; suggest() margins, runtime ignored in CI.
+# Macro: LiveUart (111 s overall); OpenFrame: configured wrapper signoff,
+# mandatory precheck/Netgen LVS and chip checks passed. Limits stop at signoff.
+uart_fifo:
+  min_wns_ns: 9.7
+  min_whs_ns: 0.0
+  max_drc: 0
+  max_wirelength_um: 13054
+  max_insts: 2358
+  max_runtime_s: 247
+  signoff_pass: true
+  lvs_match: true
+openframe_uart:
+  min_wns_ns: 10.49
+  min_whs_ns: 0.0
+  max_drc: 0
+  max_wirelength_um: 28830
+  max_insts: 437239
+  max_runtime_s: 1055
+  signoff_pass: true

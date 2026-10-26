@@ -1568,6 +1568,7 @@ class LiveUart(unittest.TestCase):
             self.addCleanup(_rmtree, wd)
         f = designfile.run(path, wd, RUNNER)
         self.assertEqual(f.verification()["verification"], "passed", f.verification())
+        _check_limits(self, wd, "uart_fifo")
         views = f.result("views").outputs["views"]
         for key in ("lef", "gds", "verilog", "cdl", "macro_yaml"):
             self.assertTrue(os.path.isfile(views[key]), key)
@@ -1590,3 +1591,4 @@ class LiveOpenFrameUart(unittest.TestCase):
         self.assertTrue(pc["pass"], pc)
         self.assertIn("lvs", pc["passed"])
         self.assertTrue(f.result("integrate").metrics["chip_check_pass"])
+        _check_limits(self, wd, "openframe_uart")

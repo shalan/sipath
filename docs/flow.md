@@ -135,6 +135,17 @@ capabilities in `graph.json`.
   `PHYSICAL_CLUSTER` group shelf-packed at its centroid after placement.
 - CTS gets explicit `-clk_nets`; analog nets are refused as clock nets and
   their terminals must be unchanged after CTS.
+- Optional `sink_clustering_size` and `sink_clustering_levels` control the
+  sink clustering passed to OpenROAD; `distance_between_buffers` sets buffer
+  spacing in micrometres. Leave them unset to retain the tool defaults. Use
+  explicit settings when the clock topology violates fanout or timing limits,
+  and validate the result at signoff: they are not universal tuning values.
+  The UART's initial clock root drove 16 loads against the PDK limit of 10;
+  clustering size 8, two clustering levels and 20 µm buffer spacing fixed the
+  violation without relaxing the limit.
+- Adding these declared CTS parameters changes the resolved step parameters
+  and their fingerprints. On resume, older recorded runs rerun `cts` and its
+  descendants once; subsequent unchanged resumes can reuse the new results.
 
 ## Analog nets (`route_analog`)
 - Routed alone first with their NDR (`create_ndr`/`assign_ndr`,

@@ -95,5 +95,9 @@ Acceptance requires all configured macro signoff checks and reusable views;
 the wrapper additionally requires cf-precheck (including LVS) and chip checks.
 Runtime figures are observations, not acceptance thresholds across machines.
 The macro live test runs nightly in blocks; OpenFrame UART is dispatch-only
-and shares image builds with other OpenFrame tests. No PPA regression limits
-are claimed until repeated physical measurements establish a baseline.
+and shares image builds with other OpenFrame tests. Choose dispatch input
+`openframe_extra: uart`, or `classes: LiveOpenFrameUart` for only that class.
+OpenFrame classes run serially. Both UART live tests enforce the measured
+2026-10-26 timing, DRC, wirelength and instance limits in `limits.yaml`, using
+the standard `suggest` margins. These are regression guards from initial good
+runs, not demonstrated variation bounds across machines; CI ignores runtime.

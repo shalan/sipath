@@ -69,12 +69,13 @@ wall time in CI.
   - **chip**: mcu8 (`LiveMcuDie`);
   - **openframe**: builds the Magic image and the precheck image on the
     locked ORFS image, then `LiveOpenFrame` (signoff, cf-precheck, chip
-    integration with the seal ring) and `LiveMagic`. On dispatch only it also
-    runs `LiveRouteSearchOpenFrame` and `LiveOpenFrameUart`, requiring cf-precheck before integration
-    and sharing the same image builds. Dispatch with classes set to
-    `LiveRouteSearchOpenFrame` to run just that class. The 240-minute job
-    timeout is unchanged: the scheduling estimates total about 160 minutes
-    for all four classes before setup, but this is not a measured CI bound;
+    integration with the seal ring) and `LiveMagic`. Dispatch input
+    `openframe_extra` selects `none` (default), `uart` (`LiveOpenFrameUart`)
+    or `search` (`LiveRouteSearchOpenFrame`), sharing the image builds.
+    Explicit `classes` overrides this choice; for example, select only
+    `LiveOpenFrameUart` to run that class alone. OpenFrame classes always run
+    serially (`-j 1`) to avoid concurrent full wrappers on the 4-core runner.
+    Other groups retain `-j 2`; the job timeout remains 240 minutes;
   - **blocks**: `sipath validate`, the unit tests with the PDK (those that skip
     in `unit`), then every other live class.
 
@@ -92,7 +93,10 @@ wall time in CI.
   thread budgets in every Python matrix entry, without a simulator. Only the
   Python 3.12 entry installs Icarus and runs `test_route_search.RouteSearchRtl`:
   GCD8 and UART functional tests, plus the OpenFrame wrappers' serial/GCD and pad-control tests.
-  `LiveUart` signs off and exports the UART macro in the blocks group.
+  `LiveUart` signs off and exports the UART macro in the blocks group. Both
+  UART live classes enforce the measured entries in `limits.yaml`; the
+  OpenFrame entry bounds wrapper signoff, while precheck and chip checks
+  remain separate required assertions.
   The live classes
   `LiveRouteSearchMacro` and `LiveRouteSearchOpenFrame` exercise the shipped
   YAMLs, stop/resume inside placement, check the extracted decision and final
