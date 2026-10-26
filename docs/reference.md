@@ -175,6 +175,7 @@ YAML or JSON; relative paths are relative to the file. Keys not listed are error
 
 | key | type | required | description |
 |---|---|---|---|
+| `strict_reproducibility` | bool |  | serialize attempts and include execution resources in resume fingerprints; does not guarantee tool determinism |
 | `threads` | int |  | the run's cores: one attempt's OpenROAD threads, shared among attempts running at once and among a signoff's concurrent checks (default: every core, as ORFS; two thirds of them on macOS, where Docker's VM shares the cores with the host) |
 | `command_timeout` | number |  | seconds before a Tcl command is abandoned |
 | `parallel_cap` | int |  | attempts at once across a step (0: as asked) |
@@ -499,6 +500,7 @@ Design file `config:`, a `--config` file, or the environment variable each key n
 
 | key | environment | type | description |
 |---|---|---|---|
+| `strict_reproducibility` | `SIPATH_STRICT_REPRODUCIBILITY` | bool | serialize attempts and include execution resources in resume fingerprints; does not guarantee tool determinism |
 | `threads` | `SIPATH_THREADS` | int | the run's cores: one attempt's OpenROAD threads, shared among attempts running at once and among a signoff's concurrent checks (default: every core, as ORFS; two thirds of them on macOS, where Docker's VM shares the cores with the host) |
 | `command_timeout` | `SIPATH_TIMEOUT` | number | seconds before a Tcl command is abandoned |
 | `parallel_cap` | `SIPATH_PARALLEL_CAP` | int | attempts at once across a step (0: as asked) |

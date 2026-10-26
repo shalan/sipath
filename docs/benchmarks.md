@@ -363,3 +363,5 @@ Measured 2026-10-19. `--explore` on gcd8 (ORFS image, Rosetta): 20 s from RTL
 to a PPA first cut at global routing; achievable period 3.39 ns (295 MHz)
 against the SDC's 10 ns, suggested `create_clock -period 3.56`, 1,637 µm² of
 cells, 0.87 mW.
+
+Thread-count experiments are documented under [strict reproducibility](pdks-and-runtimes.md#strict-reproducibility-and-thread-experiments). Run multiple fresh repeats per thread count before assuming that changing resources preserves physical results.

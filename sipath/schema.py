@@ -99,6 +99,8 @@ DATAPATH = {
     "rows_per_slice": F("int", "rows per slice (slices)"),
 }
 CONFIG = {
+    "strict_reproducibility": F("bool", "serialize attempts and include execution resources in resume fingerprints; "
+                               "does not guarantee tool determinism"),
     "threads": F("int", "the run's cores: one attempt's OpenROAD threads, shared among attempts running at once and "
                         "among a signoff's concurrent checks (default: every core, as ORFS; two thirds of them on "
                         "macOS, where Docker's VM shares the cores with the host)"),

@@ -5099,6 +5099,36 @@ class ResumeAndCancel(unittest.TestCase):
             self.chain(f3)
             self.assertEqual(len(made), 3)
 
+    def test_strict_resume_tracks_threads_and_keeps_attempt_allocation(self):
+        from sipath.config import Config
+        with tempfile.TemporaryDirectory() as td:
+            files = self.inputs(td)
+            cfg = Config(threads=2, strict_reproducibility=True)
+            f, _ = self.make_real(td, files, config=cfg)
+            f.step("a", demo.fake_step(), variants=[{"k": 0}, {"k": 1}], parallel=2, score="setup_wns")
+            self.assertEqual(f.allocation["a"]["at_once"], 1)
+            self.assertEqual({a.threads for a in f.attempts}, {2})
+            f2, made = self.make_real(td, files, resume=True, config=cfg)
+            f2.step("a", demo.fake_step(), variants=[{"k": 0}, {"k": 1}], parallel=4, score="setup_wns")
+            self.assertEqual(made, [])  # parallel hints do not alter strict allocation
+            f3, made = self.make_real(td, files, resume=True, config=cfg.replace(threads=4))
+            f3.step("a", demo.fake_step(), variants=[{"k": 0}, {"k": 1}], parallel=2, score="setup_wns")
+            self.assertEqual(len(made), 2)
+            self.assertEqual({a.threads for a in f3.attempts if a.status != "stale"}, {4})
+            self.assertTrue(any("threads" in x for x in f3.input_changes))
+
+    def test_strict_mode_refuses_unfingerprinted_graphs(self):
+        from sipath.config import Config
+        with tempfile.TemporaryDirectory() as td:
+            files = self.inputs(td)
+            f, _ = self.make_real(td, files)
+            self.chain(f)
+            path = os.path.join(td, "run", "graph.json")
+            g = _read_json(path); g.pop("inputs")
+            _write_json(path, g)
+            with self.assertRaisesRegex(ValueError, "fresh workdir"):
+                self.make_real(td, files, resume=True, config=Config(strict_reproducibility=True))
+
     def test_resume_reruns_a_step_whose_variants_changed(self):
         with tempfile.TemporaryDirectory() as td:
             files = self.inputs(td)
@@ -5905,3 +5935,31 @@ class MacroPlacerCdlns(unittest.TestCase):
         ctx = types.SimpleNamespace(config=types.SimpleNamespace(placer_python="/nonexistent/python"))
         with self.assertRaisesRegex(RuntimeError, "setup-placer"):
             macroplace.placer_python(ctx)
+
+
+class ThreadReproComparison(unittest.TestCase):
+    def test_missing_artifacts_are_unknown_and_metrics_are_compared(self):
+        from bench import thread_repro
+        a = {"stages": {"place": {"checkpoint_sha256": None, "def_sha256": "abc", "metrics": {"wns": 1}}}}
+        b = {"stages": {"place": {"checkpoint_sha256": None, "def_sha256": "abc", "metrics": {"wns": 2}},
+                        "extract": {"metrics": {}}}}
+        r = thread_repro.compare(a,b)
+        self.assertIsNone(r["place"]["checkpoint_sha256"])
+        self.assertTrue(r["place"]["def_sha256"])
+        self.assertEqual(r["place"]["metric_differences"], {"wns": [1,2]})
+        self.assertTrue(r["extract"]["missing_stage"])
+
+    def test_driver_keeps_failures_and_refuses_existing_output(self):
+        from bench import thread_repro, records
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as td:
+            out = os.path.join(td, "experiment")
+            with mock.patch.object(records, "archive_source", return_value={"commit": "test"}), \
+                 mock.patch.object(records, "machine", return_value={}), \
+                 mock.patch.object(thread_repro.subprocess, "run", return_value=types.SimpleNamespace(returncode=1)):
+                self.assertEqual(thread_repro.main(["missing.yaml", "--threads", "1", "--repeats", "2", "--out", out]), 1)
+            record = _read_json(os.path.join(out, "comparison.json"))
+            self.assertEqual([r["exit"] for r in record["runs"]], [1,1])
+            self.assertEqual(record["source"]["commit"], "test")
+            with self.assertRaises(FileExistsError):
+                thread_repro.main(["missing.yaml", "--out", out])

@@ -6,8 +6,9 @@ design description, the content of every input file (RTL and its include
 directories, netlist, SDC, floorplan DEF, macro views, extra LEF/Liberty), the
 PDK description and release, the tools (image digests, binaries, native tools,
 plugins and their code) and the configuration keys that change results.
-Threads, timeouts and limits are left out: they change how long a run takes,
-not what it produces. ``changes(old, new)`` names what differs between two
+By default threads and resource limits are excluded for flexible resume; this
+is not a claim that physical tools are thread-invariant. Strict mode includes
+execution resources and serializes attempts for stable thread allocation. ``changes(old, new)`` names what differs between two
 such descriptions. ``attempt(...)`` and ``step(...)`` chain the run's digest
 with a step's name, parameters, declared defaults and its parent's
 fingerprint, so a change anywhere upstream reaches every step after it.
@@ -114,6 +115,10 @@ def inputs(design, pdk, config=None, provenance: dict | None = None) -> dict:
         "config": {k: cfg.get(k) for k in RESULT_CONFIG if k in cfg},
         "code": code_identity(),
     }
+    if cfg.get("strict_reproducibility"):
+        out["config"].update({k: cfg.get(k) for k in
+                              ("strict_reproducibility", "threads", "container_cpus", "container_memory")})
+        out["execution_resources"] = {k: (provenance or {}).get(k) for k in ("threads", "cpus", "memory")}
     out["digest"] = digest({k: v for k, v in out.items() if k != "digest"})
     return out
 

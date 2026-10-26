@@ -223,3 +223,37 @@ ones win: the defaults, then the file, then `SIPATH_*`, then the design file's
   Python;
 - **PDK release:** a PDK tree of another release is refused unless
   `SIPATH_REQUIRE_PDK=0`.
+
+
+### Strict reproducibility and thread experiments
+
+Set `strict_reproducibility: true` in run configuration, or
+`SIPATH_STRICT_REPRODUCIBILITY=1`, to serialize attempts and keep their
+OpenROAD thread allocation stable even on partial resume and retry. Explicit
+per-step thread settings still apply. `threads`, container CPU/memory limits,
+and recorded runtime resource settings then participate in cache identity;
+changing them invalidates reuse. Switching into or out of strict mode also
+invalidates reuse. Legacy graphs lacking fingerprints are refused in strict
+mode; use a fresh directory. `--plan` reflects serial admission.
+
+This is conservative cache behavior, not a promise of bit-identical output.
+Tool internals, machine differences and nondeterminism can still change a
+result. Ordinary mode retains resource-flexible resume for compatibility;
+thread count is not assumed empirically invariant. Timeouts and run budgets
+remain stop controls, not proof that two successful tool runs are identical.
+
+Run fresh repeated physical experiments with:
+
+```bash
+python3 bench/thread_repro.py sipath/examples/gcd8.yaml --threads 1 2 4 --repeats 2 --out runs/thread-repro
+```
+
+The command refuses an existing output directory, runs sequentially with
+strict configuration, and records every exit status, observed thread counts,
+input/tool provenance, configuration, selected-stage metrics and artifact
+hashes in `comparison.json`. Failed runs remain in the record and cause a
+nonzero exit. Comparisons include both the first run and the first repeat
+with the same thread count, so within-count variation is visible separately.
+Checkpoint and DEF hashes compare exact bytes, not semantic equivalence;
+missing artifacts are unknown rather than equal. Reports describe observed
+variation only, not a global determinism guarantee.

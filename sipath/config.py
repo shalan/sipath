@@ -10,6 +10,7 @@ field                  environment             meaning
 threads                SIPATH_THREADS            the run's cores: OpenROAD ``-threads`` of one attempt, shared
                                                  among attempts running at once and among a signoff's concurrent
                                                  checks (default: all cores, as ORFS; two thirds of them on macOS)
+strict_reproducibility  SIPATH_STRICT_REPRODUCIBILITY serial attempts; include execution resources in cache identity
 command_timeout        SIPATH_TIMEOUT            seconds one Tcl command may take
 tool_timeout           SIPATH_TOOL_TIMEOUT       seconds one signoff tool run (KLayout DRC/LVS, Magic) may take
 parallel_cap           SIPATH_PARALLEL_CAP       most attempts alive at once (0: none)
@@ -55,7 +56,7 @@ from .toolchain import image as _locked
 ORFS_IMAGE = _locked("orfs")  # openroad/orfs@sha256:... (toolchain.json)
 MAGIC_IMAGE = _locked("magic")
 
-ENV = {"threads": "SIPATH_THREADS", "command_timeout": "SIPATH_TIMEOUT", "tool_timeout": "SIPATH_TOOL_TIMEOUT", "parallel_cap": "SIPATH_PARALLEL_CAP",
+ENV = {"strict_reproducibility": "SIPATH_STRICT_REPRODUCIBILITY", "threads": "SIPATH_THREADS", "command_timeout": "SIPATH_TIMEOUT", "tool_timeout": "SIPATH_TOOL_TIMEOUT", "parallel_cap": "SIPATH_PARALLEL_CAP",
        "budget_s": "SIPATH_BUDGET", "step_budget_s": "SIPATH_STEP_BUDGET", "max_attempts": "SIPATH_MAX_ATTEMPTS",
        "memory_gb": "SIPATH_MEMORY_BUDGET",
        "container_cpus": "SIPATH_CPUS", "container_memory": "SIPATH_MEMORY", "image": "SIPATH_OPENROAD_IMAGE",
@@ -84,6 +85,7 @@ class ConfigError(ValueError):
 @dataclass
 class Config:
     threads: int = field(default_factory=lambda: default_threads())
+    strict_reproducibility: bool = False
     command_timeout: float = 3600.0
     tool_timeout: float = 7200.0
     parallel_cap: int = 0
@@ -138,6 +140,8 @@ class Config:
 
     def cap(self, parallel: int) -> int:
         """Attempts that may run at once for a step asking for ``parallel``."""
+        if self.strict_reproducibility:
+            return 1  # fixed per-attempt allocation, also on partial resume/retry
         p = max(1, int(parallel))
         return min(p, self.parallel_cap) if self.parallel_cap else p
 
