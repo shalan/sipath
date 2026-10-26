@@ -53,7 +53,9 @@ def design(name: str) -> tuple[dict, list[str]]:
     elif name == "aes":
         with open(os.path.join(ROOT, "runs", "bench", "aes", "compare.json")) as f:
             cfg = json.load(f)["config"]
-        d = {"name": "aes", "top": cfg["top"], "mode": "macro", "pdk": "sky130A", "rtl": cfg["rtl"], "sdc": cfg["sdc"],
+        # ORFS's 3.6 ns clock is met at the typical corner only (-2.4 ns at ss_max): a period signoff can meet
+        sdc = os.path.join(ROOT, "bench", "constraints", "aes_6p5ns.sdc")
+        d = {"name": "aes", "top": cfg["top"], "mode": "macro", "pdk": "sky130A", "rtl": cfg["rtl"], "sdc": sdc,
              "core_utilization": cfg["utilization"], "aspect_ratio": cfg["aspect_ratio"], "core_margin": cfg["margin"],
              "clock_ports": ["clk"], "is_core": True, "layer_adjustments": cfg.get("layer_adjustments") or {},
              "config": {"command_timeout": 14400}}
