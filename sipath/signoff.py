@@ -773,13 +773,16 @@ def _analog_ports(session, d) -> set[str]:
 
 
 def sta_failures(st: dict, checks, expected=None) -> list[str]:
-    """What the signoff STA fails on. Every corner of ``expected`` (default: those the STA was set up with, the
-    PDK's signoff corners) must have a result: a corner without one fails the check, so "met on every corner"
-    never rests on fewer (leave setup/hold out of ``require`` for a design without timing)."""
+    """Judge every expected corner, using the report's ordered ``expected_corners``
+    when no explicit list is supplied, or its recorded corners for older reports.
+    ``timing()`` already normalizes nonfinite STA values to None; the finite
+    check here is defensive for reports supplied outside that reader. Missing
+    results fail (omit setup/hold from ``require`` for a design without timing).
+    """
     import math
     out = []
     corners = st["corners"]
-    expected = list(expected) if expected is not None else sorted(set(st.get("expected_corners", [])) | set(corners))
+    expected = list(expected) if expected is not None else (st.get("expected_corners") or list(corners))
     for key, kind in (("wns", "setup"), ("whs", "hold")):
         if kind not in checks:
             continue

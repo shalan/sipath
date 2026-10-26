@@ -3536,23 +3536,6 @@ class RunHeadThirdReview(unittest.TestCase):
     def setUp(self):
         RunHeadThirdReview.RESULT = {}
 
-    def test_retried_losing_failure_is_handled_by_reused_decision(self):
-        from sipath import designfile
-        with tempfile.TemporaryDirectory() as td:
-            f = self.flow(td)
-            designfile.run_items(f, self.items({"fail": [0]}, then_sign=True))
-            winner = f.decisions[-1]["winner"]
-            failed = f.decisions[-1]["failed_branches"]
-            for _ in range(2):
-                f = self.flow(td, resume=True)
-                designfile.run_items(f, self.items({"fail": [0]}, then_sign=True))
-                self.assertEqual(f.decisions[-1]["winner"], winner)
-                self.assertNotEqual(f.decisions[-1]["failed_branches"], failed)
-                failed = f.decisions[-1]["failed_branches"]
-                self.assertEqual(f.verification()["execution"], "completed")
-                g = _read_json(os.path.join(td, "graph.json"))
-                self.assertEqual(g["verification"]["execution"], "completed")
-
     def test_a_rebuilt_candidate_is_decided_again(self):
         from sipath import designfile
         with tempfile.TemporaryDirectory() as td:
@@ -3587,13 +3570,19 @@ class RunHeadThirdReview(unittest.TestCase):
         from sipath import designfile
         with tempfile.TemporaryDirectory() as td:
             f = self.flow(td)
-            designfile.run_items(f, self.items({"fail": [0]}))  # the baseline's branch fails; the search decides
+            designfile.run_items(f, self.items({"fail": [0]}, then_sign=True))
             self.assertEqual(f.verification()["execution"], "completed")
-            for _ in range(2):  # every resume tries the failed branch again, and it fails again
+            winner = f.decisions[-1]["winner"]
+            failed = f.decisions[-1]["failed_branches"]
+            for _ in range(2):  # retry the failed branch while reusing the winner and signoff
                 f = self.flow(td, resume=True)
-                designfile.run_items(f, self.items({"fail": [0]}))
+                designfile.run_items(f, self.items({"fail": [0]}, then_sign=True))
+                self.assertEqual(f.decisions[-1]["winner"], winner)
+                self.assertNotEqual(f.decisions[-1]["failed_branches"], failed)
+                failed = f.decisions[-1]["failed_branches"]
                 self.assertEqual(f.verification()["execution"], "completed")
-            self.assertEqual(_read_json(os.path.join(td, "graph.json"))["verification"]["execution"], "completed")
+                g = _read_json(os.path.join(td, "graph.json"))
+                self.assertEqual(g["verification"]["execution"], "completed")
 
     def test_a_selector_decides_among_the_branches_as_asked(self):
         from sipath import designfile, registry, scores
@@ -4157,6 +4146,24 @@ class SignoffJudgment(unittest.TestCase):
         st["corners"]["ss"].update(wns=-0.2, whs=0.1)
         st["corners"]["tt"].update(wns=0.3, whs=0.1)
         self.assertEqual(sta_failures(st, ["setup", "hold"]), ["setup: worst -0.200 ns (['ss'])"])
+
+    def test_offline_judgment_uses_the_reports_expected_corners_in_order(self):
+        from sipath.signoff import sta_failures
+        st = {"expected_corners": ["ss", "tt", "ff"],
+              "corners": {"tt": {"wns": 1.0, "whs": 0.1},
+                          "unexpected": {"wns": None, "whs": None}}}
+        # Missing whole corners fail without an explicit expected argument;
+        # an unrelated recorded corner is not required and PDK order survives.
+        self.assertEqual(sta_failures(st, ["setup", "hold"]),
+                         ["setup: no result at 2 of 3 corners (['ss', 'ff'])",
+                          "hold: no result at 2 of 3 corners (['ss', 'ff'])"])
+        self.assertEqual(sta_failures(st, ["setup", "hold"], expected=["tt"]), [])
+        for corner in ("ss", "ff"):
+            st["corners"][corner] = {"wns": 0.5, "whs": 0.2}
+        self.assertEqual(sta_failures(st, ["setup", "hold"]), [])
+        del st["expected_corners"]  # legacy reports fall back to recorded corners
+        self.assertEqual(sta_failures(st, ["setup"]),
+                         ["setup: no result at 1 of 4 corners (['unexpected'])"])
 
     def test_each_expected_corner_needs_finite_setup_and_hold(self):
         from sipath.signoff import sta_failures
