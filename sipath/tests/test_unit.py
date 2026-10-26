@@ -3553,6 +3553,46 @@ class RunHeadFollowUp(unittest.TestCase):
             self.assertEqual(f.verification()["execution"], "failed")
 
 
+class SearchConvergence(unittest.TestCase):
+    def test_shared_ancestry_missing_files_and_later_divergence(self):
+        from sipath.convergence import analyze
+        from sipath import report
+        with tempfile.TemporaryDirectory() as td:
+            def attempt(name, step, parent, content, seconds):
+                path = os.path.join(td, name)
+                if content is not None:
+                    with open(path, "w") as f: f.write(content)
+                return {"id": name, "step": step, "parent": parent, "status": "selected",
+                        "checkpoint": path, "seconds": seconds, "outputs": {"def_": path}}
+            root = attempt("root.0", "root", None, "shared", 30)
+            a = attempt("place.0", "place", root["id"], "same", 2)
+            b = attempt("place.1", "place", root["id"], "same", 3)
+            x = attempt("route.0", "route", a["id"], "different-a", 4)
+            y = attempt("route@place.1.0", "route@place.1", b["id"], "different-b", 5)
+            g = {"attempts": [root,a,b,x,y], "decisions": [{"at": "route", "winner": x["id"], "complete": True,
+                 "candidates": [{"attempt": x["id"]}, {"attempt": y["id"]}]}]}
+            result = analyze(g)[0]
+            self.assertEqual({r["stage"] for r in result["groups"]}, {"place"})
+            self.assertEqual({r["extra_attempt_seconds"] for r in result["groups"]}, {3})
+            os.remove(b["checkpoint"])
+            self.assertEqual(analyze(g)[0]["groups"], [])
+            self.assertIn({"attempt": b["id"], "artifact": "checkpoint"}, analyze(g)[0]["unavailable"])
+            # Matching metrics alone do not create convergence; incomplete decisions are ignored.
+            x["metrics"] = y["metrics"] = {"wns": 1.0}
+            self.assertEqual(analyze(g)[0]["groups"], [])
+            g["decisions"][0]["complete"] = False
+            self.assertEqual(analyze(g), [])
+
+    def test_reports_export_convergence_without_changing_graph(self):
+        from sipath import report
+        with tempfile.TemporaryDirectory() as td:
+            g = {"design": "x", "attempts": [], "steps": {}, "decisions": []}
+            _write_json(os.path.join(td, "graph.json"), g)
+            report.write(td)
+            self.assertEqual(_read_json(os.path.join(td, "graph.json")), g)
+            self.assertEqual(_read_json(os.path.join(td, "convergence.json"))["decisions"], [])
+
+
 class RunHeadThirdReview(unittest.TestCase):
     """Third review: a reused decision needs the same candidate results; old handled failures do not hide a new
     cancellation; a named picture is the result's step; a single failed run is labeled; layouts carry digests."""
@@ -5905,43 +5945,3 @@ class MacroPlacerCdlns(unittest.TestCase):
         ctx = types.SimpleNamespace(config=types.SimpleNamespace(placer_python="/nonexistent/python"))
         with self.assertRaisesRegex(RuntimeError, "setup-placer"):
             macroplace.placer_python(ctx)
-
-
-class SearchConvergence(unittest.TestCase):
-    def test_shared_ancestry_missing_files_and_later_divergence(self):
-        from sipath.convergence import analyze
-        from sipath import report
-        with tempfile.TemporaryDirectory() as td:
-            def attempt(name, step, parent, content, seconds):
-                path = os.path.join(td, name)
-                if content is not None:
-                    with open(path, "w") as f: f.write(content)
-                return {"id": name, "step": step, "parent": parent, "status": "selected",
-                        "checkpoint": path, "seconds": seconds, "outputs": {"def_": path}}
-            root = attempt("root.0", "root", None, "shared", 30)
-            a = attempt("place.0", "place", root["id"], "same", 2)
-            b = attempt("place.1", "place", root["id"], "same", 3)
-            x = attempt("route.0", "route", a["id"], "different-a", 4)
-            y = attempt("route@place.1.0", "route@place.1", b["id"], "different-b", 5)
-            g = {"attempts": [root,a,b,x,y], "decisions": [{"at": "route", "winner": x["id"], "complete": True,
-                 "candidates": [{"attempt": x["id"]}, {"attempt": y["id"]}]}]}
-            result = analyze(g)[0]
-            self.assertEqual({r["stage"] for r in result["groups"]}, {"place"})
-            self.assertEqual({r["extra_attempt_seconds"] for r in result["groups"]}, {3})
-            os.remove(b["checkpoint"])
-            self.assertEqual(analyze(g)[0]["groups"], [])
-            self.assertIn({"attempt": b["id"], "artifact": "checkpoint"}, analyze(g)[0]["unavailable"])
-            # Matching metrics alone do not create convergence; incomplete decisions are ignored.
-            x["metrics"] = y["metrics"] = {"wns": 1.0}
-            self.assertEqual(analyze(g)[0]["groups"], [])
-            g["decisions"][0]["complete"] = False
-            self.assertEqual(analyze(g), [])
-
-    def test_reports_export_convergence_without_changing_graph(self):
-        from sipath import report
-        with tempfile.TemporaryDirectory() as td:
-            g = {"design": "x", "attempts": [], "steps": {}, "decisions": []}
-            _write_json(os.path.join(td, "graph.json"), g)
-            report.write(td)
-            self.assertEqual(_read_json(os.path.join(td, "graph.json")), g)
-            self.assertEqual(_read_json(os.path.join(td, "convergence.json"))["decisions"], [])
