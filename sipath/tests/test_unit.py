@@ -7,6 +7,28 @@ from .common import _big_def, _check_limits, _check_outputs, _lib, _pins, _read_
 
 
 # ----------------------------------------------------------------------------- units
+
+class UartExamples(unittest.TestCase):
+    def test_uart_flows_plan_without_tools(self):
+        from pathlib import Path
+        from sipath import designfile
+        root = Path(__file__).resolve().parents[1] / "examples"
+        for name in ("uart_fifo", "openframe_uart"):
+            with self.subTest(name=name):
+                self.assertEqual(designfile.plan(str(root / (name + ".yaml")))["problems"], [])
+
+    def test_clock_clustering_options_are_opt_in_and_validated(self):
+        from sipath import params
+        from sipath.tools.openroad import tcl
+        pdk = sky130hd("/p")
+        self.assertNotIn("-distance_between_buffers", tcl.cts(pdk, ["clk"]))
+        cmd = tcl.cts(pdk, ["clk"], 8, 2, 20.0)
+        for flag in ("-sink_clustering_size 8", "-sink_clustering_levels 2", "-distance_between_buffers 20.0"):
+            self.assertIn(flag, cmd)
+        with self.assertRaises(ValueError):
+            params.check("cts", {"sink_clustering_size": 0})
+
+
 class RouteSearchPlans(unittest.TestCase):
     def test_both_examples_have_valid_bounded_plans(self):
         from pathlib import Path
@@ -5485,7 +5507,7 @@ class McpProtocol(unittest.TestCase):
         self.assertFalse(err)
         self.assertEqual(set(out["designs"]), {"dp8", "dp8_hs", "mcu8", "ihp_add8", "gcd8", "gcd8_sv",
                                              "openframe_gcd8", "gcd8_pair", "sram8", "gcd8_explore",
-                                             "openframe_gcd8_route_search", "gcd8_macro_route_search"})
+                                             "openframe_gcd8_route_search", "gcd8_macro_route_search", "uart_fifo", "openframe_uart"})
         self.assertTrue(c.call("run_step", run_id="nope", step="floorplan")[0])
         self.assertTrue(c.call("no_such_tool")[0])
         self.assertEqual(c.rpc("no/such/method")["error"]["code"], -32601)

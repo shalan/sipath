@@ -47,7 +47,11 @@ jobs:
           for f in sipath/toolchain.json sipath/third_party/run_cdlns.py sipath/pdks/sky130A.yaml \
                    sipath/harnesses/openframe.yaml sipath/examples/gcd8.yaml sipath/tests/limits.yaml \
                    sipath/examples/openframe_gcd8_route_search.yaml sipath/examples/gcd8_macro_route_search.yaml \
-                   sipath/examples/tb/gcd8_tb.v sipath/examples/tb/openframe_gcd8_tb.v; do
+                   sipath/examples/tb/gcd8_tb.v sipath/examples/tb/openframe_gcd8_tb.v \
+                   sipath/examples/uart_fifo.yaml sipath/examples/openframe_uart.yaml \
+                   sipath/examples/rtl/uart_fifo.v sipath/examples/rtl/openframe_uart.v \
+                   sipath/examples/rtl/uart_fifo.sdc sipath/examples/rtl/openframe_uart.sdc \
+                   sipath/examples/tb/uart_fifo_tb.v sipath/examples/tb/openframe_uart_tb.v; do
             grep -q "$f" wheel.txt || { echo "missing from the wheel: $f"; exit 1; }
           done
           if grep -E "__pycache__|\.pyc|examples/hardened/|examples/tut_|caravel/chip_io" wheel.txt; then

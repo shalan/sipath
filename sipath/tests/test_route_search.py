@@ -32,3 +32,10 @@ class RouteSearchRtl(unittest.TestCase):
     def test_openframe_template(self):
         self.simulate(["rtl/gcd8.v", "rtl/openframe_gcd8.v", "tb/openframe_gcd8_tb.v"],
                       ["OPENFRAME_IO_PADS=44", "GCD_W=4"])
+
+    def test_uart_fifo(self):
+        self.simulate(["rtl/uart_fifo.v", "tb/uart_fifo_tb.v"])
+
+    def test_openframe_uart(self):
+        self.simulate(["rtl/uart_fifo.v", "rtl/openframe_uart.v", "tb/openframe_uart_tb.v"],
+                      ["OPENFRAME_IO_PADS=44"])

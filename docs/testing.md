@@ -70,11 +70,11 @@ wall time in CI.
   - **openframe**: builds the Magic image and the precheck image on the
     locked ORFS image, then `LiveOpenFrame` (signoff, cf-precheck, chip
     integration with the seal ring) and `LiveMagic`. On dispatch only it also
-    runs `LiveRouteSearchOpenFrame`, requiring cf-precheck before integration
+    runs `LiveRouteSearchOpenFrame` and `LiveOpenFrameUart`, requiring cf-precheck before integration
     and sharing the same image builds. Dispatch with classes set to
     `LiveRouteSearchOpenFrame` to run just that class. The 240-minute job
-    timeout is unchanged: the scheduling estimates total about 100 minutes
-    for all three classes before setup, but this is not a measured CI bound;
+    timeout is unchanged: the scheduling estimates total about 160 minutes
+    for all four classes before setup, but this is not a measured CI bound;
   - **blocks**: `sipath validate`, the unit tests with the PDK (those that skip
     in `unit`), then every other live class.
 
@@ -91,7 +91,8 @@ wall time in CI.
 - `test_unit.RouteSearchPlans` checks both example plans and caller-provided
   thread budgets in every Python matrix entry, without a simulator. Only the
   Python 3.12 entry installs Icarus and runs `test_route_search.RouteSearchRtl`:
-  GCD8 functional tests and the OpenFrame wrapper's GCD and pad-control tests.
+  GCD8 and UART functional tests, plus the OpenFrame wrappers' serial/GCD and pad-control tests.
+  `LiveUart` signs off and exports the UART macro in the blocks group.
   The live classes
   `LiveRouteSearchMacro` and `LiveRouteSearchOpenFrame` exercise the shipped
   YAMLs, stop/resume inside placement, check the extracted decision and final

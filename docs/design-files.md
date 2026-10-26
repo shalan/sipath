@@ -130,6 +130,7 @@ writes generated inputs under `examples/inputs/` (`examples/designs.py`,
 
 | example | what it shows |
 |---|---|
+| `uart_fifo.yaml`, `openframe_uart.yaml` | [UART with four-byte FIFOs](uart-fifo.md): standalone macro with a register interface, and OpenFrame serial echo |
 | `gcd8.yaml` | RTL to signoff: lint, synthesis, floorplan from a utilization |
 | `gcd8_sv.yaml` | SystemVerilog through slang (package, enum, packed struct, function) |
 | `gcd8_pair.yaml` | two hardened gcd8 macros plus glue, signed off with their insides checked |

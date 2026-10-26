@@ -189,7 +189,8 @@ def cts(ctx):
     heatmaps.schedule(ctx, ctx.params.get("heatmaps"))
     nets = clock_nets(ctx)
     analog_before = _analog_terms(ctx)
-    place_ops.clock_tree(s, ctx.pdk, nets)
+    place_ops.clock_tree(s, ctx.pdk, nets, ctx.params.get("sink_clustering_size"),
+                         ctx.params.get("sink_clustering_levels"), ctx.params.get("distance_between_buffers"))
     ctx.outputs["reabut"] = reabut_all(ctx)
     place_ops.detailed_placement(s)
     ctx.outputs["fence_evicted"] = enforce_fences(s, [g.name for g in ctx.design.groups if g.kind == "fence"])

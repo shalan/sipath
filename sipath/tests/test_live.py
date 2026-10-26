@@ -1556,3 +1556,37 @@ class LiveRouteSearchOpenFrame(unittest.TestCase):
         self.assertTrue(pc["pass"], pc.get("failed"))
         self.assertIn("lvs", pc["passed"])
         self.assertTrue(f.result("integrate").metrics["chip_check_pass"])
+
+
+@LIVE
+class LiveUart(unittest.TestCase):
+    def test_uart_macro_signoff_and_views(self):
+        from sipath import designfile
+        path = os.path.join(os.path.dirname(__file__), "..", "examples", "uart_fifo.yaml")
+        wd = _workdir("uart_fifo")
+        if not KEEP:
+            self.addCleanup(_rmtree, wd)
+        f = designfile.run(path, wd, RUNNER)
+        self.assertEqual(f.verification()["verification"], "passed", f.verification())
+        views = f.result("views").outputs["views"]
+        for key in ("lef", "gds", "verilog", "cdl", "macro_yaml"):
+            self.assertTrue(os.path.isfile(views[key]), key)
+        self.assertEqual(set(views["lib"]), {c.name for c in f.pdk.analysis_corners()})
+
+
+@LIVE
+class LiveOpenFrameUart(unittest.TestCase):
+    def test_uart_echo_to_chip(self):
+        from sipath import designfile
+        self.assertTrue(_magic_image(), "build/configure the Magic image")
+        self.assertTrue(_precheck_image(), "build/configure the precheck image")
+        path = os.path.join(os.path.dirname(__file__), "..", "examples", "openframe_uart.yaml")
+        wd = _workdir("openframe_uart")
+        if not KEEP:
+            self.addCleanup(_rmtree, wd)
+        f = designfile.run(path, wd, RUNNER)
+        self.assertTrue(_read_json(f.result("signoff").outputs["signoff"])["pass"])
+        pc = f.result("precheck").outputs["precheck"]
+        self.assertTrue(pc["pass"], pc)
+        self.assertIn("lvs", pc["passed"])
+        self.assertTrue(f.result("integrate").metrics["chip_check_pass"])
