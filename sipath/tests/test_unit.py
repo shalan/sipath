@@ -3561,7 +3561,8 @@ class SearchConvergence(unittest.TestCase):
             def attempt(name, step, parent, content, seconds):
                 path = os.path.join(td, name)
                 if content is not None:
-                    with open(path, "w") as f: f.write(content)
+                    with open(path, "w") as f:
+                        f.write(content)
                 return {"id": name, "step": step, "parent": parent, "status": "selected",
                         "checkpoint": path, "seconds": seconds, "outputs": {"def_": path}}
             root = attempt("root.0", "root", None, "shared", 30)
@@ -3569,7 +3570,7 @@ class SearchConvergence(unittest.TestCase):
             b = attempt("place.1", "place", root["id"], "same", 3)
             x = attempt("route.0", "route", a["id"], "different-a", 4)
             y = attempt("route@place.1.0", "route@place.1", b["id"], "different-b", 5)
-            g = {"attempts": [root,a,b,x,y], "decisions": [{"at": "route", "winner": x["id"], "complete": True,
+            g = {"attempts": [root, a, b, x, y], "decisions": [{"at": "route", "winner": x["id"], "complete": True,
                  "candidates": [{"attempt": x["id"]}, {"attempt": y["id"]}]}]}
             result = analyze(g)[0]
             self.assertEqual({r["stage"] for r in result["groups"]}, {"place"})
@@ -3582,6 +3583,31 @@ class SearchConvergence(unittest.TestCase):
             self.assertEqual(analyze(g)[0]["groups"], [])
             g["decisions"][0]["complete"] = False
             self.assertEqual(analyze(g), [])
+
+    def test_legacy_decisions_and_only_missing_recorded_outputs(self):
+        from sipath.convergence import analyze
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "same.odb")
+            with open(path, "w") as f:
+                f.write("same")
+            a = {"id": "place.0", "step": "place", "status": "selected", "checkpoint": path}
+            b = dict(a, id="place.1")
+            decision = {"at": "place", "winner": a["id"],
+                        "candidates": [{"attempt": a["id"]}, {"attempt": b["id"]}]}
+            graph = {"attempts": [a, b], "decisions": [decision]}
+            result = analyze(graph)[0]
+            self.assertEqual(len(result["groups"]), 1)
+            self.assertEqual(result["unavailable"], [])  # no DEF output is normal
+            b["outputs"] = {"def_": os.path.join(td, "missing.def")}
+            b.pop("checkpoint")
+            self.assertEqual(analyze(graph)[0]["unavailable"],
+                             [{"attempt": "place.1", "artifact": "checkpoint"},
+                              {"attempt": "place.1", "artifact": "def"}])
+            decision["complete"] = False  # even a recorded winner cannot override this
+            self.assertEqual(analyze(graph), [])
+            decision.pop("complete")
+            decision.pop("winner")
+            self.assertEqual(analyze(graph), [])
 
     def test_reports_export_convergence_without_changing_graph(self):
         from sipath import report

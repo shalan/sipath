@@ -14,14 +14,15 @@ def analyze(graph: dict) -> list[dict]:
     by_id = {a["id"]: a for a in graph.get("attempts", [])}
     results = []
     for decision in graph.get("decisions", []):
-        if not decision.get("complete"):
+        if not decision.get("complete", bool(decision.get("winner"))):
             continue
         chains = []
         for candidate in decision.get("candidates", []):
             chain, seen = [], set()
             a = by_id.get(candidate["attempt"])
             while a and a["id"] not in seen:
-                seen.add(a["id"]); chain.append(a)
+                seen.add(a["id"])
+                chain.append(a)
                 a = by_id.get(a.get("parent"))
             chains.append(list(reversed(chain)))
         if len(chains) < 2:
@@ -41,6 +42,8 @@ def analyze(graph: dict) -> list[dict]:
                 buckets = {}
                 for a in attempts.values():
                     path = a.get("checkpoint") if kind == "checkpoint" else (a.get("outputs") or {}).get("def_")
+                    if kind == "def" and not path:
+                        continue  # this stage did not export a DEF
                     digest = file_hash(path) if path else None
                     if digest is None:
                         unavailable.append({"attempt": a["id"], "artifact": kind})
