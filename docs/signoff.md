@@ -26,6 +26,12 @@ check can also run as a step of its own.
   Liberty, SDC and per-corner SPEF: setup and hold on all nine corners,
   slew/cap/fanout on standard cells, parasitic annotation (a loaded net
   without parasitics fails), unconstrained endpoints.
+  The timing reader already converts nonfinite STA values to missing results,
+  which fail the required setup/hold checks. The judgment function also rejects
+  nonfinite values defensively in reports supplied outside that reader.
+  For offline judgment, an explicit expected-corner list takes precedence;
+  otherwise the report's `expected_corners` is authoritative and preserves
+  the PDK's order. Older reports without that list use their recorded corners.
 - **Opt-in:** `magic_drc` (Magic `drc(full)`), `xor` (Magic's stream-out of the
   routed DEF against KLayout's; fill not compared), `lvs_full`: full-device
   LVS with the PDK's own deck (open_pdks `sky130.lvs`: high-voltage MOS, MIM
