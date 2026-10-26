@@ -67,7 +67,12 @@ Required wrapper checks precede mandatory cf-precheck and chip integration
 with the seal ring. As in the GCD example, Netgen LVS in precheck replaces
 KLayout LVS; the aggregate verdict still says `omitted`. Full-chip DRC and
 optional Magic precheck DRC are not enabled. Assembly checks do not replace
-those checks. Echo throughput can be limited by baud mismatch and finite FIFO
+those checks. Unused pads use drive mode `000` with both digital buffers
+disabled. cf-precheck classifies these as `USER_STD_ANALOG` and can report
+missing-analog-connection warnings for GPIO4–43; they have no analog load by
+design. Its structured OEB result must still pass with zero errors.
+
+Echo throughput can be limited by baud mismatch and finite FIFO
 capacity; overrun recovery belongs in a system using the register interface.
 
 ## Acceptance and tests
