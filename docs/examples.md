@@ -28,6 +28,7 @@ out there).
 - [14. Regression limits and repeated runs](#14-regression-limits-and-repeated-runs)
 - [15. Design-space exploration: sweeps at several steps, in parallel](#15-design-space-exploration-sweeps-at-several-steps-in-parallel)
 - [16. Heatmaps and adaptive rounds: hotspots into the next placement](#16-heatmaps-and-adaptive-rounds-hotspots-into-the-next-placement)
+- [17. Route-aware search: an OpenFrame wrapper and a reusable macro](#17-route-aware-search-an-openframe-wrapper-and-a-reusable-macro)
 
 ## 1. RTL to a signed-off layout
 
@@ -587,3 +588,127 @@ query_heatmap {"run_id": R, "attempt": "place.0", "map": "placement"}     (peak,
 adapt_step    {"run_id": R, "step": "place", "rounds": 1, "options": {"max_density": 60}}
 ```
 
+## 17. Route-aware search: an OpenFrame wrapper and a reusable macro
+
+**Before running OpenFrame:** install/configure both the Magic and cf-precheck
+images as described in [PDKs and runtimes](pdks-and-runtimes.md). They are
+required for precheck and chip integration. `--plan` does not check image
+availability; run `python3 -m sipath doctor` and confirm both images are ready
+before starting the physical flow.
+
+The **route-aware search** recipe keeps multiple placements until their
+routed parasitics are extracted. It uses the existing bounded-search
+mechanism (`keep` / `decide_at`); both examples are ordinary design YAMLs.
+
+```mermaid
+flowchart TD
+    A[Synthesis, floorplan, physical preparation] --> B[Three placement candidates]
+    B --> C[Keep best two plus baseline]
+    C --> D[Each branch: CTS, routing, repair, extraction]
+    D --> E[Choose highest extracted setup slack]
+    E --> F[Signoff on the winner]
+    F --> G[OpenFrame: cf-precheck, integrate with seal ring]
+    F --> H[Macro: export reusable views]
+```
+
+The first placement variant is `{}`: the design's baseline parameters. The
+other two use density 0.50 and 0.70. Placement ranks by global-route overflow,
+then setup slack and wirelength (`routability_then_wns`); the best two and
+the baseline, if otherwise excluded, continue through routing. This is at
+most three routed branches. They run sequentially after the placement sweep;
+the YAMLs allow at most three placements concurrently within the caller's
+thread budget (`SIPATH_THREADS` or the runtime default).
+The decision at `extract` uses `setup_wns`, so it measures extracted timing
+rather than the placement estimate. Missing slack is ineligible.
+
+The final signoff remains a separate requirement. The extraction score is
+not all-corner signoff, and a winner can still fail hold, DRC or another
+required check. Such a run fails honestly; it does not automatically try
+the second-best branch. A failed branch is recorded with the decision;
+cancellation or budget exhaustion stops the whole run for resume.
+
+**Example 1: OpenFrame.**
+[`openframe_gcd8_route_search.yaml`](../sipath/examples/openframe_gcd8_route_search.yaml)
+reuses the existing 4-bit GCD wrapper RTL, 20 ns SDC, 917-pin template,
+east-edge placement strip, reset pin channel and power grid. It preserves
+`port_buffers: false`, reset-aware equivalence and `timing_driven: false`;
+its baseline density is 0.40. The search changes only placement density.
+As in the original wrapper example, metal fill is omitted; density remains
+a required check. A layout needing fill must add it before extraction and
+be revalidated.
+
+The tail follows the existing OpenFrame live-test policy: wrapper signoff
+checks DRC, density, antennas, setup/hold, design rules, annotation,
+unconstrained endpoints and template conformance. KLayout LVS is omitted
+because of its runtime on this large wrapper; **mandatory cf-precheck
+provides Netgen LVS** before `integrate` adds the seal ring. Missing Magic
+or precheck images are errors, not skipped checks. Build/configure those
+images as in [recipe 8](#8-an-openframe-chip-prechecked-with-its-seal-ring).
+The aggregate verdict still reports `omitted` for the absent signoff LVS
+check even when `precheck:lvs` passes; the two engines are recorded
+separately. Inspect the precheck results as well as the summary. Integration
+checks the assembled chip and seal ring; full-chip DRC is not enabled by
+this recipe (the frame's IO cells have their own waivers).
+
+```bash
+python3 -m sipath run sipath/examples/openframe_gcd8_route_search.yaml runs/openframe-search --plan
+python3 -m sipath run sipath/examples/openframe_gcd8_route_search.yaml runs/openframe-search
+python3 -m sipath run sipath/examples/openframe_gcd8_route_search.yaml runs/openframe-search --resume
+python3 -m sipath report runs/openframe-search
+```
+
+**Example 2: standalone GCD8 macro.**
+[`gcd8_macro_route_search.yaml`](../sipath/examples/gcd8_macro_route_search.yaml)
+reuses the existing unsigned 8-bit GCD RTL and SDC. `start` samples the two
+operands while idle; `done` marks the result after the subtraction/swap loop
+finishes. Latency depends on the operands. The active-low asynchronous reset
+can abort an operation. Start pulses during computation are not queued;
+wait for completion before starting the next transaction.
+
+The macro uses utilization 0.35, a 6 µm margin, and embedded-macro routing
+limits. Its 10 ns clock and 1 ns I/O delays match `gcd8.yaml`; they are not a
+maximum-frequency claim. Every branch includes metal fill
+before extraction. After full configured signoff, `views` writes LEF, GDS,
+timing Liberty, SPEF, netlists and `macro.yaml` for reuse by a parent design.
+Find the export directory through the final `views` attempt's outputs in
+`graph.json`; do not assume an attempt index after resume.
+
+```bash
+python3 -m sipath run sipath/examples/gcd8_macro_route_search.yaml runs/gcd8-macro-search --plan
+python3 -m sipath run sipath/examples/gcd8_macro_route_search.yaml runs/gcd8-macro-search
+python3 -m sipath run sipath/examples/gcd8_macro_route_search.yaml runs/gcd8-macro-search --resume
+python3 -m sipath report runs/gcd8-macro-search
+```
+
+**Reading the experiment.** In `graph.json`, `decisions` names the winning
+extraction attempt and records each candidate's score and handled failures.
+Follow each candidate's `parent` chain to its placement parameters; compare
+the baseline with the winner using extracted setup/hold slack, routing DRC,
+wirelength, area and branch runtime where those metrics are recorded. Keep
+the winner's all-corner signoff and final execution/verification verdict
+alongside those numbers. A retained baseline can win, and two densities can
+produce the same layout. Neither an improvement nor a signoff pass is
+assumed. To measure search overhead, run a copy with only the `{}` placement
+variant and remove `keep`, `decide_at` and `decide_score`; keep all other
+inputs, parameters and final checks identical.
+
+**Validation status.** Functional simulation and plan tests accompany these
+examples. Both live classes passed locally on 2026-10-24 with the locked
+toolchain, including budget/resume and completed-run reuse checks. The macro
+passed configured signoff and exported its views; it passed again on
+2026-10-26 with a caller-provided two-thread budget. OpenFrame passed required
+wrapper signoff, cf-precheck (including Netgen LVS and OEB), and chip/seal-ring
+geometry checks; its aggregate verification remains `omitted` as described
+above. This is a local validation result, not a PPA regression guarantee or
+full-chip DRC claim. `LiveRouteSearchMacro` and `LiveRouteSearchOpenFrame`
+run the complete YAMLs with real tools. The macro runs in the nightly blocks
+job; the OpenFrame search runs only on dispatch within the existing OpenFrame
+job, sharing its image builds. Plan tests run in every unit matrix entry;
+Icarus simulations run only in the Python 3.12 entry. Local fast checks:
+
+```bash
+python3 -m unittest -v sipath.tests.test_unit.RouteSearchPlans
+python3 -m unittest -v sipath.tests.test_route_search.RouteSearchRtl  # requires Icarus
+python3 -m sipath.tests.run_live -j 1 LiveRouteSearchMacro --keep runs/live-search
+python3 -m sipath.tests.run_live -j 1 LiveRouteSearchOpenFrame --keep runs/live-search
+```

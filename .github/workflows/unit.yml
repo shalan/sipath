@@ -30,6 +30,12 @@ jobs:
         run: python -m pip install -e .
       - name: Unit tests
         run: python -m unittest -v sipath.tests.test_unit
+      - name: Example RTL simulations
+        if: matrix.python == '3.12'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y iverilog
+          python -m unittest -v sipath.tests.test_route_search.RouteSearchRtl
       - name: Reference docs are current
         run: |
           python -m sipath docs
@@ -39,7 +45,9 @@ jobs:
           python -m pip wheel --no-deps -w dist .
           python -m zipfile -l dist/*.whl > wheel.txt
           for f in sipath/toolchain.json sipath/third_party/run_cdlns.py sipath/pdks/sky130A.yaml \
-                   sipath/harnesses/openframe.yaml sipath/examples/gcd8.yaml sipath/tests/limits.yaml; do
+                   sipath/harnesses/openframe.yaml sipath/examples/gcd8.yaml sipath/tests/limits.yaml \
+                   sipath/examples/openframe_gcd8_route_search.yaml sipath/examples/gcd8_macro_route_search.yaml \
+                   sipath/examples/tb/gcd8_tb.v sipath/examples/tb/openframe_gcd8_tb.v; do
             grep -q "$f" wheel.txt || { echo "missing from the wheel: $f"; exit 1; }
           done
           if grep -E "__pycache__|\.pyc|examples/hardened/|examples/tut_|caravel/chip_io" wheel.txt; then

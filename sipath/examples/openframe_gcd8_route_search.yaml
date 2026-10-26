@@ -1,0 +1,45 @@
+# Route-aware placement search in the existing OpenFrame template (recipe 17).
+# python3 -m sipath run sipath/examples/openframe_gcd8_route_search.yaml runs/openframe-search
+# Requires the Magic and cf-precheck images; see docs/pdks-and-runtimes.md.
+name: openframe_gcd8_route_search
+top: openframe_project_wrapper
+mode: macro
+pdk: sky130A
+harness: openframe
+harness_options:
+  core_region: [2900.0, 300.0, 3120.0, 4650.0]
+rtl: [rtl/gcd8.v, rtl/openframe_gcd8.v]
+rtl_defines: {OPENFRAME_IO_PADS: 44, GCD_W: 4}
+sdc: rtl/openframe_gcd8.sdc
+clock_ports: ["gpio_in[0]"]
+config: {parallel_cap: 3, tool_timeout: 21600}
+step_defaults:
+  place: {timing_driven: false, density: 0.4}
+flow:
+- step: synth
+  variants: [{port_buffers: false, equiv_reset: "resetb_l:0"}]
+- step: floorplan
+- step: physical
+- step: place
+  variants: [{}, {density: 0.50}, {density: 0.70}]
+  parallel: 3
+  score: routability_then_wns
+  keep: 2
+  decide_at: extract
+  decide_score: setup_wns
+- step: cts
+- step: route_analog
+- step: route_digital
+- step: route_repair
+  variants: [{fillers: [sky130_fd_sc_hd__fill_2, sky130_fd_sc_hd__fill_1], drv_sizing: true}]
+# As in openframe_gcd8.yaml, no metal fill: density is still checked.
+- step: extract
+- step: signoff
+  # Match the existing live OpenFrame policy: Netgen LVS in cf-precheck
+  # replaces KLayout LVS, which is prohibitively slow on this wrapper.
+  variants:
+  - checks: [drc, density, antenna, setup, hold, drv, annotation, unconstrained, harness]
+    require: [drc, density, antenna, setup, hold, drv, annotation, unconstrained, harness]
+- step: precheck                  # mandatory, including Netgen LVS; no silent skip
+- step: integrate
+  variants: [{seal_ring: true}]

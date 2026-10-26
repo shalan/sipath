@@ -226,7 +226,7 @@ the last column). The table is written from the records in `bench/results/`
 | document | contents |
 |---|---|
 | [Tutorial notebook](notebooks/sipath_tutorial.ipynb) | the example flows, runnable in Colab or Codespaces |
-| [Example flows](docs/examples.md) | recipes, one feature each: RTL to signoff, explore mode, synthesis and placement sweeps, macro placers, analog shields, a full die, an OpenFrame chip with precheck and seal ring, hardened macros, custom steps, resume, ECOs, an agent session, regression limits, a design-space exploration in parallel |
+| [Example flows](docs/examples.md) | recipes, one feature each: RTL to signoff, explore mode, synthesis and placement sweeps, macro placers, analog shields, a full die, an OpenFrame chip with precheck and seal ring, hardened macros, custom steps, resume, ECOs, an agent session, regression limits, a design-space exploration in parallel, route-aware search for OpenFrame and a GCD8 macro |
 | [How the flow works](docs/flow.md) | each step: floorplan and pads, hard macros, power, placement and CTS, analog nets, routing and repair, sweeps and ECOs, frames and hardened macros |
 | [Synthesis](docs/synthesis.md) | the synth step, its recipes and why its defaults are what they are |
 | [PDKs and runtimes](docs/pdks-and-runtimes.md) | Sky130 (open_pdks, release pinning, corners, excluded cells), IHP, where OpenROAD comes from, arm64 and native tools, resumable runs |

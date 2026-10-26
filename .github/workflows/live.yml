@@ -28,11 +28,13 @@ jobs:
           - group: chip       # mcu8: pad ring, macros, analog, full signoff (about an hour)
             classes: LiveMcuDie
           - group: openframe  # the OpenFrame harness, chip assembly with the seal ring, precheck, Magic DRC
-            classes: LiveOpenFrame LiveMagic
+            # The additional search runs only on dispatch, sharing these image builds.
+            classes: ${{ github.event_name == 'workflow_dispatch' && 'LiveOpenFrame LiveMagic LiveRouteSearchOpenFrame' || 'LiveOpenFrame LiveMagic' }}
           - group: blocks
             classes: >-
               LiveRtl LiveSoftMacro LiveHs LiveResume LiveMcp LiveIhp LiveIhpRing LiveScale OpenRoad
               LiveMacroPlacers LiveAdaptive LiveCancel LiveBudget LiveFork LiveDocs LiveBoundedSearch LiveHardenedParent
+              LiveRouteSearchMacro
     env:
       SIPATH_LIMITS_IGNORE: max_runtime_s
       PDK_ROOT: /home/runner/pdk
@@ -146,4 +148,3 @@ jobs:
 
       - name: Tutorial, first part
         run: python notebooks/smoke.py --until 13
-

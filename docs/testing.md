@@ -63,13 +63,18 @@ wall time in CI.
   must not). Tests that need an open_pdks tree skip there, with the reason.
 - **`live`** runs nightly and on demand (a dispatch may name classes; each runs
   in its own group's job): the locked ORFS image and the locked open_pdks
-  release (fetched by `sipath install-pdk`), in three parallel jobs, with the
+  release (fetched by `sipath install-pdk`), in three parallel design jobs, with the
   regression limits except wall time, keeping the logs of any run that does
   not pass (failed, timed out or cancelled):
   - **chip**: mcu8 (`LiveMcuDie`);
   - **openframe**: builds the Magic image and the precheck image on the
     locked ORFS image, then `LiveOpenFrame` (signoff, cf-precheck, chip
-    integration with the seal ring) and `LiveMagic`;
+    integration with the seal ring) and `LiveMagic`. On dispatch only it also
+    runs `LiveRouteSearchOpenFrame`, requiring cf-precheck before integration
+    and sharing the same image builds. Dispatch with classes set to
+    `LiveRouteSearchOpenFrame` to run just that class. The 240-minute job
+    timeout is unchanged: the scheduling estimates total about 100 minutes
+    for all three classes before setup, but this is not a measured CI bound;
   - **blocks**: `sipath validate`, the unit tests with the PDK (those that skip
     in `unit`), then every other live class.
 
@@ -83,5 +88,14 @@ wall time in CI.
   native path, no Docker (`install-tools`, `install-pdk`, gcd8 to signoff,
   explore mode) through `notebooks/smoke.py`: a cell fails when it raises or
   when any of its `!` commands exits non-zero.
+- `test_unit.RouteSearchPlans` checks both example plans and caller-provided
+  thread budgets in every Python matrix entry, without a simulator. Only the
+  Python 3.12 entry installs Icarus and runs `test_route_search.RouteSearchRtl`:
+  GCD8 functional tests and the OpenFrame wrapper's GCD and pad-control tests.
+  The live classes
+  `LiveRouteSearchMacro` and `LiveRouteSearchOpenFrame` exercise the shipped
+  YAMLs, stop/resume inside placement, check the extracted decision and final
+  artifacts, then verify a completed resume reuses its results. They have no
+  measured PPA regression limits yet.
 - On Linux the containers run as the calling user (`--user`), so the files
   they write stay the user's; `SIPATH_DOCKER_AS_ROOT=1` keeps the image's user.
