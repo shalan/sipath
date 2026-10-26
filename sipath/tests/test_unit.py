@@ -472,6 +472,29 @@ class TutorialSmoke(unittest.TestCase):
 class NativeTools(unittest.TestCase):
     """install-tools: the locked image unpacked without Docker (no network here)."""
 
+    def test_wrappers_leave_the_images_glibc_to_the_hosts_loader(self):
+        """A newer host's loader dies on the image's glibc (SIGSEGV with no output, Ubuntu 24.04): the library
+        path keeps every other library of the image and none of glibc's."""
+        from sipath.tools import native
+        with tempfile.TemporaryDirectory() as td:
+            libdir = os.path.join(td, "usr", "lib", "x86_64-linux-gnu")
+            os.makedirs(os.path.join(td, "opt", "or-tools", "lib"))
+            os.makedirs(libdir)
+            os.symlink("usr/lib", os.path.join(td, "lib"))  # the image's /lib is /usr/lib
+            for n in ("libc.so.6", "libm.so.6", "libpthread.so.0", "ld-linux-x86-64.so.2", "libnss_files.so.2",
+                      "libstdc++.so.6", "libtcl8.6.so", "libmagic.so.1", "libcrypt.so.1"):
+                open(os.path.join(libdir, n), "w").close()
+            open(os.path.join(td, "opt", "or-tools", "lib", "libortools.so"), "w").close()
+            dirs = native.without_glibc(td, ["opt/or-tools/lib", "lib/x86_64-linux-gnu", "usr/lib/x86_64-linux-gnu"])
+            self.assertEqual(dirs, ["opt/or-tools/lib", "sipath-lib/lib__x86_64-linux-gnu"])  # /lib listed once
+            farm = os.path.join(td, dirs[1])
+            self.assertEqual(sorted(os.listdir(farm)), ["libcrypt.so.1", "libmagic.so.1", "libstdc++.so.6",
+                                                        "libtcl8.6.so"])
+            self.assertTrue(os.path.samefile(os.path.join(farm, "libtcl8.6.so"), os.path.join(libdir, "libtcl8.6.so")))
+            path = re.search(r'LD_LIBRARY_PATH="([^"]*)"', native._wrapper(td, "openroad", "x", dirs)).group(1)
+            self.assertEqual([p for p in path.split(":") if p.endswith(("/lib/x86_64-linux-gnu", "-linux-gnu}"))], [])
+
+
     def _layer(self, entries):
         import io
         import tarfile

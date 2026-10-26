@@ -22,6 +22,7 @@ import hashlib
 import json
 import os
 import platform
+import re
 import shutil
 import sys
 import tarfile
@@ -44,6 +45,13 @@ ACCEPT = ", ".join(["application/vnd.oci.image.index.v1+json", "application/vnd.
 LIBS = ("opt/or-tools/lib", "usr/local/lib", "usr/local/lib/x86_64-linux-gnu", "lib/x86_64-linux-gnu",
         "usr/lib/x86_64-linux-gnu")
 LIB_TREES = ("usr/lib", "usr/local/lib", "opt")
+# glibc's own libraries. The host's dynamic loader starts the image's binaries, and a loader runs only with its
+# own glibc: the image's (2.35) on LD_LIBRARY_PATH under a newer host's loader dies at once (SIGSEGV, no output:
+# Ubuntu 24.04's 2.39). So the wrappers leave these out and the host's glibc is used (glibc_ok: 2.35 or newer,
+# which the image's binaries were built against); the image's other libraries still come first.
+GLIBC = re.compile(r"^(ld-linux-x86-64|libc|libm|libmvec|libpthread|libdl|librt|libresolv|libutil|libanl|"
+                   r"libBrokenLocale|libnss_\w+|libthread_db|libc_malloc_debug|libmemusage|libpcprofile)"
+                   r"(\.so(\.[0-9]+)*|-[0-9.]+\.so)$")
 
 
 def _registry(ref: str) -> tuple[str, str, str]:
@@ -182,6 +190,31 @@ def lib_dirs(root: str) -> list[str]:
     return list(LIBS) + sorted(x for x in found if x not in LIBS)
 
 
+def without_glibc(root: str, dirs: list[str]) -> list[str]:
+    """``dirs`` (relative to ``root``) for LD_LIBRARY_PATH, glibc left out: a directory holding glibc's libraries
+    is replaced by root/sipath-lib/<dir>, links to everything else in it (rebuilt each time); a directory that
+    resolves to one already listed (the image's /lib is /usr/lib) is listed once."""
+    out, seen = [], set()
+    for d in dirs:
+        full = os.path.join(root, d)
+        real = os.path.realpath(full)
+        if real in seen or not os.path.isdir(full):
+            continue
+        seen.add(real)
+        names = sorted(os.listdir(full))
+        if not any(GLIBC.match(n) for n in names):
+            out.append(d)
+            continue
+        farm = os.path.join(root, "sipath-lib", d.replace(os.sep, "__"))
+        shutil.rmtree(farm, ignore_errors=True)
+        os.makedirs(farm)
+        for n in names:
+            if not GLIBC.match(n):
+                os.symlink(os.path.join(real, n), os.path.join(farm, n))
+        out.append(os.path.relpath(farm, root))
+    return out
+
+
 def _ruby_dirs(root: str) -> list[str]:
     """The image's Ruby library directories, versioned ones first (``pathname`` and the rest of stdlib)."""
     import glob
@@ -256,7 +289,7 @@ def install(root: str = DEFAULT, ref: str | None = None, force: bool = False,
         shutil.rmtree(cache)
     bindir = os.path.join(root, "sipath-bin")  # not root/bin: the image's /bin is a link to /usr/bin
     os.makedirs(bindir, exist_ok=True)
-    libs = lib_dirs(root)
+    libs = without_glibc(root, lib_dirs(root))
     for name, binary in TOOLS.items():
         if not os.path.exists(os.path.join(root, binary)):
             raise RuntimeError(f"{binary} not in {ref}")
