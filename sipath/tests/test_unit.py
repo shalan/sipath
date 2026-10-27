@@ -1077,7 +1077,7 @@ class Layers(unittest.TestCase):
     flow, and library code imports the moved modules from sipath.tools (not their compatibility aliases)."""
     ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     CORE = {"scheduler", "params", "scores", "registry", "config", "report", "recipes", "toolchain", "fingerprint",
-            "verdict"}
+            "verdict", "convergence"}
     MODEL = {"design", "pdk", "netlist", "lef", "heatmap", "sdc"}
     FLOWS = {"designfile", "mcp_server", "__main__", ""}  # "": the package's __init__ (its public API)
     ALIASES = {"session", "tcl", "tclquote", "nativetools"}  # = sipath.tools.openroad.*, sipath.tools.native
@@ -3551,6 +3551,72 @@ class RunHeadFollowUp(unittest.TestCase):
             with self.assertRaises(StepFailed):
                 designfile.run_items(f, self.items({"fail": [0, 2, 3]}))
             self.assertEqual(f.verification()["execution"], "failed")
+
+
+class SearchConvergence(unittest.TestCase):
+    def test_shared_ancestry_missing_files_and_later_divergence(self):
+        from sipath.convergence import analyze
+        from sipath import report
+        with tempfile.TemporaryDirectory() as td:
+            def attempt(name, step, parent, content, seconds):
+                path = os.path.join(td, name)
+                if content is not None:
+                    with open(path, "w") as f:
+                        f.write(content)
+                return {"id": name, "step": step, "parent": parent, "status": "selected",
+                        "checkpoint": path, "seconds": seconds, "outputs": {"def_": path}}
+            root = attempt("root.0", "root", None, "shared", 30)
+            a = attempt("place.0", "place", root["id"], "same", 2)
+            b = attempt("place.1", "place", root["id"], "same", 3)
+            x = attempt("route.0", "route", a["id"], "different-a", 4)
+            y = attempt("route@place.1.0", "route@place.1", b["id"], "different-b", 5)
+            g = {"attempts": [root, a, b, x, y], "decisions": [{"at": "route", "winner": x["id"], "complete": True,
+                 "candidates": [{"attempt": x["id"]}, {"attempt": y["id"]}]}]}
+            result = analyze(g)[0]
+            self.assertEqual({r["stage"] for r in result["groups"]}, {"place"})
+            self.assertEqual({r["extra_attempt_seconds"] for r in result["groups"]}, {3})
+            os.remove(b["checkpoint"])
+            self.assertEqual(analyze(g)[0]["groups"], [])
+            self.assertIn({"attempt": b["id"], "artifact": "checkpoint"}, analyze(g)[0]["unavailable"])
+            # Matching metrics alone do not create convergence; incomplete decisions are ignored.
+            x["metrics"] = y["metrics"] = {"wns": 1.0}
+            self.assertEqual(analyze(g)[0]["groups"], [])
+            g["decisions"][0]["complete"] = False
+            self.assertEqual(analyze(g), [])
+
+    def test_legacy_decisions_and_only_missing_recorded_outputs(self):
+        from sipath.convergence import analyze
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "same.odb")
+            with open(path, "w") as f:
+                f.write("same")
+            a = {"id": "place.0", "step": "place", "status": "selected", "checkpoint": path}
+            b = dict(a, id="place.1")
+            decision = {"at": "place", "winner": a["id"],
+                        "candidates": [{"attempt": a["id"]}, {"attempt": b["id"]}]}
+            graph = {"attempts": [a, b], "decisions": [decision]}
+            result = analyze(graph)[0]
+            self.assertEqual(len(result["groups"]), 1)
+            self.assertEqual(result["unavailable"], [])  # no DEF output is normal
+            b["outputs"] = {"def_": os.path.join(td, "missing.def")}
+            b.pop("checkpoint")
+            self.assertEqual(analyze(graph)[0]["unavailable"],
+                             [{"attempt": "place.1", "artifact": "checkpoint"},
+                              {"attempt": "place.1", "artifact": "def"}])
+            decision["complete"] = False  # even a recorded winner cannot override this
+            self.assertEqual(analyze(graph), [])
+            decision.pop("complete")
+            decision.pop("winner")
+            self.assertEqual(analyze(graph), [])
+
+    def test_reports_export_convergence_without_changing_graph(self):
+        from sipath import report
+        with tempfile.TemporaryDirectory() as td:
+            g = {"design": "x", "attempts": [], "steps": {}, "decisions": []}
+            _write_json(os.path.join(td, "graph.json"), g)
+            report.write(td)
+            self.assertEqual(_read_json(os.path.join(td, "graph.json")), g)
+            self.assertEqual(_read_json(os.path.join(td, "convergence.json"))["decisions"], [])
 
 
 class RunHeadThirdReview(unittest.TestCase):

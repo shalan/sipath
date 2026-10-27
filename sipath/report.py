@@ -20,7 +20,7 @@ import html
 import json
 import os
 
-from . import heatmap
+from . import heatmap, convergence
 
 KEY_METRICS = ("synth_cells", "synth_area_um2", "equiv", "insts", "utilization", "hpwl_um", "wns", "tns", "whs",
                "drc", "wirelength_um", "vias", "antenna_violations", "fill_shapes", "drc_signoff",
@@ -98,7 +98,8 @@ def collect(workdir: str) -> dict:
     return {"design": g.get("design", {}), "pdk": g.get("pdk"), "provenance": g.get("provenance", {}),
             "steps": steps, "signoff": signoff, "ppa": ppa, "files": files, "pictures": pictures,
             "heatmaps": heatmaps, "stale": g.get("stale") or [], "verification": g.get("verification"),
-            "head": chain[-1]["id"] if chain else None, "decisions": g.get("decisions") or []}
+            "head": chain[-1]["id"] if chain else None, "decisions": g.get("decisions") or [],
+            "convergence": convergence.analyze(g)}
 
 
 def markdown(workdir: str, r: dict) -> str:
@@ -124,6 +125,22 @@ def markdown(workdir: str, r: dict) -> str:
         out += [f"Result: `{r['head']}` and its ancestry"
                 + "".join(f"; bounded search decided at {d['at']} by {d['score']}: {d['winner']} of "
                           f"{len(d['candidates'])}" for d in r.get("decisions") or []) + ".", ""]
+    if r.get("convergence"):
+        out += ["## Search artifact convergence", "",
+                "Matching bytes are diagnostic evidence, not semantic equivalence or permission to reuse work.",
+                "Extra time sums attempt durations after the first listed attempt; it is not wall time saved.",
+                "Checkpoint and DEF rows can overlap: do not sum them together. Shared ancestry is excluded.", "",
+                "| decision | stage | matching artifact | attempts | extra attempt seconds |",
+                "|---|---|---|---|---|"]
+        for decision in r["convergence"]:
+            for group in decision["groups"]:
+                out.append(f"| {decision['decision_at']} | {group['stage']} | {group['artifact']} | "
+                           f"{', '.join(group['attempts'])} | {_fmt(group['extra_attempt_seconds'])} |")
+            if not decision["groups"]:
+                out.append(f"| {decision['decision_at']} | — | no matching available artifacts | — | — |")
+        missing = sum(len(x["unavailable"]) for x in r["convergence"])
+        out += ["", f"Unavailable artifacts: {missing}; missing files are not evidence of equality. "
+                "See convergence.json for digests and missing-artifact details.", ""]
     out += ["## Steps", "", "| step | attempts | selected | seconds | key metrics |", "|---|---|---|---|---|"]
     for s in r["steps"]:
         sel = s["sel"]
@@ -345,6 +362,8 @@ def write_metrics(workdir: str, g: dict) -> tuple[str, str]:
 
 def write(workdir: str) -> tuple[str, str]:
     r = collect(workdir)
+    with open(os.path.join(workdir, "convergence.json"), "w") as f:
+        json.dump({"schema_version": 1, "decisions": r["convergence"]}, f, indent=2)
     md = markdown(workdir, r)
     d = r["design"]
     title = f"Run report: {d.get('name') if isinstance(d, dict) else d}"

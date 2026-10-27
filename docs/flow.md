@@ -405,3 +405,21 @@ routing). `ppa.json` / `ppa.md` and the run report give cell area,
 utilization, WNS/TNS/WHS, total power, wirelength, and per clock the
 achievable period (period − WNS), fmax and a suggested `create_clock` period
 (achievable + 5%, the `ppa` step's `margin`).
+
+
+## Inspecting search convergence
+
+Reports include a **Search artifact convergence** table and `convergence.json`.
+For each completed bounded-search decision, SiPath traces the successful
+candidate branches and compares distinct attempts at the same logical stage.
+Shared ancestry is excluded. Matching checkpoint bytes and matching DEF bytes
+are reported separately, with SHA-256 prefixes and additional attempt seconds
+relative to the first listed attempt. Missing artifacts remain unknown.
+
+A match at placement does not imply a match after routing. Equal metrics do
+not imply equal artifacts, and equal artifact bytes alone do not establish
+identical timing context or downstream configuration. These diagnostics never
+change selection or reuse checkpoints across branches. Additional attempt
+seconds are observed work, not predicted wall-time savings; checkpoint and DEF
+rows overlap and must not be added together. Use the first matching stage to
+investigate unproductive variants before expanding a sweep.

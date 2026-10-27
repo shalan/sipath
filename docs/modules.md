@@ -109,3 +109,5 @@ on any import that crosses these rules.
 `examples/`, `tests/` and `bench/` hold the example designs, the unit and
 live tests (with `limits.yaml`), and the benchmarks against ORFS, synthesis
 and architectures.
+
+`convergence.py` is a read-only core report analyzer: it compares available artifact bytes on completed search branches and does not alter scheduler decisions or cache identity.
