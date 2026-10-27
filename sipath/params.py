@@ -220,7 +220,11 @@ STEP_PARAMS: dict[str, list[Param]] = {
         Param("congestion_margin", "float", 0.0, "extra layer capacity reduction for the congestion check",
               min=0, max=1),
     ],
-    "cts": [],
+    "cts": [
+        Param("distance_between_buffers", "float", None, "clock-tree buffer spacing", unit="um", min=1),
+        Param("sink_clustering_size", "int", None, "maximum sinks per clock-tree cluster", min=1),
+        Param("sink_clustering_levels", "int", None, "clock-tree sink pre-clustering levels", min=1),
+    ],
     "route_analog": [
         Param("iters", "int", 20, _ITERS + " for the analog nets", min=1),
         Param("guard", "bool", True, "routing obstructions around the frozen analog wiring so digital wires keep "

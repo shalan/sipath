@@ -213,5 +213,5 @@ def net_terminals(s, net: str) -> list[str]:
                              "foreach t [$net getBTerms] { lappend o [$t getName] }; lsort $o"))
 
 
-def clock_tree(s, pdk, nets):
-    s.run(tcl.cts(pdk, nets))
+def clock_tree(s, pdk, nets, sink_clustering_size=None, sink_clustering_levels=None, distance_between_buffers=None):
+    s.run(tcl.cts(pdk, nets, sink_clustering_size, sink_clustering_levels, distance_between_buffers))

@@ -476,15 +476,20 @@ def detailed_place() -> str:
     return "detailed_placement\ncheck_placement -verbose"
 
 
-def cts(pdk: Pdk, clk_nets: list[str]) -> str:
+def cts(pdk: Pdk, clk_nets: list[str], sink_clustering_size=None, sink_clustering_levels=None, distance_between_buffers=None) -> str:
     # with several corner libraries loaded, this CTS build cannot resolve its
     # dummy-load cells (CTS-0118, even with -library), so dummy loads are off
     lib = ("[expr {[info exists ::flow_cts_library] ? "
            "\"-library $::flow_cts_library -dont_use_dummy_load\" : {}}]")
     ndr = f" -apply_ndr {pdk.cts_apply_ndr}" if getattr(pdk, "cts_apply_ndr", "") else ""
+    clustering = "".join(f" -{k} {int(v)}" for k, v in
+                         (("sink_clustering_size", sink_clustering_size),
+                          ("sink_clustering_levels", sink_clustering_levels)) if v is not None)
+    if distance_between_buffers is not None:
+        clustering += f" -distance_between_buffers {float(distance_between_buffers)}"
     # -clk_nets is split on spaces: names go space-joined, not list-quoted ({gpio_in[0]})
     return (f"clock_tree_synthesis -root_buf {pdk.cts_root_buffer} -buf_list {qlist(pdk.cts_buffers)} "
-            f"-clk_nets [join {qlist(clk_nets)} {{ }}] -sink_clustering_enable{ndr} {{*}}{lib}\n"
+            f"-clk_nets [join {qlist(clk_nets)} {{ }}] -sink_clustering_enable{clustering}{ndr} {{*}}{lib}\n"
             "set_propagated_clock [all_clocks]\n"
             "::flow_set_flag flow_post_cts\n"
             "estimate_parasitics -placement\n"

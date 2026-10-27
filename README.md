@@ -259,3 +259,5 @@ SiPath is licensed under the [Apache License 2.0](LICENSE). Third-party files ke
   licenses, as listed in `SOURCES.txt`;
 - the CD-LNS macro placer and the challenge's `Benchmark` under `sipath/third_party/`
   (Apache-2.0, unchanged; provenance in its `README.md`).
+
+The [UART/FIFO example](docs/uart-fifo.md) exercises a single-clock serial peripheral, reusable macro export, and OpenFrame echo integration.

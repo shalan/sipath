@@ -310,6 +310,9 @@ Set per attempt in `variants` (design file `flow:` or MCP `run_step`), or as def
 
 | parameter | type | default | allowed | description |
 |---|---|---|---|---|
+| `distance_between_buffers` | float | – | 1.. | clock-tree buffer spacing [um] |
+| `sink_clustering_size` | int | – | 1.. | maximum sinks per clock-tree cluster |
+| `sink_clustering_levels` | int | – | 1.. | clock-tree sink pre-clustering levels |
 | `threads` | int | – | 1.. | OpenROAD threads for this step's attempts (set_thread_count; signoff: also KLayout DRC); unset: the run's threads, shared among the attempts running at once |
 | `heatmaps` | list[str] | ['placement', 'rudy', 'pin', 'power'] | placement, rudy, routing, pin, power, irdrop | heatmaps written after the checkpoint is saved (gui::dump_heatmap; CSVs, summary metrics heatmap_<map>_peak|p95|hot_share, hotspots with their instances or nets); [] for none |
 
