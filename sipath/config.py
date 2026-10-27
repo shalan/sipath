@@ -4,46 +4,47 @@ Values come from, in order (later wins): the defaults below, a config file
 (``$SIPATH_CONFIG``, or the ``path`` given; YAML or JSON), environment
 variables, the ``config:`` section of a design file, and keyword overrides.
 
-=====================  ======================  =====================================
-field                  environment             meaning
-=====================  ======================  =====================================
-threads                SIPATH_THREADS            the run's cores: OpenROAD ``-threads`` of one attempt, shared
-                                                 among attempts running at once and among a signoff's concurrent
-                                                 checks (default: all cores, as ORFS; two thirds of them on macOS)
-command_timeout        SIPATH_TIMEOUT            seconds one Tcl command may take
-tool_timeout           SIPATH_TOOL_TIMEOUT       seconds one signoff tool run (KLayout DRC/LVS, Magic) may take
-parallel_cap           SIPATH_PARALLEL_CAP       most attempts alive at once (0: none)
-budget_s               SIPATH_BUDGET             wall-time budget of a run, in seconds (0: none): past it, running
-                                                 attempts stop with status "budget"; --resume continues
-step_budget_s          SIPATH_STEP_BUDGET        a time box per step, in seconds (0: none): attempts not finished by
-                                                 then stop ("budget") and the step selects among those that did
-max_attempts           SIPATH_MAX_ATTEMPTS       most attempts a run starts (0: none); the rest end "budget"
-memory_gb              SIPATH_MEMORY_BUDGET      memory budget, in GB (0: none): fewer attempts at once when the
-                                                 step's recorded peak memory says they would not fit
-container_cpus         SIPATH_CPUS               docker ``--cpus`` per process
-container_memory       SIPATH_MEMORY             docker ``--memory`` per process (e.g. 8g)
-image                  SIPATH_OPENROAD_IMAGE     ORFS image (default: the locked digest, toolchain.json)
-openroad_binary        SIPATH_OPENROAD_BINARY    OpenROAD inside the image (default the ORFS path; "openroad" for
-                                                 an image with it on PATH, e.g. LibreLane's)
-platform               SIPATH_PLATFORM           image platform (linux/amd64; linux/arm64 for a native arm64 image)
-magic_image            SIPATH_MAGIC_IMAGE        image with Magic (signoff magic_drc / xor; docker/magic)
-precheck_image         SIPATH_PRECHECK_IMAGE     image with ChipFoundry's cf-precheck and its tools (precheck
-                                                 step; docker/precheck)
-native_tools           SIPATH_NATIVE_TOOLS       tools run on the host instead of the image (e.g. klayout,yosys)
-runtime                SIPATH_RUNTIME            where OpenROAD, Yosys and KLayout run: auto (native when installed,
-                                                 else the image), native, or docker (see find_openroad)
-tools_root             SIPATH_TOOLS_ROOT         the locked image's tools unpacked by `sipath install-tools`
-                                                 (default ~/.cache/sipath/orfs-root)
-placer_python          SIPATH_PLACER_PYTHON      Python with PyTorch for the macros step's cdlns method
-                                                 (default ~/.cache/sipath/placer-venv, `sipath setup-placer`)
-require_digest         SIPATH_REQUIRE_DIGEST     refuse an image not pinned by digest (default on)
-require_pdk_release    SIPATH_REQUIRE_PDK        refuse an open_pdks tree whose release is not the locked one
-                                                 (default on; sipath/toolchain.json, `sipath install-pdk`)
-debug_failed           SIPATH_DEBUG_FAILED       write a debug ODB for failed attempts
-snapshots              SIPATH_SNAPSHOTS          a layout picture after every step (`sipath run`): off, selected
-                                                 (the attempt each step selects) or all (every finished attempt)
-log_level              SIPATH_LOG_LEVEL          ``logging`` level of the ``sipath`` logger
-=====================  ======================  =====================================
+=======================  ============================  =====================================================================
+field                    environment                   meaning
+=======================  ============================  =====================================================================
+threads                  SIPATH_THREADS                the run's cores: OpenROAD ``-threads`` of one attempt, shared
+                                                         among attempts running at once and among a signoff's concurrent
+                                                         checks (default: all cores, as ORFS; two thirds of them on macOS)
+strict_reproducibility   SIPATH_STRICT_REPRODUCIBILITY  serial attempts; include execution resources in cache identity
+command_timeout          SIPATH_TIMEOUT                seconds one Tcl command may take
+tool_timeout             SIPATH_TOOL_TIMEOUT           seconds one signoff tool run (KLayout DRC/LVS, Magic) may take
+parallel_cap             SIPATH_PARALLEL_CAP           most attempts alive at once (0: none)
+budget_s                 SIPATH_BUDGET                 wall-time budget of a run, in seconds (0: none): past it, running
+                                                         attempts stop with status "budget"; --resume continues
+step_budget_s            SIPATH_STEP_BUDGET            a time box per step, in seconds (0: none): attempts not finished by
+                                                         then stop ("budget") and the step selects among those that did
+max_attempts             SIPATH_MAX_ATTEMPTS           most attempts a run starts (0: none); the rest end "budget"
+memory_gb                SIPATH_MEMORY_BUDGET          memory budget, in GB (0: none): fewer attempts at once when the
+                                                         step's recorded peak memory says they would not fit
+container_cpus           SIPATH_CPUS                   docker ``--cpus`` per process
+container_memory         SIPATH_MEMORY                 docker ``--memory`` per process (e.g. 8g)
+image                    SIPATH_OPENROAD_IMAGE         ORFS image (default: the locked digest, toolchain.json)
+openroad_binary          SIPATH_OPENROAD_BINARY        OpenROAD inside the image (default the ORFS path; "openroad" for
+                                                         an image with it on PATH, e.g. LibreLane's)
+platform                 SIPATH_PLATFORM               image platform (linux/amd64; linux/arm64 for a native arm64 image)
+magic_image              SIPATH_MAGIC_IMAGE            image with Magic (signoff magic_drc / xor; docker/magic)
+precheck_image           SIPATH_PRECHECK_IMAGE         image with ChipFoundry's cf-precheck and its tools (precheck
+                                                         step; docker/precheck)
+native_tools             SIPATH_NATIVE_TOOLS           tools run on the host instead of the image (e.g. klayout,yosys)
+runtime                  SIPATH_RUNTIME                where OpenROAD, Yosys and KLayout run: auto (native when installed,
+                                                         else the image), native, or docker (see find_openroad)
+tools_root               SIPATH_TOOLS_ROOT             the locked image's tools unpacked by `sipath install-tools`
+                                                         (default ~/.cache/sipath/orfs-root)
+placer_python            SIPATH_PLACER_PYTHON          Python with PyTorch for the macros step's cdlns method
+                                                         (default ~/.cache/sipath/placer-venv, `sipath setup-placer`)
+require_digest           SIPATH_REQUIRE_DIGEST         refuse an image not pinned by digest (default on)
+require_pdk_release      SIPATH_REQUIRE_PDK            refuse an open_pdks tree whose release is not the locked one
+                                                         (default on; sipath/toolchain.json, `sipath install-pdk`)
+debug_failed             SIPATH_DEBUG_FAILED           write a debug ODB for failed attempts
+snapshots                SIPATH_SNAPSHOTS              a layout picture after every step (`sipath run`): off, selected
+                                                         (the attempt each step selects) or all (every finished attempt)
+log_level                SIPATH_LOG_LEVEL              ``logging`` level of the ``sipath`` logger
+=======================  ============================  =====================================================================
 """
 from __future__ import annotations
 
@@ -55,7 +56,7 @@ from .toolchain import image as _locked
 ORFS_IMAGE = _locked("orfs")  # openroad/orfs@sha256:... (toolchain.json)
 MAGIC_IMAGE = _locked("magic")
 
-ENV = {"threads": "SIPATH_THREADS", "command_timeout": "SIPATH_TIMEOUT", "tool_timeout": "SIPATH_TOOL_TIMEOUT", "parallel_cap": "SIPATH_PARALLEL_CAP",
+ENV = {"strict_reproducibility": "SIPATH_STRICT_REPRODUCIBILITY", "threads": "SIPATH_THREADS", "command_timeout": "SIPATH_TIMEOUT", "tool_timeout": "SIPATH_TOOL_TIMEOUT", "parallel_cap": "SIPATH_PARALLEL_CAP",
        "budget_s": "SIPATH_BUDGET", "step_budget_s": "SIPATH_STEP_BUDGET", "max_attempts": "SIPATH_MAX_ATTEMPTS",
        "memory_gb": "SIPATH_MEMORY_BUDGET",
        "container_cpus": "SIPATH_CPUS", "container_memory": "SIPATH_MEMORY", "image": "SIPATH_OPENROAD_IMAGE",
@@ -84,6 +85,7 @@ class ConfigError(ValueError):
 @dataclass
 class Config:
     threads: int = field(default_factory=lambda: default_threads())
+    strict_reproducibility: bool = False
     command_timeout: float = 3600.0
     tool_timeout: float = 7200.0
     parallel_cap: int = 0
@@ -138,6 +140,8 @@ class Config:
 
     def cap(self, parallel: int) -> int:
         """Attempts that may run at once for a step asking for ``parallel``."""
+        if self.strict_reproducibility:
+            return 1  # fixed per-attempt allocation, also on partial resume/retry
         p = max(1, int(parallel))
         return min(p, self.parallel_cap) if self.parallel_cap else p
 

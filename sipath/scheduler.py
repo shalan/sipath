@@ -459,6 +459,14 @@ class Flow:
             g = json.load(f)
         if g.get("design") != self.design.name:
             raise ValueError(f"{path} is a graph of design {g.get('design')!r}, not {self.design.name!r}")
+        if self.config.strict_reproducibility and any(
+                a.get("forked_from") for a in g.get("attempts", [])):
+            raise ValueError("strict reproducibility cannot resume forked graphs; use a fresh workdir "
+                             "for a fully fingerprinted run")
+        if self.config.strict_reproducibility and g.get("attempts") and (
+                not g.get("inputs") or any(not a.get("fingerprint") for a in g["attempts"])
+                or any(not x.get("fingerprint") for x in (g.get("steps") or {}).values())):
+            raise ValueError("strict reproducibility requires recorded input/attempt/step fingerprints; use a fresh workdir")
         if g.get("inputs"):
             self.input_changes = fp_mod.changes(g["inputs"], self.inputs)
             if self.input_changes:
