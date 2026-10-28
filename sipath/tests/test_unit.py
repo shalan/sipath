@@ -5857,6 +5857,13 @@ class FrontEnd(unittest.TestCase):
             with open(f, "w") as fh:
                 fh.write("create_clock -period 10.0 [get_ports clk]\n")
             self.assertEqual(synth.clock_period_ps(f), 10000.0)
+            with open(f, "w") as fh:  # ORFS's style: trailing comments after `;`
+                fh.write("set clk_period 6.5 ;# ns\nset clk_name clk;\n"
+                         "create_clock -name $clk_name -period $clk_period [get_ports clk] ; # the clock\n")
+            self.assertEqual(synth.clock_period_ps(f), 6500.0)
+            with open(f, "w") as fh:
+                fh.write("create_clock -period 4.0 [get_ports clk];# literal\n")
+            self.assertEqual(synth.clock_period_ps(f), 4000.0)
 
     def test_liberty_stubs(self):
         from sipath import synth
