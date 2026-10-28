@@ -121,6 +121,11 @@ capabilities in `graph.json`.
   `estimate_parasitics -placement`, `repair_design`, `repair_timing`,
   `detailed_placement`, `improve_placement`, `optimize_mirroring`, then
   `check_placement`. `repair_tie_fanout` first: one tie cell per load.
+- The target density global placement used is the `placement_density`
+  metric. gpl raises a target below what the free area allows (GPL-0302), so
+  every lower `density` places alike; the step's `density` output says when
+  it was raised, and the run logs a warning (gcd8 at 65% core utilization:
+  0.65, 0.7 and 0.8 all placed at 0.87).
 - After legalization, a global route with `-allow_congestion` measures
   congestion (`grt_overflow`, report kept); `congestion_margin` reserves
   head-room on every layer, and the `routability_then_wns` score rejects a

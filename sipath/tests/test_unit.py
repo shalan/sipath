@@ -4675,6 +4675,26 @@ class Adaptive(unittest.TestCase):
         a.outputs = {"heatmaps": {"placement": {"hotspots": []}}}
         self.assertEqual(adapt_place(f, a, {}), [])
 
+    def test_place_records_the_density_global_placement_used(self):
+        import types
+        from sipath.steps.place import record_density
+        raised = ("[WARNING GPL-0302] Target density 0.6500 is too low for the available free area.\n"
+                  "Automatically adjusting to uniform density 0.8700.\n"
+                  "[INFO GPL-0023] Placement target density:       0.8700\n")
+        ctx = types.SimpleNamespace(metrics={}, outputs={})
+        with self.assertLogs("sipath", "WARNING") as logs:
+            self.assertEqual(record_density(ctx, raised, 0.65), 0.87)
+        self.assertIn("used 0.87", logs.output[0])
+        self.assertEqual(ctx.metrics["placement_density"], 0.87)
+        self.assertEqual(ctx.outputs["density"], {"requested": 0.65, "used": 0.87, "adjusted": True})
+        ctx = types.SimpleNamespace(metrics={}, outputs={})
+        with self.assertNoLogs("sipath", "WARNING"):
+            record_density(ctx, "[INFO GPL-0023] Placement target density:       0.5500\n", 0.55)
+        self.assertFalse(ctx.outputs["density"]["adjusted"])
+        ctx = types.SimpleNamespace(metrics={}, outputs={})
+        self.assertIsNone(record_density(ctx, "", 0.55))  # nothing reported: nothing recorded, not a guess
+        self.assertEqual((ctx.metrics, ctx.outputs), ({}, {}))
+
     def test_blockages_are_checked_and_scores_rank_hotspots(self):
         from sipath import scores
         from sipath.steps.place import placement_blockages

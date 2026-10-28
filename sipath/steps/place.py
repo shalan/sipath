@@ -1,12 +1,17 @@
 """Steps ``place`` (global and detailed placement with repair) and ``cts``."""
 from __future__ import annotations
 
+import logging
+import re
+
 from ..harness import CHANNEL_ROW
 from ..tools.openroad import heatmap as heatmaps
 from ..tools.openroad.ops import db, place as place_ops
 from ..tools.openroad.tcl import tcl_words
 from .common import check_placement, clock_nets, reconnect_supplies, reports, routability_check, tie_max_fanout
 from .structure import cluster_spread, compact_cluster, datapath_check, enforce_fences, fence_violations, reabut_all
+
+log = logging.getLogger("sipath")
 
 
 def _along(path: list[tuple[int, int]], dist: float) -> tuple[int, int]:
@@ -118,6 +123,22 @@ def remove_placement_blockages(s) -> None:
     place_ops.remove_recorded_blockages(s)
 
 
+def record_density(ctx, transcript: str, requested: float) -> float | None:
+    """The target density global placement used (GPL-0023), as ``placement_density``. gpl raises a target
+    below what the free area allows (GPL-0302): every lower density then places alike, so a sweep of them
+    compares identical placements. A raised target is in the outputs (``density``) and logged as a warning."""
+    found = re.findall(r"Placement target density:\s*([0-9.]+)", transcript or "")
+    if not found:
+        return None
+    used = float(found[-1])
+    ctx.metrics["placement_density"] = used
+    ctx.outputs["density"] = {"requested": requested, "used": used, "adjusted": abs(used - requested) > 5e-4}
+    if ctx.outputs["density"]["adjusted"]:
+        log.warning("place: density %s is below what the free area allows; global placement used %s "
+                    "(every density up to %s places alike)", requested, used, used)
+    return used
+
+
 def place(ctx):
     """Timing-driven global placement, repair, detailed placement."""
     d, s, p = ctx.design, ctx.session, ctx.params
@@ -141,8 +162,9 @@ def place(ctx):
         place_ops.place_pins(s, ctx.pdk)
     if d.harness:  # its pin channels are for repair's buffers, not for the logic gpl pulls to the far pins
         ctx.metrics["pin_channel_rows_blocked"] = place_ops.block_pin_channels(s, CHANNEL_ROW)
-    place_ops.global_place(s, p.get("density", 0.55), p.get("seed"), p.get("timing_driven", True),
-                           not fence_groups, p.get("routability_driven", False))
+    out = place_ops.global_place(s, p.get("density", 0.55), p.get("seed"), p.get("timing_driven", True),
+                                 not fence_groups, p.get("routability_driven", False))
+    record_density(ctx, out, p.get("density", 0.55))
     if d.harness:
         place_ops.restore_pin_channels(s)
     clusters = [g for g in d.groups if g.kind == "cluster"]

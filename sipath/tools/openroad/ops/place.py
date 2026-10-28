@@ -25,14 +25,15 @@ def remove_buffers(s):
     s.run("remove_buffers")
 
 
-def global_place_skip_io(s, density: float, seed):
-    """A first global placement ignoring the IO pins (they are placed after it, by the cells)."""
-    s.run(tcl.global_place(density, seed, timing_driven=False) + " -skip_io")
+def global_place_skip_io(s, density: float, seed) -> str:
+    """A first global placement ignoring the IO pins (they are placed after it, by the cells); its transcript."""
+    return s.run(tcl.global_place(density, seed, timing_driven=False) + " -skip_io").output
 
 
-def global_place(s, density: float, seed, timing_driven: bool, keep_resize: bool, routability_driven: bool):
-    s.run(tcl.global_place(density, seed, timing_driven=timing_driven, keep_resize=keep_resize,
-                           routability_driven=routability_driven))
+def global_place(s, density: float, seed, timing_driven: bool, keep_resize: bool, routability_driven: bool) -> str:
+    """Global placement; its transcript (the target density gpl used is in it)."""
+    return s.run(tcl.global_place(density, seed, timing_driven=timing_driven, keep_resize=keep_resize,
+                                  routability_driven=routability_driven)).output
 
 
 def place_pins(s, pdk):
