@@ -26,7 +26,9 @@ import records  # noqa: E402
 ROOT = oc.ROOT
 OUT = os.path.join(ROOT, "runs", "bench_strategy")
 EX = os.path.join(ROOT, "sipath", "examples")
-DENSITIES = {"gcd8_crowded": [0.65, 0.7], "dp8": [0.45, 0.7], "aes": [0.5, 0.6]}
+# gcd8_crowded: above 0.87, the least density its free area allows (gpl raised 0.65, 0.7 and its default 0.8
+# to 0.87, so the sweep compared one placement three times)
+DENSITIES = {"gcd8_crowded": [0.9, 0.95], "dp8": [0.45, 0.7], "aes": [0.5, 0.6]}
 SOURCE: dict = {}  # records.archive_source() at the start of main
 
 
@@ -102,6 +104,20 @@ def core_seconds(run_dir: str) -> float | None:
     return round(total, 1)
 
 
+def place_densities(run_dir: str) -> dict:
+    """{place attempt: the target density global placement used} (the attempt's ``density`` output; older
+    runs did not record it), and which attempts placed at the same density: their variants did not differ."""
+    with open(os.path.join(run_dir, "graph.json")) as f:
+        g = json.load(f)
+    used = {a["id"]: ((a.get("outputs") or {}).get("density") or {}).get("used")
+            for a in g["attempts"] if a["step"].split("@")[0] == "place"}
+    alike: dict = {}
+    for a, v in used.items():
+        if v is not None:
+            alike.setdefault(v, []).append(a)
+    return {"used": used, "alike": [sorted(x) for x in alike.values() if len(x) > 1]}
+
+
 def tool_seconds(run_dir: str) -> float:
     with open(os.path.join(run_dir, "graph.json")) as f:
         g = json.load(f)
@@ -138,6 +154,9 @@ def run(name: str, strategy: str, repeat: int) -> dict:
                                   source_snapshot=SOURCE)
     m = rec["metrics"]
     m.update(exit=rc, wall_s=wall, core_seconds=core_seconds(run_dir), tool_seconds=tool_seconds(run_dir))
+    rec["place_densities"] = place_densities(run_dir)
+    for alike in rec["place_densities"]["alike"]:
+        print(f"{name} {strategy} r{repeat}: placed at the same density: {', '.join(alike)}", flush=True)
     # the run's own execution status decides, not its exit code: a run that completed and failed verification
     # exits 1 and is measured like any other (its verdict is the record's verification)
     execution = (rec.get("verification") or {}).get("execution")

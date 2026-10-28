@@ -3456,6 +3456,20 @@ class BenchmarkRobustness(unittest.TestCase):
             self.assertEqual(r["verification"]["verification"], "failed")  # ... and its verdict says so
             self.assertEqual(r["metrics"]["wns_tt_ns"], 1.0)  # measured
 
+    def test_records_name_placements_at_the_same_density(self):
+        import strategy_compare as sc
+        with tempfile.TemporaryDirectory() as td:
+            place = lambda i, step, used: {"id": i, "step": step, "outputs": {"density": {"used": used}}}  # noqa: E731
+            _write_json(os.path.join(td, "graph.json"), {"attempts": [
+                place("place.0", "place", 0.87), place("place.1", "place", 0.87), place("place.2", "place", 0.9),
+                place("place@cts.0", "place@cts", 0.87), {"id": "place.3", "step": "place", "outputs": {}},
+                {"id": "cts.0", "step": "cts", "outputs": {"density": {"used": 0.5}}}]})
+            r = sc.place_densities(td)
+            self.assertEqual(r["used"], {"place.0": 0.87, "place.1": 0.87, "place.2": 0.9, "place@cts.0": 0.87,
+                                         "place.3": None})
+            self.assertEqual(r["alike"], [["place.0", "place.1", "place@cts.0"]])
+        self.assertTrue(all(x > 0.87 for x in sc.DENSITIES["gcd8_crowded"]))  # above what gpl raises them to
+
     def test_the_driver_exits_nonzero_when_a_run_did_not_complete(self):
         from unittest import mock
         import strategy_compare as sc
