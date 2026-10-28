@@ -423,6 +423,56 @@ def min_area_repair(ctx, tag: str = "route") -> dict:
         ctx.outputs[f"{tag}_min_area_refused"] = r["refused"]
     return r
 
+def insert_fillers(ctx, cells=None) -> dict:
+    """Filler cells into the empty sites (``cells``, default the PDK's fill list, decaps first); then, for each
+    layer the PDK caps (``cells.fill_max_density``), decaps evenly spread over the rows become fill cells until
+    the cells cover at most the cap of the die. Decaps draw much more of such a layer than logic does (sky130
+    hd li1: decap_12 90%, logic about 50%, fill_1 6%), so a die left mostly empty after repair and filled with
+    decaps fails the density deck. A decap swapped out leaves its sites to the fill cells that draw the layer
+    below the cap. The cover is the cell LEFs' (pins and obstructions); instances of masters
+    the LEFs do not describe (hard macros) count as none. ``fillers`` output, ``cell_density_<layer>``."""
+    from .. import lef
+    s, pdk = ctx.session, ctx.pdk
+    fill = list(cells or pdk.fill_cells)
+    route_ops.insert_fillers(s, pdk, fill)
+    out = {}
+    for layer, cap in (pdk.fill_max_density or {}).items():
+        cover = lef.layer_cover(tuple(pdk.cell_lefs), layer)
+        x0, y0, x1, y1 = db.die_box(s)
+        die = (x1 - x0) * (y1 - y0) / db.dbu(s) ** 2
+
+        def density():
+            return sum(n * cover[m][0] * cover[m][1] for m, n in route_ops.master_counts(s).items() if m in cover) / die
+        before = after = density()
+        low = [c for c in fill if c in cover and cover[c][1] < cap]  # what may replace a decap
+        high = [c for c in fill if c in cover and c not in low]
+        replaced = 0
+        for _ in range(3):  # each pass removes about what the excess needs; rounding may leave a little
+            if after <= cap or not low or not high:
+                break
+            insts = route_ops.instances_of(s, high)
+            f_low = max(cover[c][1] for c in low)  # a gap refilled draws at most this
+            gain = sum(cover[m][0] * (cover[m][1] - f_low) for _, m in insts)
+            if gain <= 0:
+                break
+            share, acc, picked = min(1.0, (after - cap) * die / gain * 1.02), 0.0, []
+            for name, _ in insts:  # by row, then x: every k-th, an even spread
+                acc += share
+                if acc >= 1.0:
+                    acc -= 1.0
+                    picked.append(name)
+            if not picked:
+                picked = [insts[0][0]]
+            route_ops.replace_with_fill(s, picked, low)
+            replaced += len(picked)
+            after = density()
+        out[layer] = {"cap": cap, "before": round(before, 4), "after": round(after, 4), "decaps_replaced": replaced,
+                      "met": after <= cap}
+        ctx.metrics[f"cell_density_{layer}"] = round(after, 4)
+    if out:
+        ctx.outputs["fillers"] = out
+    return out
+
 def run_rcx(ctx, spef: str, def_out: str | None = None, tag: str = "rcx") -> int:
     """OpenRCX (all corners) without losing routing: extraction re-orders each
     net's wire and drops its patches (the router's minimum-area RECTs among

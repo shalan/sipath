@@ -108,11 +108,6 @@ def remove_fillers(s):
     s.run("remove_fillers")
 
 
-def fill(s, pdk):
-    """The PDK's filler cells into the gaps (tcl.filler)."""
-    s.run(tcl.filler(pdk))
-
-
 def route_all_digital(s, drc: str, iters: int):
     """Global and detailed route of every digital net (tcl.route_digital); the result carries the transcript."""
     return s.run(tcl.route_digital(drc, iters))  # config.command_timeout

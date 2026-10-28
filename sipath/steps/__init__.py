@@ -35,6 +35,7 @@ from .common import (  # noqa: F401
     min_area_repair,
     run_rcx,
     reconnect_supplies,
+    insert_fillers,
 )
 from .structure import (  # noqa: F401
     _snap_box,

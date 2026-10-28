@@ -124,7 +124,7 @@ def run_eco(ctx):
 
     ctx.outputs.update(patch_route(ctx, touched, sig0, analog_before, max_patch, p.get("iters", 64),
                                    p.get("max_drc", 0)))
-    eco_ops.fill(s, ctx.pdk)
+    steps.insert_fillers(ctx)
     steps.check_placement(ctx)
     steps.extract(ctx)
     for f in (pre_v, post_v):

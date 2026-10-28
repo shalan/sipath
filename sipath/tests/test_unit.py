@@ -2130,6 +2130,26 @@ Xd VSS VSS VDD VDD X__decap_4
         self.assertEqual(lef_macros(lef), {"PAD": ["A", "B", "C"]})  # A declared twice, listed once
         self.assertEqual(lef_pin_shorts(lef, "PAD"), {"B": "A"})  # touching on met3; C is on met4
 
+    def test_lef_layer_cover(self):
+        from sipath.lef import layer_cover
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d)
+        lef = os.path.join(d, "c.lef")
+        with open(lef, "w") as fh:
+            fh.write("MACRO DECAP\n  ORIGIN 1 0 ;\n  SIZE 4 BY 2 ;\n"
+                     "  PIN A\n    PORT\n      LAYER li1 ;\n        RECT -1 0 1 2 ;\n      LAYER met1 ;\n"
+                     "        RECT 1 0 9 2 ;\n    END\n  END A\n"  # x moved by ORIGIN: li1 0..2, met1 2..10
+                     "  OBS\n    LAYER li1 ;\n      RECT MASK 1 0 0 2 1 ;\n      RECT 2 0 9 1 ;\n  END\n"  # 1..3, 3..5 cut at 4
+                     "END DECAP\n"
+                     "MACRO POLY\n  SIZE 1 BY 1 ;\n  OBS\n    LAYER li1 ;\n      POLYGON 0 0 1 0 0 1 ;\n  END\nEND POLY\n"
+                     "MACRO EMPTY\n  SIZE 2 BY 1 ;\nEND EMPTY\n")
+        cover = layer_cover((lef,), "li1")
+        # li1: 0..2 x 0..2 (pin) + 1..4 x 0..1 (obstructions, the overlap once) = 4 + 2 of 8
+        self.assertEqual(cover["DECAP"], (8.0, 0.75))
+        self.assertEqual(cover["EMPTY"], (2.0, 0.0))
+        self.assertNotIn("POLY", cover)  # a polygon: not guessed
+        self.assertEqual(layer_cover((lef,), "met1")["DECAP"], (8.0, 0.5))  # clipped to the box
+
     def test_lef_macro_and_blackbox_policy(self):
         from sipath.signoff import lef_macro, lvs
         d = tempfile.mkdtemp()
@@ -4708,6 +4728,60 @@ class Adaptive(unittest.TestCase):
         ctx = types.SimpleNamespace(metrics={}, outputs={})
         self.assertIsNone(record_density(ctx, "", 0.55))  # nothing reported: nothing recorded, not a guess
         self.assertEqual((ctx.metrics, ctx.outputs), ({}, {}))
+
+    def test_fillers_swap_decaps_until_the_layer_cap_holds(self):
+        import types
+        from unittest import mock
+        from sipath.steps import common
+        cover = {"DECAP": (2.0, 0.9), "FILL": (1.0, 0.06), "LOGIC": (1.0, 0.5)}
+        state = {}
+
+        def run(cap, logic, decaps, fill=None):
+            # a die of 100 um2: logic cells, the rest decaps; a removed decap leaves two fill sites
+            state.update(counts={"LOGIC": logic, "DECAP": decaps, "FILL": 0, "MACRO": 1}, calls=[])
+            ctx = types.SimpleNamespace(session=None, metrics={}, outputs={}, pdk=types.SimpleNamespace(
+                fill_cells=["DECAP", "FILL"], cell_lefs=["x.lef"], fill_max_density={"li1": cap} if cap else {}))
+
+            def insert(s, pdk, cells):
+                state["calls"].append(list(cells))
+
+            def swap(s, names, cells):
+                state["calls"].append(list(cells))
+                state["removed"] = state.get("removed", []) + list(names)
+                state["counts"]["DECAP"] -= len(names)
+                state["counts"]["FILL"] += 2 * len(names)
+                return 2 * len(names)
+            insts = lambda s, masters: [(f"d{i}", "DECAP") for i in range(state["counts"]["DECAP"])]  # noqa: E731
+            with mock.patch.object(common.route_ops, "insert_fillers", insert), \
+                    mock.patch.object(common.route_ops, "master_counts", lambda s: dict(state["counts"])), \
+                    mock.patch.object(common.route_ops, "instances_of", insts), \
+                    mock.patch.object(common.route_ops, "replace_with_fill", swap), \
+                    mock.patch.object(common.db, "die_box", lambda s: (0, 0, 10000, 10000)), \
+                    mock.patch.object(common.db, "dbu", lambda s: 1000), \
+                    mock.patch("sipath.lef.layer_cover", lambda paths, layer: cover):
+                return common.insert_fillers(ctx, fill), ctx
+        # 40 um2 of logic (li1 20) and 30 decaps (60 um2, li1 54): 0.74 of the die
+        r, ctx = run(0.58, 40, 30)
+        self.assertEqual((r["li1"]["before"], r["li1"]["met"]), (0.74, True))
+        self.assertLessEqual(r["li1"]["after"], 0.58)
+        self.assertEqual(ctx.metrics["cell_density_li1"], r["li1"]["after"])
+        self.assertEqual(r["li1"]["decaps_replaced"], 30 - state["counts"]["DECAP"])
+        self.assertGreater(state["counts"]["DECAP"], 0)  # only what the cap needs, not every decap
+        self.assertEqual(state["calls"][0], ["DECAP", "FILL"])  # decaps first, then only the fill cells
+        self.assertTrue(all(c == ["FILL"] for c in state["calls"][1:]))
+        picked = [int(n[1:]) for n in state["removed"]]  # spread over the rows, not the first ones
+        self.assertGreater(max(picked) - min(picked), 15)
+        r, ctx = run(0.58, 70, 10)  # li1 35 + 18 of 100: under the cap already, nothing changes
+        self.assertEqual((r["li1"]["decaps_replaced"], len(state["calls"])), (0, 1))
+        r, ctx = run(None, 40, 30)  # a PDK without a cap: fillers only
+        self.assertEqual((r, ctx.outputs, len(state["calls"])), ({}, {}, 1))
+        r, ctx = run(0.3, 40, 30, fill=["DECAP"])  # no fill cell to swap in: reported, not met
+        self.assertEqual((r["li1"]["decaps_replaced"], r["li1"]["met"]), (0, False))
+        from sipath.pdk import _fill_max_density
+        self.assertEqual(_fill_max_density("p", {"li1": 0.58}), {"li1": 0.58})
+        for bad in (0, 1.5, True, "0.5"):
+            with self.assertRaises(ValueError):
+                _fill_max_density("p", {"li1": bad})
 
     def test_blockages_are_checked_and_scores_rank_hotspots(self):
         from sipath import scores

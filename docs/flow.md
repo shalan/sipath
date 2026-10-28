@@ -191,7 +191,9 @@ capabilities in `graph.json`.
 - `route_repair`: RCX; `repair_timing` (resize only, so structural equivalence
   is checked; hold buffers separately); re-route of the changed nets
   (`eco.patch_route`, a full re-route past a quarter of the nets); RCX again,
-  at most two rounds; fillers. `drv_sizing: true` (off by default; on in the
+  at most two rounds; fillers, decaps swapped for fill cells past the PDK's
+  layer cap (`cell_density_<layer>`, [PDKs](pdks-and-runtimes.md#pdks)).
+  `drv_sizing: true` (off by default; on in the
   OpenFrame example and template) also sizes up, on extracted parasitics, the
   drivers of nets whose standard cells see slew or capacitance violations, then
   legalizes, patch-routes and extracts: placement estimates miss some local

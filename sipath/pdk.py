@@ -90,6 +90,7 @@ class Pdk:
     step_defaults: dict = field(default_factory=dict)  # {step: {param: value}} (sipath.params)
     pin_layers: tuple = ()  # (horizontal, vertical) layers for automatic pin placement
     synth_buffer: tuple = ()  # (cell, input pin, output pin) for synthesis
+    fill_max_density: dict = field(default_factory=dict)  # {layer: most of the die the cells may cover}
 
     @property
     def cell_lefs(self) -> list[str]:
@@ -358,6 +359,16 @@ PDK_KEYS = {"name", "description", "extends", "vars", "tech_lef", "cell_lef", "l
             "repair_margins", "step_defaults", "signoff", "release"}
 
 
+def _fill_max_density(name, caps) -> dict:
+    """cells.fill_max_density: {layer: a share of the die in (0, 1]}."""
+    out = {}
+    for layer, v in (caps or {}).items():
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not 0 < v <= 1:
+            raise ValueError(f"PDK {name}: cells.fill_max_density.{layer} must be a share in (0, 1], not {v!r}")
+        out[str(layer)] = float(v)
+    return out
+
+
 def from_dict(data: dict, env: dict, source: str = "") -> Pdk:  # noqa: C901
     unknown = sorted(set(data) - PDK_KEYS)
     if unknown:
@@ -455,6 +466,7 @@ def from_dict(data: dict, env: dict, source: str = "") -> Pdk:  # noqa: C901
         step_defaults=dict(data.get("step_defaults") or {}),
         pin_layers=tuple(route.get("pin_layers") or ()),
         synth_buffer=tuple(cells.get("synth_buffer") or ()),
+        fill_max_density=_fill_max_density(data.get("name"), cells.get("fill_max_density")),
     )
     from . import params
     params.check_defaults(f"PDK {pdk.name}", pdk.step_defaults)

@@ -3,7 +3,7 @@ antennas, extraction, fillers."""
 from __future__ import annotations
 
 from .. import tcl
-from ..tcl import q
+from ..tcl import q, qlist, tcl_words
 
 
 def set_routing_layers(s, design, pdk, margin: float = 0.0):
@@ -85,3 +85,58 @@ def rcx(s, pdk, spef: str):
 
 def insert_fillers(s, pdk, fillers):
     s.run(tcl.filler(pdk, fillers))
+
+
+def master_counts(s) -> dict[str, int]:
+    """{master: instances of it} in the block."""
+    w = tcl_words(s.value("set __c [dict create]\nforeach __i [[ord::get_db_block] getInsts] "
+                          "{ dict incr __c [[$__i getMaster] getName] }\nset __c"))
+    return {w[i]: int(w[i + 1]) for i in range(0, len(w), 2)}
+
+
+def instances_of(s, masters) -> list[tuple[str, str]]:
+    """(instance, master) of the block's instances of ``masters``, by row (y) then x."""
+    w = tcl_words(s.value(f"""set __o {{}}
+foreach __i [[ord::get_db_block] getInsts] {{
+  set __m [[$__i getMaster] getName]
+  if {{$__m ni {qlist(masters)}}} continue
+  lassign [$__i getLocation] __x __y
+  lappend __o [list $__y $__x [$__i getName] $__m]
+}}
+join [lmap __r [lsort -integer -index 0 [lsort -integer -index 1 $__o]] {{lrange $__r 2 3}}]"""))
+    return [(w[i], w[i + 1]) for i in range(0, len(w), 2)]
+
+
+def replace_with_fill(s, names, cells) -> int:
+    """Each instance of ``names`` replaced by ``cells`` (fill cells) tiling its sites: same row, orientation
+    and placement status, widest first. In the database directly: filler_placement keeps the site map of its
+    first call in a process and fills no gap made after it. Returns the cells created."""
+    return int(s.value(f"""set __blk [ord::get_db_block]
+set __ms {{}}
+foreach __c {qlist(cells)} {{
+  set __m [[ord::get_db] findMaster $__c]
+  if {{$__m ne "NULL"}} {{ lappend __ms [list [$__m getWidth] $__m] }}
+}}
+set __ms [lsort -integer -decreasing -index 0 $__ms]
+if {{![info exists ::flow_fill_swap]}} {{ set ::flow_fill_swap 0 }}
+set __made 0
+foreach __n {qlist(names)} {{
+  set __i [$__blk findInst $__n]
+  set __b [$__i getBBox]
+  set __x [$__b xMin]; set __y [$__b yMin]; set __end [$__b xMax]
+  set __o [$__i getOrient]; set __st [$__i getPlacementStatus]
+  odb::dbInst_destroy $__i
+  while {{$__x < $__end}} {{
+    set __fit {{}}
+    foreach __mw $__ms {{ if {{$__x + [lindex $__mw 0] <= $__end}} {{ set __fit $__mw; break }} }}
+    if {{$__fit eq {{}}}} {{ error "no fill cell fits the [expr {{$__end - $__x}}] DBU left of $__n" }}
+    while {{[$__blk findInst "FILLER_SWAP_[incr ::flow_fill_swap]"] ne "NULL"}} {{}}
+    set __f [odb::dbInst_create $__blk [lindex $__fit 1] "FILLER_SWAP_$::flow_fill_swap"]
+    $__f setOrient $__o
+    $__f setLocation $__x $__y
+    $__f setPlacementStatus $__st
+    set __x [expr {{$__x + [lindex $__fit 0]}}]
+    incr __made
+  }}
+}}
+set __made"""))

@@ -7,7 +7,7 @@ import re
 from .. import analog
 from ..tools.openroad import heatmap as heatmaps
 from ..tools.openroad.ops import place as place_ops, route as route_ops
-from .common import _check_unrouted, _drt_numbers, _global_route, _timing_gate, antenna_loop, check_antennas, check_placement, min_area_repair, ppa_summary, reconnect_supplies, reports, run_rcx
+from .common import _check_unrouted, _drt_numbers, _global_route, _timing_gate, antenna_loop, check_antennas, check_placement, insert_fillers, min_area_repair, ppa_summary, reconnect_supplies, reports, run_rcx
 from .structure import datapath_check, enforce_fences, fence_violations, reabut_all
 
 
@@ -107,7 +107,7 @@ def route_repair(ctx):
     if ctx.metrics["antenna_violations"] > p.get("max_antenna", 0):
         raise RuntimeError(f"{ctx.metrics['antenna_violations']} antenna violations after post-route repair")
     min_area_repair(ctx, "repair")
-    route_ops.insert_fillers(s, ctx.pdk, p.get("fillers"))
+    insert_fillers(ctx, p.get("fillers"))
     check_placement(ctx)
     _timing_gate(ctx)
     reports(ctx, "repair")

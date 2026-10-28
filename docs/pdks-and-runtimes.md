@@ -44,6 +44,15 @@ mounted into the container.
   CTS clkbuf_2/4/8 with a clkbuf_16 root; decap and fill cells; met4/met5
   straps (153.6/153.18 µm) and core ring; repair margins (setup 0.025 ns, hold
   0.1 ns after placement and CTS, 0.05 ns after global route).
+- **Decaps against the li1 density rule.** Fillers go in decaps first, and a
+  decap covers 80–90% of its area with li1 (logic about 50%, fill cells 6%),
+  while the density deck's `li1.pd.1d` wants at least 40% of the die clear of
+  li1. `cells.fill_max_density: {li1: 0.58}` caps what the cells may cover
+  (0.02 left for li1 outside them): past it, decaps spread evenly over the
+  rows become fill cells until it holds. The cover is read from the cell LEFs,
+  which match the GDS to 0.1% on the cells the flow places. aes at 6.5 ns,
+  half its die decaps after repair, covered 66.8% and failed the deck; with
+  the cap, 2,641 of 12,291 decaps become fill cells and the cells cover 57.8%.
 - **Excluded cells.** Each Sky130 description reads the PDK's
   `drc_exclude.cells` (53 hd, 51 hs cells: all `lpflow`, some drives,
   `xor3`/`xnor3`, `mux4_4`, `fa_4`, ...). Sizing, buffering and CTS cannot
