@@ -1185,6 +1185,7 @@ class Flow:
             # step_defaults, then the declared default); the attempt records the variant
             ctx = Ctx(session, self.design, self.pdk, params, a.dir, a.parent, a, config=self.config,
                       threads=threads, processes=_Processes(self, a.id))
+            a.outputs = ctx.outputs  # preserve diagnostic artifacts even if the step/process fails
             fn(ctx)
             self._check_budget_stop(a)
             t1 = mark("step", t1)

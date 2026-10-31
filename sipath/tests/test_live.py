@@ -1592,3 +1592,39 @@ class LiveOpenFrameUart(unittest.TestCase):
         self.assertIn("lvs", pc["passed"])
         self.assertTrue(f.result("integrate").metrics["chip_check_pass"])
         _check_limits(self, wd, "openframe_uart")
+
+
+@LIVE
+class LiveCrashBundle(unittest.TestCase):
+    def test_native_exit_keeps_bundle_and_replay_rebuilds_router_state(self):
+        from pathlib import Path
+        from sipath import designfile
+        from sipath.examples import dp8
+        from sipath.tools.openroad.ops import route as route_ops
+        from sipath.steps.route import route_digital
+        wd = _workdir('crash_bundle')
+        if not KEEP:
+            self.addCleanup(_rmtree, wd)
+        f = designfile.run(dp8.make_design(), wd, RUNNER, flow_steps=[
+            {'step': name} for name in ('floorplan', 'physical', 'place', 'cts', 'route_analog')])
+        parent = f.steps['route_analog'].selected
+        def native_exit(s, pdk):
+            s.run('exit 99')  # real process death after the bundle, no failure-time write_db possible
+        with unittest.mock.patch.object(route_ops, 'repair_on_global_routes', native_exit):
+            with self.assertRaises(StepFailed):
+                f.step('route_digital', route_digital, parent=parent, variants=[{'heatmaps': []}])
+        a = f.attempts[-1]
+        self.assertIn('SessionDied', a.error)
+        self.assertIsNone(a.checkpoint)
+        manifest_path = Path(a.outputs['pre_repair_bundle'])
+        m = _read_json(str(manifest_path))
+        self.assertEqual(m['status'], 'complete')
+        root = manifest_path.parent
+        hashes = {p.name: p.read_bytes() for p in root.iterdir() if p.is_file()}
+        # Fresh OpenROAD process executes the saved script, including actual repair.
+        replay_dir = os.path.join(wd, 'replay-session')
+        with OpenRoadSession(replay_dir, RUNNER, timeout=600) as s:
+            s.run(f'source {tcl.q(str(root / "replay.tcl"))}')
+            self.assertGreater(int(s.value('llength [[ord::get_db_block] getInsts]')), 0)
+            self.assertTrue(s.value('set ::sipath_replay_dir').startswith(str(root)))
+        self.assertEqual(hashes, {p.name: p.read_bytes() for p in root.iterdir() if p.is_file()})

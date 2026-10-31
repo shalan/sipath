@@ -6198,3 +6198,87 @@ class ThreadReproComparison(unittest.TestCase):
                      mock.patch.object(designfile, "run", return_value=flow):
                     self.assertEqual(thread_repro.run_one("design.yaml", "run", 2), verdict.exit_code(v))
                 flow.close.assert_called_once()
+
+
+class CrashBundles(unittest.TestCase):
+    def test_replay_preserves_error_policy_and_redirects_outputs(self):
+        """Execute generated replay Tcl, including names that need Tcl quoting."""
+        from pathlib import Path
+        from sipath.tools.openroad.forensics import replay_script
+        import subprocess
+        if not shutil.which('tclsh'):
+            self.skipTest('tclsh unavailable')
+        for prefix in ('replay [test] ', 'replay [test] } '):
+            with tempfile.TemporaryDirectory(prefix=prefix) as td:
+                old = str(Path(td) / 'attempt')
+                Path(old).mkdir()
+                original = Path(old) / 'output.txt'
+                original.write_text('original')
+                history = [{'script': 'error expected', 'check': False},
+                           {'script': f'set f [open {tcl.q(str(original))} w]; puts $f replay; close $f', 'check': True},
+                           {'script': 'error STOP_HERE', 'check': True},
+                           {'script': f'file delete {tcl.q(str(original))}', 'check': True}]
+                script = Path(td) / 'replay.tcl'
+                script.write_text('proc set_thread_count {n} {}\n' + replay_script(history, old, 2))
+                p = subprocess.run(['tclsh', str(script)], capture_output=True, text=True)
+                self.assertNotEqual(p.returncode, 0)
+                self.assertIn('STOP_HERE', p.stderr)
+                self.assertEqual(original.read_text(), 'original')
+                outputs = list(Path(td).glob('replay-*/output.txt'))
+                self.assertEqual(len(outputs), 1)
+                self.assertEqual(outputs[0].read_text(), 'replay\n')
+
+    def test_bundle_survives_session_death_and_is_not_selectable(self):
+        from pathlib import Path
+        from sipath.tools.openroad.forensics import pre_repair_bundle
+        from sipath.session import SessionDied
+
+        class Exports(FakeSession):
+            def run(self, script, **kw):
+                r = super().run(script, **kw)
+                if script.startswith(('write_sdc ', 'write_guides ')):
+                    Path(tcl.tcl_words(script)[1]).write_text('FAKE inspection artifact\n')
+                return r
+
+        for missing in (False, True):
+            with self.subTest(missing_export=missing), tempfile.TemporaryDirectory() as td:
+                factory = (lambda w: FakeSession(w)) if missing else (lambda w: Exports(w))
+                d = Design('fake', 'fake', 'x.v', 'x.sdc', 'macro', floorplan_def='x.def')
+                f = Flow(d, sky130hd('/p'), td, factory, validate_inputs=False)
+                parent = f.step('parent', demo.fake_step()).selected
+                def fail(ctx):
+                    pre_repair_bundle(ctx, 'repair_design')
+                    raise SessionDied('simulated native crash')
+                with self.assertRaises(StepFailed):
+                    f.step('crash', fail, parent=parent)
+                a = f.attempts[-1]
+                manifest = _read_json(a.outputs['pre_repair_bundle'])
+                self.assertEqual(manifest['status'], 'incomplete' if missing else 'complete')
+                self.assertIsNone(a.checkpoint)
+                self.assertEqual(manifest['parent_checkpoint'], parent.checkpoint)
+                if not missing:
+                    self.assertIn('before.odb', manifest['files'])
+                    self.assertIn('before.guide', manifest['files'])
+                    self.assertIn('simulated native crash', a.error)
+                else:
+                    self.assertIn('write_sdc produced no nonempty artifact', a.error)
+                g = _read_json(os.path.join(td, 'graph.json'))
+                self.assertEqual(g['attempts'][-1]['outputs']['pre_repair_bundle'], a.outputs['pre_repair_bundle'])
+                with self.assertRaises(ValueError):
+                    f.step('next', demo.fake_step(), parent=a)
+
+    def test_route_bundle_can_be_disabled(self):
+        from sipath.steps.route import route_digital
+        from sipath.tools.openroad import forensics
+        ctx = types.SimpleNamespace(params={'crash_bundle': False, 'pin_access': False},
+                                    design=types.SimpleNamespace(analog_nets=[], analog_supplies=[]),
+                                    session=object(), pdk=object(), path=lambda x: x)
+        with unittest.mock.patch('sipath.steps.route.heatmaps.schedule'), \
+             unittest.mock.patch('sipath.steps.route.route_ops.set_routing_layers'), \
+             unittest.mock.patch('sipath.steps.route.route_ops.global_route_digital'), \
+             unittest.mock.patch('sipath.steps.route._global_route'), \
+             unittest.mock.patch.object(forensics, 'pre_repair_bundle') as bundle, \
+             unittest.mock.patch('sipath.steps.route.route_ops.repair_on_global_routes', side_effect=RuntimeError('stop')):
+            with self.assertRaisesRegex(RuntimeError, 'stop'):
+                route_digital(ctx)
+            bundle.assert_not_called()

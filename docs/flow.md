@@ -188,6 +188,30 @@ capabilities in `graph.json`.
 - `route_digital`: global route; repair on global-route parasitics in
   incremental mode; `repair_antennas`; detailed route; `check_antennas` and up
   to three antenna repair rounds; RCX to rank the variants (`drc_then_slack`).
+  Before the post-global-route repair, `crash_bundle: true` (default) saves
+  `debug/pre-grt-repair/` inside the attempt directory. This contains an ODB,
+  current SDC, routing guides, `repair.tcl`, a command journal, `replay.tcl`
+  and a manifest with artifact hashes, resolved parameters, runtime and parent
+  checkpoint. `outputs.pre_repair_bundle` links the manifest from `graph.json`,
+  including after a native crash. These are **diagnostic artifacts**, never
+  selectable checkpoints or evidence that routing passed. Set `crash_bundle: false` on `route_digital` to avoid the extra disk writes; no bundle is made
+  when `repair_after_grt: false`. An export failure marks the bundle incomplete
+  and stops the attempt before repair.
+
+  Run `openroad -no_init -exit /absolute/path/to/replay.tcl` with the recorded
+  tool build and the original input paths/mounts. Replay reloads the preceding
+  checkpoint and repeats this attempt's commands through repair, rebuilding
+  the router's in-memory state. It does **not** restore a process from the ODB
+  and guides, and does not rerun earlier placement/CTS steps. Attempt output
+  paths are redirected to a fresh `replay-*` directory beside the script;
+  unchecked Tcl errors keep their original error policy. Inputs and the parent
+  checkpoint must remain available and unchanged. The snapshots are for
+  inspection; this is a local reproduction aid, not a portable/minimized
+  reproducer. Review commands from custom plugins for external side effects
+  before replay. Bundles contain design data and local paths and are never
+  uploaded automatically. Existing `debug_failed` remains a separate,
+  best-effort database export **after** an error if OpenROAD is still alive.
+
 - `route_repair`: RCX; `repair_timing` (resize only, so structural equivalence
   is checked; hold buffers separately); re-route of the changed nets
   (`eco.patch_route`, a full re-route past a quarter of the nets); RCX again,
