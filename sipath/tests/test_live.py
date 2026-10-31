@@ -216,40 +216,6 @@ def tcl_words_nested(text):
 class OpenRoad(unittest.TestCase):
     """A live process: reads a LEF, answers Tcl, raises on Tcl errors."""
 
-    def test_result_write_failure_fails_fast(self):
-        import time as _t
-        from sipath.session import SessionDied
-        wd = _workdir("werr")
-        if not KEEP:
-            self.addCleanup(_rmtree, wd)
-        with OpenRoadSession(wd, RUNNER, timeout=120) as s:
-            t0 = _t.time()
-            with self.assertRaises(SessionDied) as cm:  # the wrapper cannot open its result file
-                s.run("rename open ::__no_open; proc open {args} { error {open is broken} }")
-            self.assertLess(_t.time() - t0, 60)
-            self.assertIn("open is broken", str(cm.exception))
-
-    def test_reads_lef_in_live_process(self):
-        pdk = sky130hd(RUNNER.platform_root())
-        wd = _workdir("lef")
-        if not KEEP:
-            self.addCleanup(_rmtree, wd)
-        with OpenRoadSession(wd, RUNNER) as s:
-            s.run(f"read_lef {tcl.q(pdk.tech_lef)}\nread_lef {tcl.q(pdk.cell_lef)}")
-            self.assertGreater(int(s.value("llength [[ord::get_db] getLibs]")), 0)
-            n = int(s.value("set n 0; foreach l [[ord::get_db] getLibs] { incr n [llength [$l getMasters]] }; set n"))
-            self.assertGreater(n, 400)
-            with self.assertRaises(TclError):
-                s.run("read_lef /does/not/exist.lef")
-            big = s.value("set o {}; for {set i 0} {$i < 20000} {incr i} { lappend o $i }; set o")
-            self.assertEqual(big, " ".join(map(str, range(20000))))
-            from sipath.tclquote import q
-            for v in TCL_NASTY:  # what Tcl stores is exactly the Python value
-                self.assertEqual(s.value(f"set x {q(v)}; set x"), v)
-            with self.assertRaises(TclError):
-                s.run("break")
-            self.assertEqual(s.value("return 7"), "7")  # return is a normal completion
-
     def test_macro_hpwl_counts_shared_net_once(self):
         """Use public net names and count a multi-pin, multi-macro net once."""
         from sipath import chip
@@ -284,6 +250,40 @@ class OpenRoad(unittest.TestCase):
             self.assertEqual(float(s.value("::flow_macro_hpwl {b a a}")), 80.0)
             s.run("[::flow_inst c] setLocation 90000 90000")
             self.assertEqual(float(s.value("::flow_macro_hpwl {a b}")), 80.0)
+
+    def test_result_write_failure_fails_fast(self):
+        import time as _t
+        from sipath.session import SessionDied
+        wd = _workdir("werr")
+        if not KEEP:
+            self.addCleanup(_rmtree, wd)
+        with OpenRoadSession(wd, RUNNER, timeout=120) as s:
+            t0 = _t.time()
+            with self.assertRaises(SessionDied) as cm:  # the wrapper cannot open its result file
+                s.run("rename open ::__no_open; proc open {args} { error {open is broken} }")
+            self.assertLess(_t.time() - t0, 60)
+            self.assertIn("open is broken", str(cm.exception))
+
+    def test_reads_lef_in_live_process(self):
+        pdk = sky130hd(RUNNER.platform_root())
+        wd = _workdir("lef")
+        if not KEEP:
+            self.addCleanup(_rmtree, wd)
+        with OpenRoadSession(wd, RUNNER) as s:
+            s.run(f"read_lef {tcl.q(pdk.tech_lef)}\nread_lef {tcl.q(pdk.cell_lef)}")
+            self.assertGreater(int(s.value("llength [[ord::get_db] getLibs]")), 0)
+            n = int(s.value("set n 0; foreach l [[ord::get_db] getLibs] { incr n [llength [$l getMasters]] }; set n"))
+            self.assertGreater(n, 400)
+            with self.assertRaises(TclError):
+                s.run("read_lef /does/not/exist.lef")
+            big = s.value("set o {}; for {set i 0} {$i < 20000} {incr i} { lappend o $i }; set o")
+            self.assertEqual(big, " ".join(map(str, range(20000))))
+            from sipath.tclquote import q
+            for v in TCL_NASTY:  # what Tcl stores is exactly the Python value
+                self.assertEqual(s.value(f"set x {q(v)}; set x"), v)
+            with self.assertRaises(TclError):
+                s.run("break")
+            self.assertEqual(s.value("return 7"), "7")  # return is a normal completion
 
     def test_bus_register_names_are_found(self):
         """The database keeps a bus register's name escaped (result\\[0\\]_reg), STA reports print it plain, and
