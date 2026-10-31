@@ -31,6 +31,9 @@ def route_digital(ctx):
     if p.get("repair_after_grt", True):
         # 1.1: repair with global-route parasitics, legalize, then let the global
         # router re-route only what changed (incremental mode)
+        if p.get("crash_bundle", True):
+            from ..tools.openroad.forensics import pre_repair_bundle
+            pre_repair_bundle(ctx, route_ops.global_route_repair_script(ctx.pdk))
         route_ops.repair_on_global_routes(s, ctx.pdk)
         ctx.outputs["reabut_grt"] = reabut_all(ctx)
         place_ops.detailed_placement(s)

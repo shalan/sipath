@@ -335,6 +335,7 @@ Set per attempt in `variants` (design file `flow:` or MCP `run_step`), or as def
 | `antenna_rounds` | int | 3 | 0.. | antenna repair rounds |
 | `max_antenna` | int | 0 | 0.. | antenna violations allowed |
 | `pin_access` | bool | false |  | pin access analysis before global routing, as ORFS (off: with it this OpenROAD build segfaults in a post-route repair_antennas after a re-route, mcu8) |
+| `crash_bundle` | bool | true |  | save a local pre-repair ODB, SDC, guides and replay bundle before post-global-route repair; never a selectable checkpoint |
 | `repair_after_grt` | bool | true |  | repair timing on global-route parasitics, then re-route incrementally |
 | `fail_on_violation` | bool | false |  | fail the attempt when setup or hold is not met after the step |
 | `threads` | int | – | 1.. | OpenROAD threads for this step's attempts (set_thread_count; signoff: also KLayout DRC); unset: the run's threads, shared among the attempts running at once |

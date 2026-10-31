@@ -241,6 +241,8 @@ STEP_PARAMS: dict[str, list[Param]] = {
         Param("max_antenna", "int", 0, "antenna violations allowed", min=0),
         Param("pin_access", "bool", False, "pin access analysis before global routing, as ORFS (off: with it "
               "this OpenROAD build segfaults in a post-route repair_antennas after a re-route, mcu8)"),
+        Param("crash_bundle", "bool", True, "save a local pre-repair ODB, SDC, guides and replay bundle "
+              "before post-global-route repair; never a selectable checkpoint"),
         Param("repair_after_grt", "bool", True, "repair timing on global-route parasitics, then re-route "
               "incrementally"),
         Param("fail_on_violation", "bool", False, _FAIL),
