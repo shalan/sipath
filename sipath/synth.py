@@ -92,10 +92,11 @@ def slang_support(ctx) -> str | None:
         found = None
         for mode, pre in (("slang", ""), ("slang-plugin", "plugin -i slang; ")):
             try:
-                out = yosys.command(ctx, ["-p", f"{pre}help read_slang"], ctx.path(f"probe_{mode}.log"), timeout=300)
+                out = yosys.command(ctx, ["-p", f"{pre}help"], ctx.path(f"probe_{mode}.log"), timeout=300)
             except Exception:
                 continue
-            if "read_slang [options]" in out:
+            # Query the command registry: plugin help prose changes between releases.
+            if re.search(r"^\s*read_slang\s+", out, re.M):
                 found = mode
                 break
         _SLANG[key] = found

@@ -12,6 +12,16 @@ from sipath.steps.common import design_rule_counts
 
 
 class DemoConstraints(unittest.TestCase):
+    def test_slang_probe_uses_command_registry(self):
+        ctx = SimpleNamespace(path=lambda name: name)
+        runner = SimpleNamespace(image="test-slang-registry")
+        with patch.dict(synth._SLANG, {}, clear=True), patch.object(synth, "_runner", return_value=runner), patch.object(synth.yosys, "command", side_effect=["  read_verilog read RTL\n", "  read_slang    Slang frontend\n"]) as command:
+            self.assertEqual(synth.slang_support(ctx), "slang-plugin")
+            self.assertEqual(command.call_args_list[0].args[1], ["-p", "help"])
+            self.assertEqual(command.call_args_list[1].args[1], ["-p", "plugin -i slang; help"])
+        with patch.dict(synth._SLANG, {}, clear=True), patch.object(synth, "_runner", return_value=runner), patch.object(synth.yosys, "command", return_value="No such command: read_slang"):
+            self.assertIsNone(synth.slang_support(ctx))
+
     def test_parameter_elaboration_and_injection_guard(self):
         d=Design('x','top',None,'x.sdc','macro',rtl=['top.sv'],rtl_parameters={'BACKEND':1})
         self.assertIn('-GBACKEND=1', synth._read_rtl(d,False,'slang')[-1])
