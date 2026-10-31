@@ -250,6 +250,31 @@ class OpenRoad(unittest.TestCase):
                 s.run("break")
             self.assertEqual(s.value("return 7"), "7")  # return is a normal completion
 
+    def test_generated_macro_name_placement(self):
+        """Resolve the actual OpenDB name before place_macro (issue #18)."""
+        from sipath.tools.openroad.ops import macros
+        pdk = sky130hd(RUNNER.platform_root())
+        wd = _workdir("macro_busnames")
+        if not KEEP:
+            self.addCleanup(_rmtree, wd)
+        lef = os.path.join(wd, "test_ram.lef")
+        with open(lef, "w") as fh:
+            fh.write("VERSION 5.8 ;\nMACRO test_ram\n CLASS BLOCK ;\n ORIGIN 0 0 ;\n"
+                     " SIZE 10 BY 10 ;\n SYMMETRY X Y ;\nEND test_ram\nEND LIBRARY\n")
+        with OpenRoadSession(wd, RUNNER, timeout=120) as s:
+            s.run(f"read_lef {tcl.q(pdk.tech_lef)}\nread_lef {tcl.q(lef)}\n" + tcl.HELPERS)
+            def_ = os.path.join(wd, "macro.def")
+            with open(def_, "w") as fh:
+                fh.write('VERSION 5.8 ;\nDIVIDERCHAR "/" ;\nBUSBITCHARS "[]" ;\n'
+                         'DESIGN top ;\nUNITS DISTANCE MICRONS 1000 ;\n'
+                         'DIEAREA ( 0 0 ) ( 100000 100000 ) ;\nCOMPONENTS 1 ;\n'
+                         '- ram\\[0\\].memory test_ram + UNPLACED ;\nEND COMPONENTS\nEND DESIGN\n')
+            s.run(f"read_def {tcl.q(def_)}")
+            macros.place_frozen(s, "ram[0].memory", (20, 30), "MX")
+            self.assertEqual(s.value('[::flow_inst {ram[0].memory}] getPlacementStatus'), 'LOCKED')
+            self.assertEqual(s.value('[::flow_inst {ram[0].memory}] getLocation'), '20000 30000')
+            self.assertEqual(s.value('[::flow_inst {ram[0].memory}] getOrient'), 'MX')
+
     def test_bus_register_names_are_found(self):
         """The database keeps a bus register's name escaped (result\\[0\\]_reg), STA reports print it plain, and
         Tcl braces it in a list: every lookup finds it in each form (a missed one was a dropped DRV violation, a
