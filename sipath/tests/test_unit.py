@@ -1021,6 +1021,10 @@ END NETS
 
 class TclGen(unittest.TestCase):
     def test_macro_grid_start_polarity(self):
+        # New optional field must not shift the existing positional constructor.
+        positional = Macro("ram", "ram.lef", None, None, "R0", 10, {}, None, None, 7)
+        self.assertEqual(positional.grid_halo, 7)
+        self.assertIsNone(positional.grid_starts_with)
         from sipath import schema
         pdk = sky130hd("/p")
         for explicit in (False, True):

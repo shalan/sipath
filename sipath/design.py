@@ -56,7 +56,6 @@ class Macro:
     # macro PDN grid; None = connect with PdnSpec.macro_connects only
     grid_stripes: list | None = None  # [Strap]
     grid_connects: list | None = None  # [(layer, layer)]
-    grid_starts_with: str | None = None  # POWER or GROUND; None keeps OpenROAD default
     grid_halo: float = 5.0
     orients: list | None = None  # orientations the autoplacer may try (None: just ``orient``)
     gds: str | None = None  # layout for signoff (DRC/LVS); LEF-only macros cannot be signed off
@@ -73,6 +72,7 @@ class Macro:
     auto_blackbox: bool | None = None
     analog: bool | None = None  # None: analog if it connects to an analog net or analog supply
     sram: str | None = None  # one of the PDK's SRAM macros (its sram table): lef and lib from there
+    grid_starts_with: str | None = None  # POWER or GROUND; None keeps OpenROAD default
 
 
 @dataclass
