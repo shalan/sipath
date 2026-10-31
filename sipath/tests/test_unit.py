@@ -6,6 +6,62 @@ from .common import *  # noqa: F401,F403  (helpers, fixtures and the modules the
 from .common import _big_def, _check_limits, _check_outputs, _lib, _pins, _read_json, _rmtree, _workdir, _write_json  # noqa: F401
 
 
+class RtlIncludeDependencies(unittest.TestCase):
+    def test_literal_transitive_headers_ignore_unrelated_outputs(self):
+        from pathlib import Path
+        from sipath.fingerprint import _rtl_include_files, file_hash
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "inc/sub").mkdir(parents=True)
+            source = root / "top.sv"
+            source.write_text('`include "config.vh"\nmodule top; endmodule\n')
+            (root / "inc/config.vh").write_text('`include "sub/mode.inc"\n')
+            header = root / "inc/sub/mode.inc"
+            header.write_text('`define MODE 1\n')
+            design = types.SimpleNamespace(rtl=[str(source)], rtl_includes=[str(root / "inc")])
+            snapshot = lambda: {p: file_hash(p) for p in _rtl_include_files(design)}
+            first = snapshot()
+            (root / "inc/output.sv").write_text('module unrelated; endmodule\n')
+            self.assertEqual(snapshot(), first)
+            header.write_text('`define MODE 23\n')
+            self.assertNotEqual(snapshot(), first)
+            self.assertIn(str(header), first)
+            # A new higher-priority local header must invalidate even if absent initially.
+            before = snapshot()
+            (root / "config.vh").write_text('`define MODE 9\n')
+            self.assertNotEqual(snapshot(), before)
+
+    def test_dynamic_include_retains_conservative_fallback(self):
+        from pathlib import Path
+        from sipath.fingerprint import _rtl_include_files
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "top.sv"
+            source.write_text('`include HEADER_NAME\n')
+            header = root / "chosen.inc"
+            header.write_text('`define VALUE 1\n')
+            design = types.SimpleNamespace(rtl=[str(source)], rtl_includes=[str(root)])
+            self.assertIn(str(header), _rtl_include_files(design))
+
+    def test_include_cycle_and_frontend_specific_sources(self):
+        from pathlib import Path
+        from sipath.fingerprint import _rtl_include_files
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "top.sv"
+            source.write_text('module top; endmodule\n')
+            other = root / "registers.v"
+            other.write_text('`include "local.vh"\n')
+            header = root / "local.vh"
+            header.write_text('`include "registers.v"\n')
+            for field in ['rtl_verilog', 'rtl_blackboxes']:
+                design = types.SimpleNamespace(rtl=[str(source)], rtl_includes=[], **{field: [str(other)]})
+                self.assertEqual(set(_rtl_include_files(design)), {str(header), str(other)})
+
+
 # ----------------------------------------------------------------------------- units
 
 class RouteSearchPlans(unittest.TestCase):
