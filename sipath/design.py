@@ -174,6 +174,7 @@ class Design:
     aspect_ratio: float = 1.0  # core height / width with core_utilization
     signoff_sdc: str | None = None  # independent signoff constraints, defaults to sdc
     rtl_parameters: dict = field(default_factory=dict)  # top-level elaboration parameters
+    rtl_blackboxes: list[str] = field(default_factory=list)  # interface-only Verilog models, including power pins
     rtl_keep_hierarchy: bool = False  # preserve Slang elaboration hierarchy until Yosys flatten
 
     def resolve(self, pdk) -> "Design":
@@ -223,7 +224,7 @@ class Design:
         return self
 
     def input_files(self) -> list[str]:
-        files = [self.sdc, *self.extra_lefs, *self.extra_libs, *self.rtl]
+        files = [self.sdc, *self.extra_lefs, *self.extra_libs, *self.rtl, *self.rtl_blackboxes]
         if self.signoff_sdc:
             files.append(self.signoff_sdc)
         if self.netlist or not self.rtl:

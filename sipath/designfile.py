@@ -97,6 +97,7 @@ def design_from_dict(data: dict, base: str) -> Design:
     kw["extra_lefs"] = [_path(base, p) for p in data.get("extra_lefs", [])]
     kw["extra_libs"] = [_path(base, p) for p in data.get("extra_libs", [])]
     kw["rtl"] = [_path(base, p) for p in data.get("rtl", [])]
+    kw["rtl_blackboxes"] = [_path(base, p) for p in data.get("rtl_blackboxes", [])]
     kw["rtl_includes"] = [_path(base, p) for p in data.get("rtl_includes", [])]
     kw.setdefault("netlist", None)
     kw["pads"] = [Pad(**p) for p in data.get("pads", [])]

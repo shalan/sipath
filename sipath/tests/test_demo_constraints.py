@@ -32,6 +32,14 @@ class DemoConstraints(unittest.TestCase):
         d.rtl_parameters={'BACKEND':'1; shell echo bad'}
         with self.assertRaises(ValueError): synth._read_rtl(d,False,'slang')
 
+    def test_blackbox_interfaces_precede_slang_and_are_inputs(self):
+        d = designfile.design_from_dict(dict(name='x', top='top', mode='macro', pdk='sky130A',
+             sdc='impl.sdc', rtl=['top.sv'], rtl_blackboxes=['ram.v']), '/tmp')
+        self.assertIn('/tmp/ram.v', d.input_files())
+        commands = synth._read_rtl(d, False, 'slang-plugin')
+        self.assertEqual(commands[0], 'read_verilog -lib -overwrite /tmp/ram.v')
+        self.assertIn('--extern-modules', commands[-1])
+
     def test_signoff_file_is_checked_and_fingerprinted_input(self):
         d=designfile.design_from_dict(dict(name='x',top='top',mode='macro',pdk='sky130A',
              sdc='impl.sdc',signoff_sdc='signoff.sdc',rtl=['top.sv'],rtl_parameters={'BACKEND':1}),'/tmp')
