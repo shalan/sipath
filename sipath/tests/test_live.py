@@ -281,6 +281,57 @@ class OpenRoad(unittest.TestCase):
 
 
 @LIVE
+class MacroPdnNames(unittest.TestCase):
+    def test_generated_names_connect_supplies_and_define_both_grid_modes(self):
+        """Resolve escaped instance names for both PDN grids and literal PG matching."""
+        wd = _workdir("macro_pdn_names")
+        if not KEEP:
+            self.addCleanup(_rmtree, wd)
+        lef = os.path.join(wd, "fixture.lef")
+        with open(lef, "w") as fh:
+            fh.write("VERSION 5.8 ;\nUNITS DATABASE MICRONS 1000 ; END UNITS\n"
+                     "MANUFACTURINGGRID 0.001 ;\n"
+                     "LAYER metal1 TYPE ROUTING ; DIRECTION HORIZONTAL ;\n"
+                     " PITCH 0.5 ; WIDTH 0.2 ; SPACING 0.2 ; END metal1\n"
+                     "LAYER metal2 TYPE ROUTING ; DIRECTION VERTICAL ;\n"
+                     " PITCH 0.5 ; WIDTH 0.2 ; SPACING 0.2 ; END metal2\n"
+                     "SITE core CLASS CORE ; SIZE 1 BY 2 ; SYMMETRY Y ; END core\n"
+                     "MACRO ram CLASS BLOCK ; ORIGIN 0 0 ; SIZE 10 BY 10 ;\n")
+            for pin, use, y in (("VDD", "POWER", 2), ("VSS", "GROUND", 7)):
+                fh.write(f"PIN {pin} DIRECTION INOUT ; USE {use} ;\n"
+                         f" PORT LAYER metal1 ; RECT 0 {y} 10 {y+1} ; END\nEND {pin}\n")
+            fh.write("END ram\nEND LIBRARY\n")
+        def_ = os.path.join(wd, "fixture.def")
+        with open(def_, "w") as fh:
+            fh.write('VERSION 5.8 ;\nDIVIDERCHAR "/" ;\nBUSBITCHARS "[]" ;\n'
+                     'DESIGN top ; UNITS DISTANCE MICRONS 1000 ;\n'
+                     'DIEAREA ( 0 0 ) ( 100000 100000 ) ;\n'
+                     'ROW r0 core 1000 1000 N DO 98 BY 1 STEP 1000 0 ;\n'
+                     'ROW r1 core 1000 3000 FS DO 98 BY 1 STEP 1000 0 ;\nCOMPONENTS 2 ;\n'
+                     '- ram\\[0\\].memory ram + FIXED ( 20000 20000 ) N ;\n'
+                     '- ram\\[10\\].memory ram + FIXED ( 80000 40000 ) N ;\n'
+                     'END COMPONENTS\nEND DESIGN\n')
+        pdk = types.SimpleNamespace(power_pins=[])
+        for explicit in (False, True):
+            with self.subTest(explicit=explicit), OpenRoadSession(wd, RUNNER, timeout=120) as sess:
+                macro = Macro("ram[0].memory", lef, supplies={"^VDD$": "VDD", "^VSS$": "VSS"},
+                              grid_stripes=[] if explicit else None, grid_connects=[("metal1", "metal2")])
+                d = Design("test", "test", "x.v", "x.sdc", "macro", macros=[macro],
+                           pdn=PdnSpec(rail_layer="metal1", rail_width=0.2, straps=[], connects=[]))
+                sess.run(f"read_lef {tcl.q(lef)}\nread_def {tcl.q(def_)}\n" + tcl.HELPERS)
+                # Configure the real OpenROAD grids without generating geometry: no PDK vias needed.
+                script = tcl.pdn(d, pdk)
+                self.assertTrue(script.endswith("\npdngen"))
+                sess.run(script.removesuffix("\npdngen"))
+                for pin in ("VDD", "VSS"):
+                    self.assertEqual(sess.value(f'[[[::flow_inst {{ram[0].memory}}] findITerm {pin}] getNet] getName'), pin)
+                    self.assertEqual(sess.value(f'[[::flow_inst {{ram[10].memory}}] findITerm {pin}] getNet'), "NULL")
+                pattern = sess.value('::flow_inst_pattern {ram[0].memory}')
+                self.assertEqual(sess.value(f'regexp -- {tcl.q(pattern)} [[::flow_inst {{ram[0].memory}}] getName]'), "1")
+                self.assertEqual(sess.value(f'regexp -- {tcl.q(pattern)} [[::flow_inst {{ram[10].memory}}] getName]'), "0")
+
+
+@LIVE
 class LiveSoftMacro(unittest.TestCase):
     """Mode 1 on OpenROAD: DEF floorplan -> routed DEF + SPEF, then ECOs."""
 

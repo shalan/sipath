@@ -122,6 +122,11 @@ proc ::flow_inst {name} {
   if {$inst eq "NULL"} { error "no instance $name" }
   return $inst
 }
+proc ::flow_inst_pattern {name} {
+  # Quote the resolved database name for the global-connection regular expression.
+  set escaped [regsub -all {[][\\.^$*+?(){}|]} [[::flow_inst $name] getName] {\\&}]
+  return "^${escaped}\$"
+}
 proc ::flow_net {name} {
   set net [[ord::get_db_block] findNet $name]
   if {$net eq "NULL"} { set net [[ord::get_db_block] findNet [string map {[ \\[ ] \\]} $name]] }
@@ -353,7 +358,7 @@ def global_connect(d: Design, pdk: Pdk) -> str:
             net = d.net(net)
             kind = "-ground" if d.is_ground(net) else "-power"
             # a regular expression: the instance name matched literally (bank[0].u_ram)
-            out.append(f"add_global_connection -net {net} -inst_pattern {q('^' + re.escape(m.inst) + '$')} "
+            out.append(f"add_global_connection -net {net} -inst_pattern [::flow_inst_pattern {q(m.inst)}] "
                        f"-pin_pattern {q(pat)} {kind}")
     out.append("global_connect")
     return "\n".join(out)
@@ -384,7 +389,7 @@ def pdn(d: Design, pdk: Pdk, straps: list | None = None) -> str:
     for m in d.macros:
         g = q("mg_" + m.inst)
         if m.grid_stripes is not None:  # explicit macro grid (straps over the macro)
-            out.append(f"define_pdn_grid -name {g} -voltage_domains CORE -macro -instances {q(m.inst)} "
+            out.append(f"define_pdn_grid -name {g} -voltage_domains CORE -macro -instances [list [::flow_inst_pattern {q(m.inst)}]] "
                        f"-grid_over_pg_pins -halo {m.grid_halo}")
             for st in m.grid_stripes:
                 out.append(f"add_pdn_stripe -grid {g} -layer {st.layer} -width {st.width} -pitch {st.pitch} "
@@ -396,7 +401,7 @@ def pdn(d: Design, pdk: Pdk, straps: list | None = None) -> str:
         if not connects:
             continue  # no macro grid: supply pins stay logical (reported by physical())
         out.append(f"define_pdn_grid -name {g} -voltage_domains CORE -macro "
-                   f"-instances {q(m.inst)} -halo {{{m.halo} {m.halo} {m.halo} {m.halo}}} -grid_over_boundary")
+                   f"-instances [list [::flow_inst_pattern {q(m.inst)}]] -halo {{{m.halo} {m.halo} {m.halo} {m.halo}}} -grid_over_boundary")
         for a, b in connects:
             out.append(f"add_pdn_connect -grid {g} -layers {{{a} {b}}}")
     out.append("pdngen")
