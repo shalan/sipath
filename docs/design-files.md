@@ -182,3 +182,17 @@ python3 -m unittest -v sipath.tests.test_route_search.RouteSearchRtl
   show 0 mV only because the analog macros have no power model).
 - The pad tie-off values follow the gpiov2 mode table; verify them against
   the IO datasheet before a tapeout.
+
+### Include-file provenance
+
+Resume fingerprints trace literal Verilog `include` directives transitively,
+including source-local headers and nonstandard suffixes. All candidates in the
+source directory and configured search roots are tracked, including missing
+candidates, so a newly created shadowing header also invalidates the run.
+Unrelated RTL or simulation outputs under an include root do not invalidate a
+literal-only dependency graph. Conditional literal includes are conservatively
+tracked even if the current defines disable them.
+
+A dynamic or otherwise unparsed include falls back to scanning all regular files
+under the include roots and visited source directories. Keep those roots narrow;
+the fallback intentionally favors safe invalidation over avoiding extra work.
