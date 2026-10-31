@@ -146,7 +146,7 @@ def first_row(s) -> tuple:
 
 
 def place_frozen(s, inst: str, location, orient: str):
-    s.run(f"place_macro -macro_name {q(inst)} -location {{{location[0]} {location[1]}}} "
+    s.run(f"place_macro -macro_name [[::flow_inst {q(inst)}] getName] -location {{{location[0]} {location[1]}}} "
           f"-orientation {orient} -exact\n[::flow_inst {q(inst)}] setPlacementStatus LOCKED")
 
 
