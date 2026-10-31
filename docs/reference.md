@@ -107,6 +107,7 @@ YAML or JSON; relative paths are relative to the file. Keys not listed are error
 | `supplies` | dict |  | supply pin regex -> net |
 | `grid_stripes` | list[object] |  | macro power grid straps |
 | `grid_connects` | list[pair] |  | macro grid layer pairs |
+| `grid_starts_with` | str |  | first macro grid stripe polarity; omitted keeps OpenROAD default (one of: POWER, GROUND) |
 | `grid_halo` | number |  | macro grid halo (um) |
 | `gds` | path |  | layout for signoff and the written GDS |
 | `cdl` | path |  | transistor/subcircuit netlist for LVS |
