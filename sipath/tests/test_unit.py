@@ -6198,3 +6198,28 @@ class ThreadReproComparison(unittest.TestCase):
                      mock.patch.object(designfile, "run", return_value=flow):
                     self.assertEqual(thread_repro.run_one("design.yaml", "run", 2), verdict.exit_code(v))
                 flow.close.assert_called_once()
+
+
+class SynthesisWorkerBudget(unittest.TestCase):
+    def test_internal_recipes_share_attempt_allocation(self):
+        import threading
+        import time
+        from sipath.synth import _recipe_sweep
+        for allocation, configured, maximum in [(1, 8, 1), (2, 8, 2), (8, 8, 6), (None, 2, 2)]:
+            with self.subTest(allocation=allocation, configured=configured):
+                ctx = types.SimpleNamespace(job_threads=allocation,
+                    config=types.SimpleNamespace(threads=configured), metrics={})
+                lock = threading.Lock()
+                active, peak = 0, 0
+                def recipe(number):
+                    nonlocal active, peak
+                    with lock:
+                        active += 1
+                        peak = max(peak, active)
+                    time.sleep(0.01)
+                    with lock:
+                        active -= 1
+                    return number * 2
+                self.assertEqual(_recipe_sweep(ctx, list(range(8)), recipe), list(range(0, 16, 2)))
+                self.assertLessEqual(peak, maximum)
+                self.assertEqual(ctx.metrics["synth_recipe_workers"], maximum)

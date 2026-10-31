@@ -553,6 +553,16 @@ def _liberty_cells(paths) -> dict[str, bool]:
     return cells
 
 
+def _recipe_sweep(ctx, names, run):
+    """Keep internal recipe parallelism within this attempt's allocation."""
+    from concurrent.futures import ThreadPoolExecutor
+    budget = getattr(ctx, "job_threads", None) or getattr(getattr(ctx, "config", None), "threads", 1) or 1
+    workers = min(len(names), 6, max(1, int(budget)))
+    ctx.metrics["synth_recipe_workers"] = workers
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        return list(executor.map(run, names))
+
+
 def synth(ctx):
     """RTL to a flat gate-level netlist (Yosys), then the netlist checked
     against the RTL (equivalence from reset, bounded). ABC maps with each
@@ -608,12 +618,11 @@ def synth(ctx):
         ctx.outputs["abc_boundary"] = {"driving_cell": bound[0], "load_ff": bound[1]}
     names = sweep_recipes(p)
     if len(names) == 1:
+        ctx.metrics["synth_recipe_workers"] = 1
         results = [_synth_one(ctx, names[0], ctx.dir, fe, target, constr, period)]
     else:  # one mapping per recipe, side by side; synth_select picks, the winner alone is proven equivalent
-        from concurrent.futures import ThreadPoolExecutor
-        with ThreadPoolExecutor(max_workers=min(len(names), 6)) as ex:
-            results = list(ex.map(lambda n: _synth_one(ctx, n, ctx.path(os.path.join("abc", n)), fe, target, constr,
-                                                       period), names))
+        results = _recipe_sweep(ctx, names, lambda n: _synth_one(
+            ctx, n, ctx.path(os.path.join("abc", n)), fe, target, constr, period))
     ok = [r for r in results if not r.error]
     if not ok:
         raise RuntimeError("synth: no recipe produced a netlist:\n" + "\n".join(f"  {r.params['abc']}: {r.error}"
