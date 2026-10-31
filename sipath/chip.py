@@ -25,7 +25,8 @@ proc ::flow_macro_hpwl {names} {
     foreach it [[::flow_inst $n] getITerms] {
       set net [$it getNet]
       if {$net eq "NULL" || [$net getSigType] in {POWER GROUND}} continue
-      set id [$net getId]; if {[dict exists $seen $id]} continue; dict set seen $id 1
+      # Net names are unique within this block; getId is not exposed by every Tcl binding.
+      set key [$net getName]; if {[dict exists $seen $key]} continue; dict set seen $key 1
       set xs {}; set ys {}
       # only placed terminals (pads, pins, macros): standard cells are still unplaced
       # at the origin during macro placement and would pull every macro toward (0,0)

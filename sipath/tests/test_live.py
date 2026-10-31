@@ -216,6 +216,41 @@ def tcl_words_nested(text):
 class OpenRoad(unittest.TestCase):
     """A live process: reads a LEF, answers Tcl, raises on Tcl errors."""
 
+    def test_macro_hpwl_counts_shared_net_once(self):
+        """Use public net names and count a multi-pin, multi-macro net once."""
+        from sipath import chip
+        wd = _workdir("macro_hpwl")
+        if not KEEP:
+            self.addCleanup(_rmtree, wd)
+        lef = os.path.join(wd, "fixture.lef")
+        with open(lef, "w") as fh:
+            fh.write("VERSION 5.8 ;\nUNITS DATABASE MICRONS 1000 ; END UNITS\n"
+                     "MANUFACTURINGGRID 0.001 ;\n"
+                     "LAYER metal1 TYPE ROUTING ; DIRECTION HORIZONTAL ;\n"
+                     " PITCH 0.5 ; WIDTH 0.2 ; SPACING 0.2 ; END metal1\n"
+                     "MACRO ram CLASS BLOCK ; ORIGIN 0 0 ; SIZE 10 BY 10 ;\n")
+            for pin, use in (("P", "SIGNAL"), ("Q", "SIGNAL"), ("VDD", "POWER")):
+                fh.write(f"PIN {pin} DIRECTION INOUT ; USE {use} ;\n"
+                         f" PORT LAYER metal1 ; RECT 4 4 6 6 ; END\nEND {pin}\n")
+            fh.write("END ram\nEND LIBRARY\n")
+        def_ = os.path.join(wd, "fixture.def")
+        with open(def_, "w") as fh:
+            fh.write('VERSION 5.8 ;\nDIVIDERCHAR "/" ;\nBUSBITCHARS "[]" ;\n'
+                     'DESIGN top ; UNITS DISTANCE MICRONS 1000 ;\n'
+                     'DIEAREA ( 0 0 ) ( 100000 100000 ) ;\nCOMPONENTS 3 ;\n'
+                     '- a ram + FIXED ( 20000 20000 ) N ;\n'
+                     '- b ram + FIXED ( 80000 40000 ) N ;\n'
+                     '- c ram + UNPLACED ;\nEND COMPONENTS\nNETS 2 ;\n'
+                     '- shared[0] ( a P ) ( a Q ) ( b P ) ( b Q ) ( c P ) + USE SIGNAL ;\n'
+                     '- supply ( a VDD ) ( b VDD ) + USE POWER ;\nEND NETS\nEND DESIGN\n')
+        with OpenRoadSession(wd, RUNNER, timeout=120) as s:
+            s.run(f"read_lef {tcl.q(lef)}\nread_def {tcl.q(def_)}\n" + tcl.HELPERS + chip.MACRO_HPWL)
+            self.assertEqual(float(s.value("::flow_macro_hpwl {a b}")), 80.0)
+            self.assertEqual(s.value("set ::flow_macro_hpwl_skipped"), "1")
+            self.assertEqual(float(s.value("::flow_macro_hpwl {b a a}")), 80.0)
+            s.run("[::flow_inst c] setLocation 90000 90000")
+            self.assertEqual(float(s.value("::flow_macro_hpwl {a b}")), 80.0)
+
     def test_result_write_failure_fails_fast(self):
         import time as _t
         from sipath.session import SessionDied
