@@ -172,6 +172,11 @@ class Design:
     # macro mode without floorplan_def: die (with core_margin) or core_utilization; pins placed by the flow
     core_utilization: float | None = None  # target core utilization (0..1) after synthesis
     aspect_ratio: float = 1.0  # core height / width with core_utilization
+    signoff_sdc: str | None = None  # independent signoff constraints, defaults to sdc
+    rtl_parameters: dict = field(default_factory=dict)  # top-level elaboration parameters
+    rtl_verilog: list[str] = field(default_factory=list)  # read with native Yosys before Slang
+    rtl_blackboxes: list[str] = field(default_factory=list)  # interface-only Verilog models, including power pins
+    rtl_keep_hierarchy: bool = False  # preserve Slang elaboration hierarchy until Yosys flatten
 
     def resolve(self, pdk) -> "Design":
         """Fill every field left unset from the PDK's defaults (idempotent)."""
@@ -220,7 +225,9 @@ class Design:
         return self
 
     def input_files(self) -> list[str]:
-        files = [self.sdc, *self.extra_lefs, *self.extra_libs, *self.rtl]
+        files = [self.sdc, *self.extra_lefs, *self.extra_libs, *self.rtl, *self.rtl_blackboxes, *self.rtl_verilog]
+        if self.signoff_sdc:
+            files.append(self.signoff_sdc)
         if self.netlist or not self.rtl:
             files.append(self.netlist)
         if self.mode == "macro" and self.floorplan_def:

@@ -716,9 +716,16 @@ def timing(ctx, verilog: str, spef_corners: dict) -> dict:
         out = [*tcl._define_corners(pdk, every)]
         out += [f"read_lef {q(f)}" for f in [pdk.tech_lef, *pdk.cell_lefs, *d.extra_lefs, *[m.lef for m in d.macros]]]
         out += tcl._read_libs(pdk, d, every)
-        out += [f"read_verilog {q(verilog)}", f"link_design {d.top}", tcl._timing_setup(pdk, d, every),
+        out += [f"read_verilog {q(verilog)}", f"link_design {d.top}", tcl._timing_setup(pdk, d, every, sdc=d.signoff_sdc, library_slew=ctx.params.get("library_slew", False)),
                 "set_propagated_clock [all_clocks]"]
         s.run("\n".join(out))
+        applied = os.path.join(wd, "applied.sdc")
+        s.run(f"write_sdc -no_timestamp -digits 9 {q(applied)}")
+        if ctx.params.get("library_slew"):
+            with open(applied) as fh:
+                if re.search(r"^\s*set_max_transition\s", fh.read(), re.M):
+                    raise ValueError("library_slew signoff refuses SDC transition overrides; supply a separate signoff_sdc")
+        res["applied_sdc"] = applied
         multi = len(corners) > 1
         for c, f in spef_corners.items():
             s.run(f"read_spef {'-corner ' + c + ' ' if multi else ''}{q(f)}")
@@ -731,7 +738,7 @@ def timing(ctx, verilog: str, spef_corners: dict) -> dict:
         files = {}
         for name, cmd in (("setup", "report_checks -path_delay max -group_path_count 10 -format full_clock_expanded"),
                           ("hold", "report_checks -path_delay min -group_path_count 10 -format full_clock_expanded"),
-                          ("design_rules", "report_check_types -max_slew -max_capacitance -max_fanout -violators"),
+                          ("design_rules", "report_check_types -max_slew -max_capacitance -max_fanout -violators -digits 9"),
                           ("clock_skew", "report_clock_skew"),
                           ("checks", "check_setup -verbose -unconstrained_endpoints -multiple_clock -no_clock -loops "
                                      "-generated_clocks"),
@@ -741,7 +748,9 @@ def timing(ctx, verilog: str, spef_corners: dict) -> dict:
                   "if {$::__rc} { error $::__m }")
             files[name] = f
         res["reports"] = files
-        res.update(design_rule_counts(_View(ctx, s), files["design_rules"]))
+        res.update(design_rule_counts(_View(ctx, s), files["design_rules"],
+                                     include_all=ctx.params.get("drv_scope", "core") == "all",
+                                     slew_waiver_ns=ctx.params.get("slew_waiver_ns", 0.0)))
         # unconstrained endpoints and clock/loop issues
         with open(files["checks"]) as fh:
             checks = fh.read()
@@ -795,7 +804,7 @@ def sta_failures(st: dict, checks, expected=None) -> list[str]:
         if vals and min(vals.values()) < 0:
             out.append(f"{kind}: worst {min(vals.values()):.3f} ns ({[c for c, v in vals.items() if v < 0]})")
     if "drv" in checks and not st["drv_clean"]:
-        out.append(f"drv: slew {st['drv_slew']}, cap {st['drv_cap']}, fanout {st['drv_fanout']} on standard cells")
+        out.append(f"drv: slew {st['drv_slew']}, cap {st['drv_cap']}, fanout {st['drv_fanout']} in {st.get('drv_scope', 'core')} scope")
     if "annotation" in checks and st["unannotated_loaded"]:
         out.append(f"annotation: loaded nets without parasitics at {st['unannotated_loaded'][:8]}")
     if "unconstrained" in checks and st["unconstrained"]:

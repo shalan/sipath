@@ -24,7 +24,7 @@ check can also run as a step of its own.
 - **Antennas** (`check_antennas`).
 - **Timing**, in a fresh OpenROAD process from only the final netlist,
   Liberty, SDC and per-corner SPEF: setup and hold on all nine corners,
-  slew/cap/fanout on standard cells, parasitic annotation (a loaded net
+  slew/cap/fanout on standard cells by default (all pins with `drv_scope: all`), parasitic annotation (a loaded net
   without parasitics fails), unconstrained endpoints.
   The timing reader already converts nonfinite STA values to missing results,
   which fail the required setup/hold checks. The judgment function also rejects
@@ -157,3 +157,36 @@ router writes right after a via (`( * * 0 )`, no metal) as if it were a corner,
 which drew a zero-length met1 path; cf-precheck's zero-area and spike checks
 flagged it and SiPath's own DRC did not. Repeated points are now left alone.
 
+
+## Separate optimization and acceptance constraints
+
+`signoff_sdc` selects an optional independent-STA SDC. All physical implementation
+steps continue to use `sdc`; both files are validated and fingerprinted inputs.
+For example, a project may optimize data slew to 1 ns and clock slew to 0.8 ns,
+then judge the final result against native Liberty limits:
+
+```yaml
+sdc: implementation.sdc
+signoff_sdc: signoff.sdc
+step_defaults:
+  cts: {max_slew: 0.8}
+  signoff: {library_slew: true, drv_scope: all, slew_waiver_ns: 0.05}
+```
+
+`library_slew` removes the PDK's fallback maximum transition from independent
+STA, preserves its capacitance/fanout/boundary settings, and refuses any residual
+`set_max_transition` in the applied SDC. The applied SDC is exported alongside
+STA reports. Keep clocks, derates, uncertainty and interface budgets consistent
+between the two source SDCs; only intentional acceptance differences belong in
+the signoff file. Native per-pin Liberty limits remain applicable.
+
+`slew_waiver_ns` defaults to zero. When explicitly authorized, it allows only a
+bounded excess above each applicable slew limit, inclusive of the threshold.
+It never waives capacitance, fanout, setup or hold failures. Reports retain raw
+and waived slew counts and each violation's classification; malformed waiver
+evidence fails. `drv_scope: all` includes hard macros and top-level ports that
+the compatibility default `core` excludes. The same options are available on a
+standalone `timing` step.
+
+`cts.max_slew` sets OpenROAD's CTS characterization ceiling in ns; a corresponding
+clock-path SDC constraint is still needed to constrain implementation timing.

@@ -252,13 +252,15 @@ def rc_setup(pdk: Pdk, d: Design | None = None, corners=None) -> str:
     return "\n".join(out)
 
 
-def constraints_setup(pdk: Pdk, d: Design) -> list[str]:
+def constraints_setup(pdk: Pdk, d: Design, library_slew: bool = False) -> list[str]:
     """The PDK's design rules and default boundary conditions, applied before
     the design SDC so that the SDC can override any of them. The boundary
     defaults (driving cell, output load) model on-chip neighbours of an
     embedded block, so they apply in macro mode only: a die's ports are bond
     pads, driven and loaded from the board."""
     c = dict(pdk.constraints or {})
+    if library_slew:
+        c.pop("max_transition", None)
     if d.mode != "macro":
         c.pop("driving_cell", None)
         c.pop("output_load", None)
@@ -278,8 +280,8 @@ def constraints_setup(pdk: Pdk, d: Design) -> list[str]:
     return out
 
 
-def _timing_setup(pdk: Pdk, d: Design, corners=None) -> str:
-    out = [*constraints_setup(pdk, d), f"read_sdc {q(d.sdc)}", rc_setup(pdk, d, corners)]
+def _timing_setup(pdk: Pdk, d: Design, corners=None, *, sdc=None, library_slew=False) -> str:
+    out = [*constraints_setup(pdk, d, library_slew), f"read_sdc {q(sdc or d.sdc)}", rc_setup(pdk, d, corners)]
     if pdk.dont_use:
         out.append(f"set_dont_use {qlist(pdk.dont_use)}")
     # cells with known layout problems and the design's own exclusions: never chosen

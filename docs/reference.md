@@ -22,7 +22,12 @@ YAML or JSON; relative paths are relative to the file. Keys not listed are error
 | `rtl` | list[path] |  | RTL (Verilog/SystemVerilog) files; the synth step writes the netlist |
 | `rtl_defines` | dict |  | RTL defines: name -> value ("" for a bare define) |
 | `rtl_includes` | list[path] |  | RTL include directories |
-| `sdc` | path | yes | timing constraints |
+| `sdc` | path | yes | implementation timing constraints |
+| `signoff_sdc` | path |  | independent signoff timing constraints; defaults to sdc |
+| `rtl_verilog` | list[path] |  | RTL subset read by native Yosys before Slang; useful for frontend compatibility, not blackboxed |
+| `rtl_blackboxes` | list[path] |  | interface-only Verilog blackboxes; override Liberty interfaces for elaboration, including power pins |
+| `rtl_keep_hierarchy` | bool |  | preserve hierarchy during Slang elaboration (for hierarchical inout ports); synthesis still flattens |
+| `rtl_parameters` | dict |  | top-level numeric elaboration parameters, applied by the selected frontend |
 | `floorplan_def` | path |  | macro mode: die, rows and pins (else die or core_utilization, pins placed by the flow) |
 | `die` | box |  | die area (um); die mode, or macro mode without floorplan_def |
 | `core_margin` | number |  | core inset from the die (um) |
@@ -310,6 +315,7 @@ Set per attempt in `variants` (design file `flow:` or MCP `run_step`), or as def
 
 | parameter | type | default | allowed | description |
 |---|---|---|---|---|
+| `max_slew` | float | – | 0.001.. | CTS characterization maximum slew (SDC clock slew is separate) [ns] |
 | `distance_between_buffers` | float | – | 1.. | clock-tree buffer spacing [um] |
 | `sink_clustering_size` | int | – | 1.. | maximum sinks per clock-tree cluster |
 | `sink_clustering_levels` | int | – | 1.. | clock-tree sink pre-clustering levels |
@@ -412,6 +418,9 @@ Set per attempt in `variants` (design file `flow:` or MCP `run_step`), or as def
 | `require` | list[str] | drc, density, lvs, antenna, setup, hold, drv, annotation, harness, magic_drc, xor, lvs_full | drc, density, lvs, antenna, setup, hold, drv, annotation, unconstrained, harness, magic_drc, xor, lvs_full | checks whose failure fails signoff (of those run) |
 | `fail_on_violation` | bool | true |  | fail the attempt when a required check fails (signoff.json is written either way) |
 | `drc_split` | bool | true |  | run the PDK's DRC rule groups (signoff.drc_groups) as concurrent processes and merge their reports |
+| `library_slew` | bool | false |  | use native Liberty slew limits; refuses any SDC max_transition override |
+| `slew_waiver_ns` | float | 0.0 | 0.. | explicit inclusive slew exceedance waiver; raw violations remain reported [ns] |
+| `drv_scope` | str | core | core, all | electrical acceptance scope; all includes hard macros and top-level ports |
 | `threads` | int | – | 1.. | OpenROAD threads for this step's attempts (set_thread_count; signoff: also KLayout DRC); unset: the run's threads, shared among the attempts running at once |
 
 ### eco
@@ -471,6 +480,9 @@ Set per attempt in `variants` (design file `flow:` or MCP `run_step`), or as def
 |---|---|---|---|---|
 | `require` | list[str] | setup, hold, drv, annotation | setup, hold, drv, annotation, unconstrained | of these checks, those whose failure fails the step |
 | `fail_on_violation` | bool | true |  | fail the attempt when a required check fails (signoff.json is written either way) |
+| `library_slew` | bool | false |  | use native Liberty slew limits; refuses any SDC max_transition override |
+| `slew_waiver_ns` | float | 0.0 | 0.. | explicit inclusive slew exceedance waiver; raw violations remain reported [ns] |
+| `drv_scope` | str | core | core, all | electrical acceptance scope; all includes hard macros and top-level ports |
 | `threads` | int | – | 1.. | OpenROAD threads for this step's attempts (set_thread_count; signoff: also KLayout DRC); unset: the run's threads, shared among the attempts running at once |
 
 ### magic_drc

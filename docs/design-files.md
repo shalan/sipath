@@ -29,6 +29,11 @@ pdk: sky130A                # a description in sipath/pdks (python3 -m sipath pd
 netlist: rtl/chip_flat.v    # flattened gate-level Verilog, or instead:
 # rtl: [rtl/chip.v]         #   RTL, linted and synthesized by the synth step
 sdc: rtl/chip.sdc
+# signoff_sdc: rtl/signoff.sdc   # optional independent-STA constraints
+# rtl_parameters: {BACKEND: 1}   # numeric top-level parameters for synthesis/lint
+# rtl_verilog: [rtl/registers.v] # native Yosys reader for selected functional RTL
+# rtl_blackboxes: [ip/ram.v]     # interface-only Verilog, including PG ports
+# rtl_keep_hierarchy: true       # Slang hierarchical inout support; Yosys still flattens
 # mode: macro  ->  floorplan_def: fp.def (die, rows, pins), or die / core_utilization with pins placed
 #                  by the flow; is_core: false limits routing to the embedded top layer
 die: [0, 0, 1500, 1500]     # microns
