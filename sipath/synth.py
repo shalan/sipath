@@ -76,7 +76,8 @@ def _read_rtl(d, autowire: bool, frontend: str = "yosys") -> list[str]:
     defs = " ".join(f"-D{k}" + (f"={v}" if v not in ("", None) else "") for k, v in d.rtl_defines.items())
     incs = " ".join(f"-I{i}" for i in d.rtl_includes)
     if frontend.startswith("slang"):
-        flags = " ".join(x for x in (f"--top {d.top}", "--empty-blackboxes", defs, incs,
+        flags = " ".join(x for x in (f"--top {d.top}", "--empty-blackboxes",
+                                      "--keep-hierarchy" if d.rtl_keep_hierarchy else "", defs, incs,
                                       " ".join(f"-G{k}={v}" for k, v in _parameters(d))) if x)
         return (["plugin -i slang"] if frontend == "slang-plugin" else []) + [f"read_slang {flags} {' '.join(d.rtl)}"]
     flags = " ".join(x for x in ("-sv", "" if autowire else "-noautowire", defs, incs) if x)

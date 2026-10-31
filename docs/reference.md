@@ -24,6 +24,7 @@ YAML or JSON; relative paths are relative to the file. Keys not listed are error
 | `rtl_includes` | list[path] |  | RTL include directories |
 | `sdc` | path | yes | implementation timing constraints |
 | `signoff_sdc` | path |  | independent signoff timing constraints; defaults to sdc |
+| `rtl_keep_hierarchy` | bool |  | preserve hierarchy during Slang elaboration (for hierarchical inout ports); synthesis still flattens |
 | `rtl_parameters` | dict |  | top-level numeric elaboration parameters, applied by the selected frontend |
 | `floorplan_def` | path |  | macro mode: die, rows and pins (else die or core_utilization, pins placed by the flow) |
 | `die` | box |  | die area (um); die mode, or macro mode without floorplan_def |

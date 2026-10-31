@@ -174,6 +174,7 @@ class Design:
     aspect_ratio: float = 1.0  # core height / width with core_utilization
     signoff_sdc: str | None = None  # independent signoff constraints, defaults to sdc
     rtl_parameters: dict = field(default_factory=dict)  # top-level elaboration parameters
+    rtl_keep_hierarchy: bool = False  # preserve Slang elaboration hierarchy until Yosys flatten
 
     def resolve(self, pdk) -> "Design":
         """Fill every field left unset from the PDK's defaults (idempotent)."""

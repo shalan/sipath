@@ -26,6 +26,9 @@ class DemoConstraints(unittest.TestCase):
         d=Design('x','top',None,'x.sdc','macro',rtl=['top.sv'],rtl_parameters={'BACKEND':1})
         self.assertIn('-GBACKEND=1', synth._read_rtl(d,False,'slang')[-1])
         self.assertEqual(synth._read_rtl(d,False,'yosys')[-1], 'chparam -set BACKEND 1 top')
+        self.assertNotIn('--keep-hierarchy', synth._read_rtl(d, False, 'slang')[-1])
+        d.rtl_keep_hierarchy = True
+        self.assertIn('--keep-hierarchy', synth._read_rtl(d, False, 'slang')[-1])
         d.rtl_parameters={'BACKEND':'1; shell echo bad'}
         with self.assertRaises(ValueError): synth._read_rtl(d,False,'slang')
 
