@@ -1592,3 +1592,49 @@ class LiveOpenFrameUart(unittest.TestCase):
         self.assertIn("lvs", pc["passed"])
         self.assertTrue(f.result("integrate").metrics["chip_check_pass"])
         _check_limits(self, wd, "openframe_uart")
+
+
+@LIVE
+class LiveDanglingNets(unittest.TestCase):
+    def test_global_route_repair_with_dangling_driver(self):
+        """A one-terminal signal net needs a router entry even though it needs no wire."""
+        from sipath import designfile
+        from sipath.examples import dp8
+        from sipath.tools.openroad.ops import route
+        wd = _workdir('dangling_nets')
+        if not KEEP:
+            self.addCleanup(_rmtree, wd)
+        f = designfile.run(dp8.make_design(), wd, RUNNER, flow_steps=[
+            {'step': name} for name in ('floorplan', 'physical', 'place', 'cts', 'route_analog')])
+        self.addCleanup(f.close)
+        parent = f.steps['route_analog'].selected
+        with OpenRoadSession(os.path.join(wd, 'repair'), RUNNER, timeout=600) as s:
+            s.run(tcl.HELPERS)
+            s.run(tcl.load_checkpoint(f.pdk, f.design, parent.checkpoint))
+            s.run('''set b [ord::get_db_block]
+set src NULL
+foreach bt [$b getBTerms] {
+  if {[$bt getIoType] eq "INPUT" && [$bt getName] ni {clk rst_n}
+      && [[$bt getNet] getSigType] eq "SIGNAL"} { set src [$bt getNet]; break }
+}
+if {$src eq "NULL"} { error "test fixture has no data input" }
+set inst [odb::dbInst_create $b [[ord::get_db] findMaster sky130_fd_sc_hd__buf_1] dangling_driver]
+$inst setLocation 20000 20000
+$inst setPlacementStatus PLACED
+[$inst findITerm A] connect $src
+set dangling [odb::dbNet_create $b dangling_output]
+[$inst findITerm X] connect $dangling
+''')
+            route.set_routing_layers(s, f.design, f.pdk)
+            s.run(route.global_route_digital(os.path.join(wd, 'congestion.rpt')))
+            # Repair must be able to inspect this driver without dereferencing a missing router net.
+            route.repair_on_global_routes(s, f.pdk)
+            s.run(route.end_incremental_global_route(os.path.join(wd, 'repaired-congestion.rpt')))
+            self.assertEqual(s.value('llength [$dangling getITerms]'), '1')
+            self.assertEqual(s.value('expr {[lsearch -exact $::flow_digital dangling_output] >= 0}'), '1')
+            self.assertEqual(s.value('''set excluded 0
+foreach n $::flow_digital {
+  set net [$b findNet $n]
+  if {[$net isSpecial] || [$net getSigType] in {POWER GROUND ANALOG}} { incr excluded }
+}
+set excluded'''), '0')

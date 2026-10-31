@@ -556,11 +556,12 @@ proc ::flow_route_nets {names} {
   }
 }
 """
+# Include dangling/single-terminal nets: repair_design visits their drivers,
+# and global-route buffering needs a router entry even when no wire is required.
 DIGITAL_NETS = ROUTE_NETS + """
 set ::flow_digital {}
 foreach net [[ord::get_db_block] getNets] {
   if {[$net isSpecial] || [$net getSigType] in {POWER GROUND ANALOG}} continue
-  if {[llength [$net getITerms]] + [llength [$net getBTerms]] < 2} continue
   lappend ::flow_digital [$net getName]
 }
 """
