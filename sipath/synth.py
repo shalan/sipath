@@ -76,14 +76,16 @@ def _read_rtl(d, autowire: bool, frontend: str = "yosys") -> list[str]:
     blackboxes = [f"read_verilog -lib -overwrite {f}" for f in d.rtl_blackboxes]
     defs = " ".join(f"-D{k}" + (f"={v}" if v not in ("", None) else "") for k, v in d.rtl_defines.items())
     incs = " ".join(f"-I{i}" for i in d.rtl_includes)
+    native = ([f"read_verilog -sv {' ' if autowire else '-noautowire'} {defs} {incs} {' '.join(d.rtl_verilog)}"]
+              if d.rtl_verilog else [])
     if frontend.startswith("slang"):
         flags = " ".join(x for x in (f"--top {d.top}", "--empty-blackboxes",
                                       "--keep-hierarchy" if d.rtl_keep_hierarchy else "",
-                                      "--extern-modules" if d.rtl_blackboxes else "", defs, incs,
+                                      "--extern-modules" if d.rtl_blackboxes or d.rtl_verilog else "", defs, incs,
                                       " ".join(f"-G{k}={v}" for k, v in _parameters(d))) if x)
-        return blackboxes + (["plugin -i slang"] if frontend == "slang-plugin" else []) + [f"read_slang {flags} {' '.join(d.rtl)}"]
+        return blackboxes + native + (["plugin -i slang"] if frontend == "slang-plugin" else []) + [f"read_slang {flags} {' '.join(d.rtl)}"]
     flags = " ".join(x for x in ("-sv", "" if autowire else "-noautowire", defs, incs) if x)
-    return blackboxes + [f"read_verilog {flags} {' '.join(d.rtl)}"] + [f"chparam -set {k} {v} {d.top}" for k, v in _parameters(d)]
+    return blackboxes + native + [f"read_verilog {flags} {' '.join(d.rtl)}"] + [f"chparam -set {k} {v} {d.top}" for k, v in _parameters(d)]
 
 
 def slang_support(ctx) -> str | None:
@@ -429,7 +431,7 @@ def verilator_lint(ctx) -> dict:
     host = binary[0] != "verilator"
     defs = [f"-D{k}" + (f"={v}" if v not in ("", None) else "") for k, v in d.rtl_defines.items()]
     # include paths: the design's, then each source's own directory (where Yosys looks for `include files)
-    dirs = list(d.rtl_includes) + [x for x in dict.fromkeys(os.path.dirname(os.path.abspath(f)) for f in [*d.rtl, *d.rtl_blackboxes])
+    dirs = list(d.rtl_includes) + [x for x in dict.fromkeys(os.path.dirname(os.path.abspath(f)) for f in [*d.rtl, *d.rtl_blackboxes, *d.rtl_verilog])
                                    if x not in d.rtl_includes]
     incs = [f"-I{i}" for i in dirs]
     log, stubs = ctx.path("verilator.log"), ctx.path("verilator_stubs.v")
@@ -439,7 +441,7 @@ def verilator_lint(ctx) -> dict:
         # an unknown /*verilator ...*/ comment (another tool version's pragma, e.g. ORFS's
         # "-xinit: zeros") is a counted warning, not a design error
         args = [*binary, "--lint-only", "-Wall", "-Wno-fatal", "-Wwarn-BADVLTPRAGMA", "--top-module", d.top,
-                *defs, *incs, *[f"-G{k}={v}" for k, v in _parameters(d)], *extra, *d.rtl, *d.rtl_blackboxes]
+                *defs, *incs, *[f"-G{k}={v}" for k, v in _parameters(d)], *extra, *d.rtl, *d.rtl_blackboxes, *d.rtl_verilog]
         if host:
             from .tools import process
             r = process.run(args, log, cwd=ctx.dir, timeout=600, tracker=getattr(ctx, "processes", None))

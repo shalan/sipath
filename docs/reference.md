@@ -24,6 +24,7 @@ YAML or JSON; relative paths are relative to the file. Keys not listed are error
 | `rtl_includes` | list[path] |  | RTL include directories |
 | `sdc` | path | yes | implementation timing constraints |
 | `signoff_sdc` | path |  | independent signoff timing constraints; defaults to sdc |
+| `rtl_verilog` | list[path] |  | RTL subset read by native Yosys before Slang; useful for frontend compatibility, not blackboxed |
 | `rtl_blackboxes` | list[path] |  | interface-only Verilog blackboxes; override Liberty interfaces for elaboration, including power pins |
 | `rtl_keep_hierarchy` | bool |  | preserve hierarchy during Slang elaboration (for hierarchical inout ports); synthesis still flattens |
 | `rtl_parameters` | dict |  | top-level numeric elaboration parameters, applied by the selected frontend |

@@ -40,6 +40,16 @@ class DemoConstraints(unittest.TestCase):
         self.assertEqual(commands[0], 'read_verilog -lib -overwrite /tmp/ram.v')
         self.assertIn('--extern-modules', commands[-1])
 
+    def test_mixed_frontend_keeps_native_rtl_functional(self):
+        d = designfile.design_from_dict(dict(name='x', top='top', mode='macro', pdk='sky130A',
+             sdc='impl.sdc', rtl=['top.sv'], rtl_verilog=['registers.v']), '/tmp')
+        self.assertIn('/tmp/registers.v', d.input_files())
+        commands = synth._read_rtl(d, False, 'slang-plugin')
+        self.assertTrue(commands[0].startswith('read_verilog -sv -noautowire'))
+        self.assertNotIn('-lib', commands[0])
+        self.assertIn('/tmp/registers.v', commands[0])
+        self.assertIn('--extern-modules', commands[-1])
+
     def test_signoff_file_is_checked_and_fingerprinted_input(self):
         d=designfile.design_from_dict(dict(name='x',top='top',mode='macro',pdk='sky130A',
              sdc='impl.sdc',signoff_sdc='signoff.sdc',rtl=['top.sv'],rtl_parameters={'BACKEND':1}),'/tmp')

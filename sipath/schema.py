@@ -170,6 +170,7 @@ DESIGN = {
     "rtl_includes": F("list[path]", "RTL include directories"),
     "sdc": F("path", "implementation timing constraints", required=True),
     "signoff_sdc": F("path", "independent signoff timing constraints; defaults to sdc"),
+    "rtl_verilog": F("list[path]", "RTL subset read by native Yosys before Slang; useful for frontend compatibility, not blackboxed"),
     "rtl_blackboxes": F("list[path]", "interface-only Verilog blackboxes; override Liberty interfaces for elaboration, including power pins"),
     "rtl_keep_hierarchy": F("bool", "preserve hierarchy during Slang elaboration (for hierarchical inout ports); synthesis still flattens"),
     "rtl_parameters": F("dict", "top-level numeric elaboration parameters, applied by the selected frontend"),
