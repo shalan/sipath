@@ -1,12 +1,11 @@
 """Constraint separation, elaboration and waiver acceptance regression tests."""
-import os
 from pathlib import Path
 from types import SimpleNamespace
 import tempfile
 import unittest
 from unittest.mock import patch
 from sipath.design import Design
-from sipath import synth, designfile, params
+from sipath import synth, designfile
 from sipath.tools.openroad import tcl
 from sipath.steps.common import design_rule_counts
 
