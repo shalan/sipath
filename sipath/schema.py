@@ -168,7 +168,9 @@ DESIGN = {
     "rtl": F("list[path]", "RTL (Verilog/SystemVerilog) files; the synth step writes the netlist"),
     "rtl_defines": F("dict", "RTL defines: name -> value (\"\" for a bare define)"),
     "rtl_includes": F("list[path]", "RTL include directories"),
-    "sdc": F("path", "timing constraints", required=True),
+    "sdc": F("path", "implementation timing constraints", required=True),
+    "signoff_sdc": F("path", "independent signoff timing constraints; defaults to sdc"),
+    "rtl_parameters": F("dict", "top-level numeric elaboration parameters, applied by the selected frontend"),
     "floorplan_def": F("path", "macro mode: die, rows and pins (else die or core_utilization, pins placed "
                                 "by the flow)"),
     "die": F("box", "die area (um); die mode, or macro mode without floorplan_def"),

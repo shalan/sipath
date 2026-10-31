@@ -211,6 +211,8 @@ def cts(ctx):
     heatmaps.schedule(ctx, ctx.params.get("heatmaps"))
     nets = clock_nets(ctx)
     analog_before = _analog_terms(ctx)
+    if ctx.params.get("max_slew") is not None:
+        place_ops.configure_cts_slew(s, ctx.params["max_slew"])
     place_ops.clock_tree(s, ctx.pdk, nets, ctx.params.get("sink_clustering_size"),
                          ctx.params.get("sink_clustering_levels"), ctx.params.get("distance_between_buffers"))
     ctx.outputs["reabut"] = reabut_all(ctx)

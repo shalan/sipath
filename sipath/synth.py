@@ -59,16 +59,28 @@ def _libs(pdk, d) -> tuple[str, list[str]]:
     return std, others
 
 
+def _parameters(d) -> list[tuple[str, str]]:
+    result = []
+    for name, value in d.rtl_parameters.items():
+        value = str(value)
+        if not re.fullmatch(r"[A-Za-z_]\w*", name) or not re.fullmatch(
+                r"[-+]?(?:\d+(?:\.\d+)?(?:[eE][-+]?\d+)?|\d+'[sS]?[bBoOdDhH][0-9a-fA-F_xXzZ?]+)", value):
+            raise ValueError(f"rtl_parameters: expected a numeric literal for {name!r}, got {value!r}")
+        result.append((name, value))
+    return result
+
+
 def _read_rtl(d, autowire: bool, frontend: str = "yosys") -> list[str]:
     """Yosys commands reading the RTL: ``yosys`` (read_verilog -sv), ``slang``
     (read_slang, built in) or ``slang-plugin`` (the slang plugin, loaded first)."""
     defs = " ".join(f"-D{k}" + (f"={v}" if v not in ("", None) else "") for k, v in d.rtl_defines.items())
     incs = " ".join(f"-I{i}" for i in d.rtl_includes)
     if frontend.startswith("slang"):
-        flags = " ".join(x for x in (f"--top {d.top}", "--empty-blackboxes", defs, incs) if x)
+        flags = " ".join(x for x in (f"--top {d.top}", "--empty-blackboxes", defs, incs,
+                                      " ".join(f"-G{k}={v}" for k, v in _parameters(d))) if x)
         return (["plugin -i slang"] if frontend == "slang-plugin" else []) + [f"read_slang {flags} {' '.join(d.rtl)}"]
     flags = " ".join(x for x in ("-sv", "" if autowire else "-noautowire", defs, incs) if x)
-    return [f"read_verilog {flags} {' '.join(d.rtl)}"]
+    return [f"read_verilog {flags} {' '.join(d.rtl)}"] + [f"chparam -set {k} {v} {d.top}" for k, v in _parameters(d)]
 
 
 def slang_support(ctx) -> str | None:
@@ -423,7 +435,7 @@ def verilator_lint(ctx) -> dict:
         # an unknown /*verilator ...*/ comment (another tool version's pragma, e.g. ORFS's
         # "-xinit: zeros") is a counted warning, not a design error
         args = [*binary, "--lint-only", "-Wall", "-Wno-fatal", "-Wwarn-BADVLTPRAGMA", "--top-module", d.top,
-                *defs, *incs, *extra, *d.rtl]
+                *defs, *incs, *[f"-G{k}={v}" for k, v in _parameters(d)], *extra, *d.rtl]
         if host:
             from .tools import process
             r = process.run(args, log, cwd=ctx.dir, timeout=600, tracker=getattr(ctx, "processes", None))

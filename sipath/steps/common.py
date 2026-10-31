@@ -218,38 +218,62 @@ def power_metrics(report: str) -> dict:
     out.update({f"power_total_w_{c}": v[3] for c, v in found.items() if c})
     return out
 
-def design_rule_counts(ctx, report: str) -> dict:
-    """Slew / capacitance / fanout violators from ``report_check_types
-    -violators``. The PDK limits are standard-cell rules: violators on
-    standard-cell pins are counted (``drv_*``); those on IO-ring cells, hard
-    macros and top-level ports (bond pads, analog buses) are counted apart in
-    ``drv_excluded`` and never dropped silently."""
+def design_rule_counts(ctx, report: str, *, include_all=False, slew_waiver_ns=0.0) -> dict:
+    """Count electrical failures, retain raw rows and explicitly classify slew waivers."""
+    from decimal import Decimal
     kinds = {"max slew": "slew", "max capacitance": "cap", "max fanout": "fanout"}
     viol, kind = [], None
+    waiver = Decimal(str(slew_waiver_ns))
+    if not waiver.is_finite() or waiver < 0:
+        raise ValueError("slew waiver must be finite and nonnegative")
     with open(report) as fh:
         for line in fh:
-            s_ = line.strip()
-            if s_ in kinds:
-                kind = kinds[s_]
-            elif kind and s_.endswith("(VIOLATED)"):
-                viol.append((kind, s_.split()[0]))
-    insts = sorted({p.rsplit("/", 1)[0] for _, p in viol if "/" in p})
-    types = {}
-    if insts:
-        types = db.inst_master_types(ctx.session, insts)
-    out = {"drv_slew": 0, "drv_cap": 0, "drv_fanout": 0, "drv_excluded": 0}
+            text = line.strip()
+            if text in kinds:
+                kind = kinds[text]
+            elif text.endswith("(VIOLATED)"):
+                if kind is None:
+                    raise ValueError("Electrical violation outside a recognized section")
+                words = text.split()
+                row = {"kind": kind, "pin": words[0]}
+                if waiver and kind == "slew":
+                    if len(words) != 5:
+                        raise ValueError("Unparsed slew violation: " + text)
+                    limit, actual, slack = map(Decimal, words[1:4])
+                    if not all(v.is_finite() for v in (limit, actual, slack)):
+                        raise ValueError("Non-finite slew violation")
+                    excess = max(actual - limit, -slack)
+                    row.update(limit_ns=str(limit), actual_ns=str(actual), excess_ns=str(excess),
+                               waived=excess <= waiver)
+                viol.append(row)
+    insts = sorted({r["pin"].rsplit("/", 1)[0] for r in viol if "/" in r["pin"]})
+    types = db.inst_master_types(ctx.session, insts) if insts else {}
+    out = {"drv_slew": 0, "drv_cap": 0, "drv_fanout": 0, "drv_excluded": 0,
+           "drv_slew_raw": 0, "drv_slew_waived": 0, "drv_scope": "all" if include_all else "core",
+           "slew_waiver_ns": str(waiver), "drv_rows": viol}
     excluded = {}
-    for k, p in viol:
-        t_ = types.get(p.rsplit("/", 1)[0], "PORT") if "/" in p else "PORT"
-        if t_.startswith("CORE"):
-            out[f"drv_{k}"] += 1
+    for row in viol:
+        k, pin = row["kind"], row["pin"]
+        typ = types.get(pin.rsplit("/", 1)[0], "PORT") if "/" in pin else "PORT"
+        row["master_type"] = typ
+        if include_all or typ.startswith("CORE"):
+            if k == "slew":
+                out["drv_slew_raw"] += 1
+            if row.get("waived"):
+                out["drv_slew_waived"] += 1
+                row["disposition"] = "waived"
+            else:
+                out[f"drv_{k}"] += 1
+                row["disposition"] = "fail"
         else:
             out["drv_excluded"] += 1
-            excluded[t_] = excluded.get(t_, 0) + 1
+            row["disposition"] = "excluded"
+            excluded[typ] = excluded.get(typ, 0) + 1
     out["drv_clean"] = not (out["drv_slew"] or out["drv_cap"] or out["drv_fanout"])
     if excluded:
         ctx.outputs["drv_excluded_by_type"] = excluded
     return out
+
 
 def _global_route(ctx, script: str, report: str):
     """Run a global route; on congestion (GRT-0116) fail with the congestion

@@ -221,6 +221,7 @@ STEP_PARAMS: dict[str, list[Param]] = {
               min=0, max=1),
     ],
     "cts": [
+        Param("max_slew", "float", None, "CTS characterization maximum slew (SDC clock slew is separate)", unit="ns", min=0.001),
         Param("distance_between_buffers", "float", None, "clock-tree buffer spacing", unit="um", min=1),
         Param("sink_clustering_size", "int", None, "maximum sinks per clock-tree cluster", min=1),
         Param("sink_clustering_levels", "int", None, "clock-tree sink pre-clustering levels", min=1),
@@ -330,6 +331,12 @@ for _name, _checks in CHECK_STEPS.items():
     if "drc" in _checks:
         STEP_PARAMS[_name].append(Param("drc_split", "bool", True, "run the PDK's DRC rule groups as concurrent "
                                         "processes and merge their reports"))
+for _step in ("signoff", "timing"):
+    STEP_PARAMS[_step] += [
+        Param("library_slew", "bool", False, "use native Liberty slew limits; refuses any SDC max_transition override"),
+        Param("slew_waiver_ns", "float", 0.0, "explicit inclusive slew exceedance waiver; raw violations remain reported", unit="ns", min=0),
+        Param("drv_scope", "str", "core", "electrical acceptance scope; all includes hard macros and top-level ports", choices=("core", "all")),
+    ]
 # every OpenROAD step (not the tool steps synth and integrate) takes these
 COMMON = (Param("threads", "int", None, "OpenROAD threads for this step's attempts (set_thread_count; signoff: "
                 "also KLayout DRC); unset: the run's threads, shared among the attempts running at once", min=1),)

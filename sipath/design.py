@@ -172,6 +172,8 @@ class Design:
     # macro mode without floorplan_def: die (with core_margin) or core_utilization; pins placed by the flow
     core_utilization: float | None = None  # target core utilization (0..1) after synthesis
     aspect_ratio: float = 1.0  # core height / width with core_utilization
+    signoff_sdc: str | None = None  # independent signoff constraints, defaults to sdc
+    rtl_parameters: dict = field(default_factory=dict)  # top-level elaboration parameters
 
     def resolve(self, pdk) -> "Design":
         """Fill every field left unset from the PDK's defaults (idempotent)."""
@@ -221,6 +223,8 @@ class Design:
 
     def input_files(self) -> list[str]:
         files = [self.sdc, *self.extra_lefs, *self.extra_libs, *self.rtl]
+        if self.signoff_sdc:
+            files.append(self.signoff_sdc)
         if self.netlist or not self.rtl:
             files.append(self.netlist)
         if self.mode == "macro" and self.floorplan_def:
