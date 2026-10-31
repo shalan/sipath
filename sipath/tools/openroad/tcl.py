@@ -383,9 +383,12 @@ def pdn(d: Design, pdk: Pdk, straps: list | None = None) -> str:
         out.append(f"add_pdn_connect -grid grid -layers {{{a} {b}}}")
     for m in d.macros:
         g = q("mg_" + m.inst)
+        if m.grid_starts_with not in (None, "POWER", "GROUND"):
+            raise ValueError(f"invalid macro grid_starts_with: {m.grid_starts_with!r}")
+        start = f" -starts_with {m.grid_starts_with}" if m.grid_starts_with else ""
         if m.grid_stripes is not None:  # explicit macro grid (straps over the macro)
             out.append(f"define_pdn_grid -name {g} -voltage_domains CORE -macro -instances {q(m.inst)} "
-                       f"-grid_over_pg_pins -halo {m.grid_halo}")
+                       f"-grid_over_pg_pins -halo {m.grid_halo}{start}")
             for st in m.grid_stripes:
                 out.append(f"add_pdn_stripe -grid {g} -layer {st.layer} -width {st.width} -pitch {st.pitch} "
                            f"-offset {st.offset}")
@@ -396,7 +399,7 @@ def pdn(d: Design, pdk: Pdk, straps: list | None = None) -> str:
         if not connects:
             continue  # no macro grid: supply pins stay logical (reported by physical())
         out.append(f"define_pdn_grid -name {g} -voltage_domains CORE -macro "
-                   f"-instances {q(m.inst)} -halo {{{m.halo} {m.halo} {m.halo} {m.halo}}} -grid_over_boundary")
+                   f"-instances {q(m.inst)} -halo {{{m.halo} {m.halo} {m.halo} {m.halo}}} -grid_over_boundary{start}")
         for a, b in connects:
             out.append(f"add_pdn_connect -grid {g} -layers {{{a} {b}}}")
     out.append("pdngen")

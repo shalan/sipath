@@ -1020,6 +1020,23 @@ END NETS
 
 
 class TclGen(unittest.TestCase):
+    def test_macro_grid_start_polarity(self):
+        from sipath import schema
+        pdk = sky130hd("/p")
+        for explicit in (False, True):
+            m = Macro("ram", "ram.lef", grid_stripes=[] if explicit else None,
+                      grid_connects=[("met2", "met4")])
+            d = Design("x", "x", "a.v", "a.sdc", "macro", floorplan_def="a.def", macros=[m]).resolve(pdk)
+            self.assertNotIn("-starts_with", tcl.pdn(d, pdk))
+            for value in ("POWER", "GROUND"):
+                m.grid_starts_with = value
+                line = next(x for x in tcl.pdn(d, pdk).splitlines() if "-name mg_ram " in x)
+                self.assertIn("-starts_with " + value, line)
+            m.grid_starts_with = "invalid"
+            with self.assertRaisesRegex(ValueError, "grid_starts_with"):
+                tcl.pdn(d, pdk)
+        self.assertEqual(schema.MACRO["grid_starts_with"].choices, ("POWER", "GROUND"))
+
     def test_pdn_rings_off_unless_asked(self):
         pdk = sky130hd("/p")
         d = Design("x", "x", "a.v", "a.sdc", "macro", floorplan_def="a.def").resolve(pdk)
