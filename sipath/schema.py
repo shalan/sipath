@@ -59,6 +59,7 @@ MACRO = {
     "supplies": F("dict", "supply pin regex -> net"),
     "grid_stripes": F("list[object]", "macro power grid straps", fields=STRAP),
     "grid_connects": F("list[pair]", "macro grid layer pairs"),
+    "grid_starts_with": F("str", "first macro grid stripe polarity; omitted keeps OpenROAD default", choices=("POWER", "GROUND")),
     "grid_halo": F("number", "macro grid halo (um)"),
     "gds": F("path", "layout for signoff and the written GDS"),
     "cdl": F("path", "transistor/subcircuit netlist for LVS"),
