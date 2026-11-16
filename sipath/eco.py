@@ -244,13 +244,39 @@ def upsize(master: str, cells: list[str], excluded=lambda c: False) -> str | Non
     return up[0][1] if up else None
 
 
+def drv_margins(pdk, d) -> dict:
+    """{set_max_transition|set_max_capacitance: (limit less the PDK's repair margin, limit)} for the
+    report ``drv_upsize`` sizes from: the PDK's own limits only, never one the design SDC sets."""
+    import re
+    try:
+        with open(d.sdc) as f:
+            sdc = re.sub(r"(?m)^\s*#.*$", "", f.read())
+    except (OSError, TypeError):
+        sdc = ""
+    m, c, out = pdk.repair_margins or {}, pdk.constraints or {}, {}
+    for key, cmd, pct in (("max_transition", "set_max_transition", "slew"),
+                          ("max_capacitance", "set_max_capacitance", "cap")):
+        if c.get(key) and m.get(pct) and not re.search(rf"(?m)^\s*{cmd}\b", sdc):
+            out[cmd] = (round(c[key] * (1 - m[pct] / 100), 6), c[key])
+    return out
+
+
 def drv_upsize(ctx, report: str) -> list[list[str]]:
-    """Drivers of nets with standard-cell slew or capacitance violations on
-    extracted parasitics one drive strength up (``replace_cell``; PDK and
-    design exclusions honoured). Returns [instance, from, to] per change."""
+    """When any standard-cell pin is over a slew or capacitance limit on
+    extracted parasitics: the drivers of nets within the PDK's repair margins
+    of the limits (``repair_margins`` slew/cap, as repair_design keeps) one
+    drive strength up (``replace_cell``; PDK and design exclusions honoured).
+    A pin just under the limit before the patch route is often over it after
+    (aes at 10 ns: 17 pins at 0.75-0.78 ns at signoff, none in the report
+    sized from). Returns [instance, from, to] per change."""
     import fnmatch
     s, pdk, d = ctx.session, ctx.pdk, ctx.design
     eco_ops.report_slew_cap_violators(s, report)
+    if not drv_drivers(s, report):  # nothing over the limits: no sizing, no patch to disturb the routes
+        return []
+    tighten = drv_margins(pdk, d)
+    ctx.outputs["drv_report_limits"] = {cmd: lim for cmd, (lim, _) in tighten.items()}
+    eco_ops.report_slew_cap_violators(s, report, tighten)
     pats = list(pdk.dont_use) + list(getattr(d, "dont_use", []) or [])
 
     def excluded(c):
@@ -316,6 +342,9 @@ def post_route_repair(ctx, max_iter: int = 2, max_patch: int | None = None, drv_
             break
         wires.normalize(s, ctx.path(f"repair{it}_checkpoint.def"))
         sig0 = _wire_signature(s, ctx.path(f"repair{it}_pre.def"))
+        # as the ECO path: a parent that went through route_repair is filled (DPL-0038 at 100% utilization
+        # when a second pass legalized, aes); route_repair fills again after the repair
+        eco_ops.remove_fillers(s)
         if not timing_met:
             # setup: sizing only (post-route setup buffering crashes this OpenROAD build,
             # and perturbs routes most); hold: buffering allowed (hold needs delay cells)

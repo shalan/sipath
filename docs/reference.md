@@ -352,7 +352,8 @@ Set per attempt in `variants` (design file `flow:` or MCP `run_step`), or as def
 |---|---|---|---|---|
 | `rounds` | int | 2 | 0.. | post-route timing repair rounds on extracted parasitics (a failure of OpenROAD's incremental global router inside repair retries the attempt with 0) |
 | `max_patch_nets` | int | – | 0.. | nets changed by repair above which the design is routed again instead of patched (default: a quarter of the signal nets, at least 40) |
-| `drv_sizing` | bool | false |  | also size up the drivers of nets whose standard cells see slew or capacitance violations on extracted parasitics (estimates miss some: wires doubled by detours) |
+| `drv_sizing` | bool | false |  | also size up the drivers of nets whose standard cells see slew or capacitance within the PDK's repair margins of the limits on extracted parasitics (estimates miss some: wires doubled by detours) |
+| `drv_passes` | int | 3 | 1.. | with drv_sizing: route_repair passes in all, each a fresh process from the previous one (<step>_2, <step>_3), while slew or capacitance violations remain: legalizing the sized drivers moves neighbours, and their re-routed nets can cross the limit |
 | `antenna_rounds` | int | 3 | 0.. | antenna repair rounds |
 | `max_antenna` | int | 0 | 0.. | antenna violations allowed |
 | `fillers` | list[str] | – |  | cells for the empty sites (default: the PDK's fill list, decaps first); e.g. fill cells only where most rows are empty and decaps would only add LVS devices |

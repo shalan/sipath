@@ -150,8 +150,17 @@ foreach __p {qlist(sorted(set(pins)))} {{
 list $__o [lmap __c [get_lib_cells */*] {{ get_name $__c }}]"""))
 
 
-def report_slew_cap_violators(s, report: str):
-    s.run(f"report_check_types -max_slew -max_capacitance -violators > {q(report)}")
+def report_slew_cap_violators(s, report: str, tighten: dict | None = None):
+    """Slew and capacitance violators into ``report``. ``tighten``: {set_max_transition|set_max_capacitance:
+    (limit for this report, limit restored after it)} on the current design."""
+    tighten = tighten or {}
+    if tighten:
+        s.run("\n".join(f"{cmd} {lim} [current_design]" for cmd, (lim, _) in tighten.items()))
+    try:
+        s.run(f"report_check_types -max_slew -max_capacitance -violators > {q(report)}")
+    finally:
+        if tighten:
+            s.run("\n".join(f"{cmd} {lim} [current_design]" for cmd, (_, lim) in tighten.items()))
 
 
 def replace_with_lib_cell(s, inst: str, cell: str):

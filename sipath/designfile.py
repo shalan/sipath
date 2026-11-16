@@ -359,6 +359,24 @@ def run(path_or_design, workdir: str, runner=None, overrides: dict | None = None
     return run_items(flow, items, cfg)
 
 
+def drv_passes(flow, name, fn, r):
+    """More route_repair passes (``<name>_2``, ``<name>_3``, ...; each a fresh process, the scheduler runs a step
+    once) from the selection while it has slew or capacitance violations, up to ``drv_passes`` in all, when
+    ``drv_sizing`` is on: legalizing sized drivers moves neighbours and their re-routed nets can cross the limit
+    (aes at 10 ns: 2, then 8 on one net, then 0). Each pass runs with the first one's parameters."""
+    p = flow._resolve(fn, name, r.selected.params)
+    passes = 1
+    while p.get("drv_sizing") and passes < int(p.get("drv_passes") or 1):
+        m = r.selected.metrics or {}
+        if not (m.get("drv_slew") or m.get("drv_cap")):
+            break
+        passes += 1
+        log.info("%s: %s slew / %s capacitance violations left: pass %d", name, m.get("drv_slew"),
+                 m.get("drv_cap"), passes)
+        r = flow.step(f"{name}_{passes}", fn, parent=r.selected, variants=[dict(r.selected.params)])
+    return r
+
+
 def run_items(flow, items, cfg=None):
     """Run resolved flow items ([(name, ref, fn, item)]) on ``flow``, each from the previous selection; a step
     with ``keep`` carries its best attempts as branches (steps named <step>@<attempt>) to its ``decide_at``,
@@ -373,6 +391,8 @@ def run_items(flow, items, cfg=None):
                           parallel=item.get("parallel", 1))
             if item.get("adapt"):
                 r = adapt(flow, name, ref, fn, item["adapt"], item.get("parallel", 1))
+            if ref == "route_repair":
+                r = drv_passes(flow, name, fn, r)
             if snapshots != "off":
                 snapshot(flow, r, snapshots)
             parent = r.selected

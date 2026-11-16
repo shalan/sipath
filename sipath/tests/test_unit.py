@@ -1851,6 +1851,62 @@ class Harnesses(unittest.TestCase):
         self.assertIsNone(upsize("lib__clkbuf_16", cells))
         self.assertIsNone(upsize("lib__o211ai_2", cells, lambda c: c == "lib__o211ai_4"))  # excluded: none
 
+    def test_drv_passes_run_while_violations_remain(self):
+        """route_repair again (fresh process, <step>_2 ...) from the selection while slew/cap violations remain,
+        up to drv_passes in all, only with drv_sizing (aes at 10 ns: 2, then 8 on one net, then 0)."""
+        from sipath import designfile
+
+        def run(first, later, **params):
+            calls, later = [], list(later)
+
+            class Flow:
+                def _resolve(self, fn, name, p):
+                    return {"drv_passes": 3, **params, **p}
+
+                def step(self, name, fn, parent, variants):
+                    calls.append((name, parent.metrics, variants))
+                    return types.SimpleNamespace(selected=types.SimpleNamespace(metrics=later.pop(0),
+                                                                                params=variants[0]))
+            r = types.SimpleNamespace(selected=types.SimpleNamespace(metrics=first, params={"drv_sizing": True}))
+            return designfile.drv_passes(Flow(), "route_repair", None, r), calls
+        r, calls = run({"drv_slew": 2}, [{"drv_slew": 8}, {"drv_slew": 0, "drv_cap": 0}])
+        self.assertEqual([(n, v) for n, _, v in calls], [("route_repair_2", [{"drv_sizing": True}]),
+                                                         ("route_repair_3", [{"drv_sizing": True}])])
+        self.assertEqual(r.selected.metrics, {"drv_slew": 0, "drv_cap": 0})
+        r, calls = run({"drv_cap": 1}, [{"drv_slew": 3}, {"drv_slew": 1}], drv_passes=2)
+        self.assertEqual(len(calls), 1)  # two passes in all: the first and route_repair_2
+        self.assertEqual(run({"drv_slew": 0, "drv_cap": 0}, [])[1], [])  # clean: no pass
+        r = types.SimpleNamespace(selected=types.SimpleNamespace(metrics={"drv_slew": 5}, params={}))
+        flow = types.SimpleNamespace(_resolve=lambda fn, name, p: {"drv_sizing": False, "drv_passes": 3})
+        self.assertIs(designfile.drv_passes(flow, "route_repair", None, r), r)  # drv_sizing off: one pass
+
+    def test_drv_sizing_reports_within_the_repair_margins(self):
+        """A pin just under the limit before the patch route is often over it after: size from the PDK's limits
+        less its repair margins, restored after the report, and never in place of a limit the SDC sets."""
+        from sipath.eco import drv_margins
+        from sipath.session import TclError
+        from sipath.tools.openroad.ops import eco as eco_ops
+        pdk = types.SimpleNamespace(repair_margins={"slew": 15, "cap": 10},
+                                    constraints={"max_transition": 0.75, "max_capacitance": 0.2})
+        with tempfile.TemporaryDirectory() as td:
+            sdc = os.path.join(td, "t.sdc")
+            with open(sdc, "w") as f:
+                f.write("create_clock -period 10 clk\n# set_max_capacitance 0.1 [current_design]\n")
+            d = types.SimpleNamespace(sdc=sdc)
+            self.assertEqual(drv_margins(pdk, d), {"set_max_transition": (0.6375, 0.75),
+                                                   "set_max_capacitance": (0.18, 0.2)})
+            with open(sdc, "a") as f:
+                f.write("set_max_transition 0.5 [current_design]\n")
+            self.assertEqual(drv_margins(pdk, d), {"set_max_capacitance": (0.18, 0.2)})  # the SDC's stays
+            pdk.repair_margins = {}
+            self.assertEqual(drv_margins(pdk, d), {})
+        s = FakeSession(".", fail_on=("report_check_types",))
+        with self.assertRaises(TclError):  # the limits are restored even when the report fails
+            eco_ops.report_slew_cap_violators(s, "r.rpt", {"set_max_transition": (0.6375, 0.75)})
+        self.assertEqual([c.split()[0:2] for c in s.scripts], [["set_max_transition", "0.6375"],
+                                                                ["report_check_types", "-max_slew"],
+                                                                ["set_max_transition", "0.75"]])
+
     def test_apply_makes_the_design_the_wrapper(self):
         pdk = types.SimpleNamespace(name="sky130A", site="unithd")
         d = Design("t", "openframe_project_wrapper", None, "s.sdc", "macro")

@@ -253,7 +253,11 @@ STEP_PARAMS: dict[str, list[Param]] = {
         Param("max_patch_nets", "int", None, "nets changed by repair above which the design is routed again "
               "instead of patched (default: a quarter of the signal nets, at least 40)", min=0),
         Param("drv_sizing", "bool", False, "also size up the drivers of nets whose standard cells see slew or "
-              "capacitance violations on extracted parasitics (estimates miss some: wires doubled by detours)"),
+              "capacitance within the PDK's repair margins of the limits on extracted parasitics (estimates "
+              "miss some: wires doubled by detours)"),
+        Param("drv_passes", "int", 3, "with drv_sizing: route_repair passes in all, each a fresh process from the "
+              "previous one (<step>_2, <step>_3), while slew or capacitance violations remain: legalizing the "
+              "sized drivers moves neighbours, and their re-routed nets can cross the limit", min=1),
         Param("antenna_rounds", "int", 3, "antenna repair rounds", min=0),
         Param("max_antenna", "int", 0, "antenna violations allowed", min=0),
         Param("fillers", "list[str]", None, "cells for the empty sites (default: the PDK's fill list, decaps "

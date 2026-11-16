@@ -83,6 +83,13 @@ constraints:
 # (2026-10-15: 0.76 ns on mcu8 once its multiplier rows carried tap slots: slew margin 10 -> 15)
 repair_margins: {setup: 0.025, hold_place: 0.1, hold_route: 0.05, slew: 15, cap: 10}
 
+# step parameter defaults (a design's step_defaults and attempt variants override them)
+# cts: without a buffer spacing CTS leaves the upper H-tree levels unbuffered on a small die and
+# the root drives the level-4 buffers itself: aes (0.42 mm) 16 clkbuf_8 + a diode, fanout 17/10 and
+# 0.31/0.2 pF at signoff at 3.6, 6.5 and 10 ns; 100 um: no root violation, +6 buffers, skew alike
+step_defaults:
+  cts: {distance_between_buffers: 100.0}
+
 pdn:
   rail_layer: met1
   rail_width: 0.48

@@ -142,7 +142,12 @@ capabilities in `graph.json`.
   their terminals must be unchanged after CTS.
 - Optional `sink_clustering_size` and `sink_clustering_levels` control the
   sink clustering passed to OpenROAD; `distance_between_buffers` sets buffer
-  spacing in micrometres. Leave them unset to retain the tool defaults. Use
+  spacing in micrometres. sky130A sets `distance_between_buffers: 100` in its
+  `step_defaults`: without it CTS left aes's upper H-tree levels unbuffered and
+  its root drove 16 level-4 buffers (fanout 17 against 10, 0.31 against
+  0.2 pF at signoff); with it the root is clean for 6 more buffers and the
+  same skew. Clustering settings only shape the leaves: three of them built
+  the same tree. Leave the others unset to retain the tool defaults. Use
   explicit settings when the clock topology violates fanout or timing limits,
   and validate the result at signoff: they are not universal tuning values.
   The UART's initial clock root drove 16 loads against the PDK limit of 10;
@@ -221,9 +226,21 @@ capabilities in `graph.json`.
   layer cap (`cell_density_<layer>`, [PDKs](pdks-and-runtimes.md#pdks)).
   `drv_sizing: true` (off by default; on in the
   OpenFrame example and template) also sizes up, on extracted parasitics, the
-  drivers of nets whose standard cells see slew or capacitance violations, then
-  legalizes, patch-routes and extracts: placement estimates miss some local
-  nets (a gcd packed at a strip's edge got wires twice their estimate). An
+  drivers of nets whose standard cells see slew or capacitance within the PDK's
+  repair margins of the limits (sky130: 15% and 10%, as `repair_design`
+  keeps), then legalizes, patch-routes and extracts: placement estimates miss
+  some local nets (a gcd packed at a strip's edge got wires twice their
+  estimate), and a pin just under the limit before the patch is often over it
+  after (aes at 10 ns sized only violators, 430 pins to 17, all 17 at
+  0.75-0.78 ns at signoff and none in the report it sized from). A limit the
+  design SDC sets is used as it is. It sizes only when some pin is over a
+  limit, and the drivers it sizes push neighbours aside: their re-routed nets
+  can cross the limit, and this OpenROAD build cannot re-route twice in one
+  process. So while violations remain, the flow runs `route_repair` again
+  from its result in a fresh process (`route_repair_2`, `route_repair_3`; up
+  to `drv_passes`, default 3, in all): aes at 10 ns went 443 → 2 → 8 (one
+  net) → 0 and signed off clean. A later pass removes the first one's fillers
+  before it legalizes and fills again after. An
   incremental patch can lose neighbouring nets:
   the detailed router rips up nets near the patch that have no global-route
   guides and cannot route them back, and this OpenROAD build cannot run the
