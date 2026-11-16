@@ -3,12 +3,14 @@
 # From the live runs of 2026-10-16 (ORFS image, 12 threads) with the margins of
 # sipath.limits.suggest: setup slack may lose a quarter (>= 0.25 ns) but stays met, hold met,
 # DRC as run, wirelength and instances +10%, wall time x2 + 30 s (machine load).
+# max_logic_insts (instances without fill, decap, well-tap and endcap cells, which a
+# fill or decap swap changes) from the live runs of 2026-11-16 on this branch, +10%.
 gcd8:
   min_wns_ns: 2.76
   min_whs_ns: 0.0
   max_drc: 0
   max_wirelength_um: 3776
-  max_insts: 599
+  max_logic_insts: 223
   max_runtime_s: 173
   signoff_pass: true
   lvs_match: true
@@ -18,7 +20,7 @@ dp8:
   min_whs_ns: 0.0
   max_drc: 0
   max_wirelength_um: 7538
-  max_insts: 2394
+  max_logic_insts: 145
   max_runtime_s: 172
   signoff_pass: true
   lvs_match: true
@@ -27,7 +29,7 @@ dp8_hs:
   min_whs_ns: 0.0
   max_drc: 0
   max_wirelength_um: 7663
-  max_insts: 2538
+  max_logic_insts: 140
   max_runtime_s: 232
   signoff_pass: true
   lvs_match: true
@@ -37,7 +39,7 @@ mcu8:
   min_whs_ns: 0.0
   max_drc: 0
   max_wirelength_um: 102904
-  max_insts: 71207
+  max_logic_insts: 951
   max_runtime_s: 5563
   signoff_pass: true
   lvs_match: true
@@ -47,7 +49,7 @@ ihp_add8:
   min_whs_ns: 0.0
   max_drc: 0
   max_wirelength_um: 2744
-  max_insts: 756
+  max_logic_insts: 98
   max_runtime_s: 76
 
 # UART baselines: 2026-10-26, locked ORFS/open_pdks, 4 threads on arm64 macOS
@@ -59,7 +61,7 @@ uart_fifo:
   min_whs_ns: 0.0
   max_drc: 0
   max_wirelength_um: 13054
-  max_insts: 2358
+  max_logic_insts: 809
   max_runtime_s: 247
   signoff_pass: true
   lvs_match: true
@@ -68,6 +70,6 @@ openframe_uart:
   min_whs_ns: 0.0
   max_drc: 0
   max_wirelength_um: 28830
-  max_insts: 437239
+  max_logic_insts: 829
   max_runtime_s: 1055
   signoff_pass: true
