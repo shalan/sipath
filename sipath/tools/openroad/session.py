@@ -358,6 +358,7 @@ class OpenRoadSession(Session):
         self.count = 0
         self.closed = False
         self.killed = False
+        self.command_history: list[dict] = []  # exact scripts and error policy for local crash replay
         self.timings: list[tuple[str, float]] = []  # (first line of each script, seconds)
 
     def kill(self):
@@ -379,6 +380,7 @@ class OpenRoadSession(Session):
     def run(self, script: str, check: bool = True, timeout: float | None = None) -> Result:
         if self.closed:
             raise SessionDied("session is closed")
+        self.command_history.append({"script": script, "check": check})
         self.count += 1
         tag = f"{self.count}"
         b64 = base64.b64encode(script.encode()).decode()
@@ -499,9 +501,11 @@ class FakeSession(Session):
         self.responses = dict(responses or {})
         self.fail_on = fail_on
         self.scripts: list[str] = []
+        self.command_history: list[dict] = []
 
     def run(self, script: str, check: bool = True, timeout=None) -> Result:
         self.scripts.append(script)
+        self.command_history.append({"script": script, "check": check})
         for bad in self.fail_on:
             if bad in script:
                 if check:

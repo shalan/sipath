@@ -30,11 +30,16 @@ def global_route_allow_congestion(s, report: str):
           "foreach net [[ord::get_db_block] getNets] { $net clearGuides }")  # config.command_timeout
 
 
+def global_route_repair_script(pdk):
+    """The commands shared by execution and the pre-repair replay bundle."""
+    return ("global_route -start_incremental\nestimate_parasitics -global_routing\n"
+            f"repair_design{tcl.design_margins(pdk)}\n"
+            "repair_timing -setup -hold -repair_tns 100" + tcl.margins(pdk, "hold_route"))
+
+
 def repair_on_global_routes(s, pdk):
     """Repair with global-route parasitics in incremental mode (the router later re-routes only what changed)."""
-    s.run("global_route -start_incremental\nestimate_parasitics -global_routing\n"
-          f"repair_design{tcl.design_margins(pdk)}\n"
-          "repair_timing -setup -hold -repair_tns 100" + tcl.margins(pdk, "hold_route"))
+    s.run(global_route_repair_script(pdk))
 
 
 def global_route_digital(report: str) -> str:
