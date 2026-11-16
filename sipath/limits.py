@@ -12,7 +12,7 @@ A limits file maps a design name to its limits; the default is
       min_whs_ns: 0.0         # worst hold slack
       max_drc: 0              # signoff DRC count (else the router's)
       max_wirelength_um: 3800
-      max_insts: 600
+      max_logic_insts: 600    # instances without fill, decap, well-tap and endcap cells
       max_runtime_s: 180      # wall time from the first attempt to the end of `until`
       signoff_pass: true
       lvs_match: true
@@ -35,7 +35,8 @@ DEFAULT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tests", "lim
 
 def run_metrics(workdir: str, until: str | None = None) -> dict:
     """The run's results up to step ``until`` (default: signoff when it ran, else
-    the last step): timing, DRC, LVS, wirelength, instances, wall time."""
+    the last step): timing, DRC, LVS, wirelength, instances (all, and ``logic_insts`` without fill, decap,
+    well-tap and endcap cells), wall time."""
     with open(os.path.join(workdir, "graph.json")) as f:
         g = json.load(f)
     from .scheduler import run_chain
@@ -54,7 +55,8 @@ def run_metrics(workdir: str, until: str | None = None) -> dict:
     atts = [a for a in g["attempts"] if a["step"] in names and a.get("started_at")]
     end = max((a.get("finished_at") or 0) for a in sel)
     out = {"wns_ns": m.get("wns"), "whs_ns": m.get("whs"), "drc": m.get("drc"), "wirelength_um": m.get("wirelength_um"),
-           "insts": m.get("insts"), "analog_coupling_ff": m.get("analog_coupling_ff"),
+           "insts": m.get("insts"), "logic_insts": m.get("logic_insts"),
+           "analog_coupling_ff": m.get("analog_coupling_ff"),
            "analog_aggressor_ff": m.get("analog_aggressor_ff"), "runtime_s": round(end - min(a["started_at"] for a in atts), 1) if atts else None}
     so = (sel[-1].get("outputs") or {}).get("signoff") if until == "signoff" else None
     if so and os.path.isfile(so):
@@ -109,7 +111,7 @@ def suggest(workdir: str, until: str | None = None) -> dict:
         e["min_whs_ns"] = 0.0 if m["whs_ns"] >= 0 else round(m["whs_ns"] - 0.05, 2)
     if m["drc"] is not None:
         e["max_drc"] = int(m["drc"])
-    for k in ("wirelength_um", "insts"):
+    for k in ("wirelength_um", "logic_insts"):
         if m.get(k):
             e[f"max_{k}"] = int(math.ceil(round(m[k] * 1.10, 6)))
     for k in ("analog_coupling_ff", "analog_aggressor_ff"):  # +20 % and 0.5 fF: routing varies a little

@@ -19,6 +19,12 @@ proc ::flow_metrics {} {
   set block [ord::get_db_block]
   set m [dict create]
   dict set m insts [llength [$block getInsts]]
+  set logic 0  ;# without fill, decap (CORE_SPACER), well-tap and endcap cells: a fill or decap swap moves no limit
+  foreach inst [$block getInsts] {
+    set t [[$inst getMaster] getType]
+    if {$t ni {CORE_SPACER CORE_WELLTAP} && ![string match "ENDCAP*" $t]} { incr logic }
+  }
+  dict set m logic_insts $logic
   foreach {k cmd} {wns {sta::worst_slack -max} tns {sta::total_negative_slack -max} whs {sta::worst_slack -min}} {
     if {[catch {set v [eval $cmd]}]} { set v nan }
     dict set m $k $v

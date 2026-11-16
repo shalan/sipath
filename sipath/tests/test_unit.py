@@ -5745,7 +5745,7 @@ class Limits(unittest.TestCase):
         atts = [{"id": "place.0", "step": "place", "status": "selected", "started_at": 100.0, "finished_at": 110.0,
                  "parent": None, "metrics": {"wns": 3.0, "insts": 500, "wirelength_um": None}},
                 {"id": "route.0", "step": "route", "status": "selected", "started_at": 110.0, "finished_at": 140.0,
-                 "parent": "place.0", "metrics": {"wns": 2.0, "drc": 0, "wirelength_um": 3000, "insts": 520}},
+                 "parent": "place.0", "metrics": {"wns": 2.0, "drc": 0, "wirelength_um": 3000, "insts": 520, "logic_insts": 300}},
                 {"id": "eco.0", "step": "eco", "status": "failed", "started_at": 200.0, "finished_at": 300.0,
                  "parent": "signoff.0" if signoff else "route.0"}]
         steps = {"place": {"selected": "place.0"}, "route": {"selected": "route.0"}}
@@ -5764,7 +5764,7 @@ class Limits(unittest.TestCase):
             m = limits.run_metrics(td)  # up to signoff: later (failed) steps are not counted
             self.assertEqual((m["wns_ns"], m["whs_ns"], m["drc"], m["lvs_match"], m["signoff_pass"]),
                              (0.5, 0.2, 0, True, True))
-            self.assertEqual((m["wirelength_um"], m["insts"], m["runtime_s"]), (3000, 520, 60.0))
+            self.assertEqual((m["wirelength_um"], m["insts"], m["logic_insts"], m["runtime_s"]), (3000, 520, 300, 60.0))
             ok = {"min_wns_ns": 0.25, "max_drc": 0, "max_wirelength_um": 3300, "max_runtime_s": 120,
                   "signoff_pass": True}
             self.assertEqual(limits.check(td, ok), [])
@@ -5797,7 +5797,7 @@ class Limits(unittest.TestCase):
             self.assertNotIn("lvs_match", m)
             e = limits.suggest(td, "route")
             self.assertEqual(e, {"until": "route", "min_wns_ns": 1.5, "max_drc": 0, "max_wirelength_um": 3300,
-                                 "max_insts": 572, "max_runtime_s": 110})
+                                 "max_logic_insts": 330, "max_runtime_s": 110})  # fill and decap cells left out
             self.assertEqual(limits.check(td, e), [])
 
     def test_limits_file_names_the_live_designs(self):
