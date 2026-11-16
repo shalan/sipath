@@ -6284,7 +6284,7 @@ class SynthesisWorkerBudget(unittest.TestCase):
         from sipath.synth import _recipe_sweep
         for allocation, configured, maximum in [(1, 8, 1), (2, 8, 2), (8, 8, 6), (None, 2, 2)]:
             with self.subTest(allocation=allocation, configured=configured):
-                ctx = types.SimpleNamespace(job_threads=allocation,
+                ctx = types.SimpleNamespace(threads=allocation, job_threads=None,  # Ctx.threads: the scheduler's share
                     config=types.SimpleNamespace(threads=configured), metrics={})
                 lock = threading.Lock()
                 active, peak = 0, 0

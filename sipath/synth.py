@@ -556,7 +556,9 @@ def _liberty_cells(paths) -> dict[str, bool]:
 def _recipe_sweep(ctx, names, run):
     """Keep internal recipe parallelism within this attempt's allocation."""
     from concurrent.futures import ThreadPoolExecutor
-    budget = getattr(ctx, "job_threads", None) or getattr(getattr(ctx, "config", None), "threads", 1) or 1
+    # the attempt's share (Ctx.threads, set by the scheduler), else the configured count
+    budget = (getattr(ctx, "threads", None) or getattr(ctx, "job_threads", None)
+              or getattr(getattr(ctx, "config", None), "threads", 1) or 1)
     workers = min(len(names), 6, max(1, int(budget)))
     ctx.metrics["synth_recipe_workers"] = workers
     with ThreadPoolExecutor(max_workers=workers) as executor:
