@@ -4042,7 +4042,7 @@ class SourceCorrectness(unittest.TestCase):
         out = tcl.global_connect(d, sky130hd("/p"))
         from sipath.tclquote import tcl_words
         line = next(ln for ln in out.splitlines() if "vccd1" in ln)
-        self.assertEqual(tcl_words(line)[4], r"^bank\[0\]\.u_ram$")  # what Tcl's regexp gets: the name literally
+        self.assertIn("-inst_pattern [::flow_inst_pattern {bank[0].u_ram}]", line)
         self.assertRegex(out, r"-net VGND .*-pin_pattern vssd1 -ground")
         self.assertRegex(out, r"-net VPWR .*-pin_pattern vccd1 -power")
         self.assertTrue(d.is_ground("VGND") and not d.is_ground("VPWR"))
