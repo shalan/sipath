@@ -35,7 +35,8 @@ SIMPLE = ("name", "top", "mode", "die", "core_margin", "analog_nets", "analog_nd
           "pad_kinds", "analog_supplies", "analog_supply_layers", "analog_supply_ndr", "macro_channel",
           "analog_shield", "analog_shield_net", "analog_keepaway",
           "macro_pin_clearance", "analog_guard", "layer_adjustments", "pad_masters", "pdk", "dont_use",
-          "allow_excluded", "step_defaults", "rtl_defines", "core_utilization", "aspect_ratio", "auto_blackbox",
+          "allow_excluded", "step_defaults", "rtl_defines", "rtl_parameters", "rtl_keep_hierarchy",
+          "core_utilization", "aspect_ratio", "auto_blackbox",
           "plugins", "extensions", "supply_names", "harness", "harness_options")
 
 
@@ -97,6 +98,8 @@ def design_from_dict(data: dict, base: str) -> Design:
     kw["extra_lefs"] = [_path(base, p) for p in data.get("extra_lefs", [])]
     kw["extra_libs"] = [_path(base, p) for p in data.get("extra_libs", [])]
     kw["rtl"] = [_path(base, p) for p in data.get("rtl", [])]
+    kw["rtl_verilog"] = [_path(base, p) for p in data.get("rtl_verilog", [])]
+    kw["rtl_blackboxes"] = [_path(base, p) for p in data.get("rtl_blackboxes", [])]
     kw["rtl_includes"] = [_path(base, p) for p in data.get("rtl_includes", [])]
     kw.setdefault("netlist", None)
     kw["pads"] = [Pad(**p) for p in data.get("pads", [])]

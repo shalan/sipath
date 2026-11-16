@@ -28,6 +28,10 @@ mode: die                   # die (pad ring) | macro (soft macro)
 pdk: sky130A                # a description in sipath/pdks (python3 -m sipath pdks) or a path to one
 netlist: rtl/chip_flat.v    # flattened gate-level Verilog, or instead:
 # rtl: [rtl/chip.v]         #   RTL, linted and synthesized by the synth step
+# rtl_parameters: {EXTENSION_M: 1}   # top-level parameters (numeric literals)
+# rtl_blackboxes: [ip/ram.v]         # interface-only Verilog, power pins included
+# rtl_verilog: [rtl/regs.v]          # read by Yosys's own reader before slang
+# rtl_keep_hierarchy: true           # slang keeps hierarchy (inout ports); Yosys still flattens
 sdc: rtl/chip.sdc
 # mode: macro  ->  floorplan_def: fp.def (die, rows, pins), or die / core_utilization with pins placed
 #                  by the flow; is_core: false limits routing to the embedded top layer

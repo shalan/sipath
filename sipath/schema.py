@@ -169,6 +169,10 @@ DESIGN = {
     "rtl": F("list[path]", "RTL (Verilog/SystemVerilog) files; the synth step writes the netlist"),
     "rtl_defines": F("dict", "RTL defines: name -> value (\"\" for a bare define)"),
     "rtl_includes": F("list[path]", "RTL include directories"),
+    "rtl_parameters": F("dict", "top-level parameters: name -> numeric literal (e.g. 1, 32'h2000_0000), for synthesis and lint"),
+    "rtl_verilog": F("list[path]", "RTL read by Yosys's own Verilog reader before slang (functional, not black boxes)"),
+    "rtl_blackboxes": F("list[path]", "interface-only Verilog (e.g. macros with their power pins), read before the RTL"),
+    "rtl_keep_hierarchy": F("bool", "slang keeps the hierarchy (hierarchical inout ports); synthesis still flattens"),
     "sdc": F("path", "timing constraints", required=True),
     "floorplan_def": F("path", "macro mode: die, rows and pins (else die or core_utilization, pins placed "
                                 "by the flow)"),

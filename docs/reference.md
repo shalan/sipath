@@ -22,6 +22,10 @@ YAML or JSON; relative paths are relative to the file. Keys not listed are error
 | `rtl` | list[path] |  | RTL (Verilog/SystemVerilog) files; the synth step writes the netlist |
 | `rtl_defines` | dict |  | RTL defines: name -> value ("" for a bare define) |
 | `rtl_includes` | list[path] |  | RTL include directories |
+| `rtl_parameters` | dict |  | top-level parameters: name -> numeric literal (e.g. 1, 32'h2000_0000), for synthesis and lint |
+| `rtl_verilog` | list[path] |  | RTL read by Yosys's own Verilog reader before slang (functional, not black boxes) |
+| `rtl_blackboxes` | list[path] |  | interface-only Verilog (e.g. macros with their power pins), read before the RTL |
+| `rtl_keep_hierarchy` | bool |  | slang keeps the hierarchy (hierarchical inout ports); synthesis still flattens |
 | `sdc` | path | yes | timing constraints |
 | `floorplan_def` | path |  | macro mode: die, rows and pins (else die or core_utilization, pins placed by the flow) |
 | `die` | box |  | die area (um); die mode, or macro mode without floorplan_def |

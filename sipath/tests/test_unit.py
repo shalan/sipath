@@ -5959,6 +5959,41 @@ class FrontEnd(unittest.TestCase):
                          ["read_slang --top top --empty-blackboxes -DW=8 -I/inc /a/pkg.sv /a/top.sv"])
         self.assertEqual(synth._read_rtl(d, True, "slang-plugin")[0], "plugin -i slang")
 
+    def test_parameters_blackboxes_and_native_verilog(self):
+        """#19 (front end): top-level parameters for both readers, interface files and native-reader files first."""
+        from sipath import designfile, synth
+        d = self.design(("/a/top.sv",), rtl_parameters={"EXTENSION_M": 1, "RESET_VECTOR": "32'h2000_0000"})
+        self.assertEqual(synth._read_rtl(d, True, "yosys")[-2:],
+                         ["chparam -set EXTENSION_M 1 top", "chparam -set RESET_VECTOR 32'h2000_0000 top"])
+        slang = synth._read_rtl(d, True, "slang")[-1]
+        self.assertIn("-GEXTENSION_M=1 -GRESET_VECTOR=32'h2000_0000", slang)
+        self.assertNotIn("--keep-hierarchy", slang)
+        self.assertNotIn("--extern-modules", slang)
+        d.rtl_keep_hierarchy = True
+        self.assertIn("--keep-hierarchy", synth._read_rtl(d, True, "slang")[-1])
+        d.rtl_parameters = {"W": "1; shell echo bad"}  # reaches a command line: numeric literals only
+        with self.assertRaisesRegex(ValueError, "rtl_parameters"):
+            synth._read_rtl(d, True, "slang")
+        d = designfile.design_from_dict(dict(name="x", top="top", mode="macro", pdk="sky130A", sdc="t.sdc",
+                                             rtl=["top.sv"], rtl_blackboxes=["ram.v"], rtl_verilog=["regs.v"],
+                                             rtl_parameters={"N": 2}, rtl_keep_hierarchy=True), "/b")
+        self.assertTrue({"/b/ram.v", "/b/regs.v"} <= set(d.input_files()))  # checked, mounted, fingerprinted
+        cmds = synth._read_rtl(d, False, "slang-plugin")
+        self.assertEqual(cmds[:3], ["read_verilog -lib -overwrite /b/ram.v", "read_verilog -sv -noautowire /b/regs.v",
+                                    "plugin -i slang"])
+        self.assertIn("--extern-modules", cmds[-1])
+
+    def test_slang_probe_reads_the_command_list(self):
+        from unittest import mock
+        from sipath import synth
+        ctx = types.SimpleNamespace(path=lambda name: name)
+        runner = types.SimpleNamespace(image="probe-test")
+        with mock.patch.dict(synth._SLANG, {}, clear=True), mock.patch.object(synth, "_runner", return_value=runner), \
+                mock.patch.object(synth.yosys, "command", side_effect=["  read_verilog  read RTL\n",
+                                                                       "  read_slang    slang frontend\n"]) as cmd:
+            self.assertEqual(synth.slang_support(ctx), "slang-plugin")
+            self.assertEqual(cmd.call_args_list[1].args[1], ["-p", "plugin -i slang; help"])
+
     def test_frontend_choice(self):
         from sipath import synth
         ctx = types.SimpleNamespace(params={"frontend": "auto"}, design=self.design(("t.v",)))
