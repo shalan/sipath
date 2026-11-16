@@ -19,6 +19,7 @@ import dataclasses
 import hashlib
 import json
 import os
+import re
 
 # configuration keys whose value changes what a run produces (the rest: how fast, how verbose)
 RESULT_CONFIG = ("image", "openroad_binary", "platform", "magic_image", "precheck_image", "native_tools",
@@ -71,6 +72,52 @@ def _include_files(dirs) -> list[str]:
     return sorted(out)
 
 
+def _rtl_include_files(design) -> list[str]:
+    """Trace literal includes; conservatively scan roots for dynamic includes.
+
+    Hash every matching candidate rather than assume a frontend's search order.
+    Missing candidates are retained so creation of a shadowing header invalidates
+    the run too. Unrelated files in an include directory are not dependencies.
+    """
+    roots = list(getattr(design, "rtl_includes", ()) or ())
+    sources = [*getattr(design, "rtl", ()), *getattr(design, "rtl_verilog", ()),
+               *getattr(design, "rtl_blackboxes", ())]
+    if not sources:
+        return _include_files(roots)  # retain the gate-level compatibility behavior
+    pending, seen, dependencies, source_dirs = list(sources), set(), set(), set()
+    fallback = False
+    while pending:
+        source = os.path.abspath(pending.pop())
+        canonical = os.path.realpath(source)
+        if canonical in seen:
+            continue
+        seen.add(canonical)
+        local = os.path.dirname(source)
+        source_dirs.add(local)
+        try:
+            with open(source, errors="replace") as fh:
+                text = fh.read()
+        except OSError:
+            continue  # explicit input validation reports missing source files
+        for directive in re.findall(r"`include\s+([^\r\n]*)", text):
+            literal = re.fullmatch(r'"([^"\n]+)"\s*(?://.*)?', directive.strip())
+            if literal is None:
+                fallback = True
+                continue
+            candidates = {os.path.abspath(os.path.join(root, literal.group(1)))
+                          for root in [local, *roots]}
+            dependencies.update(candidates)
+            pending.extend(path for path in candidates if os.path.isfile(path))
+    if fallback:
+        # A macro can choose any filename, including a nonstandard suffix.
+        # Scan all regular files rather than guess which preprocessor branch won.
+        for root in set(roots) | source_dirs:
+            for directory, _, names in os.walk(root):
+                dependencies.update(os.path.join(directory, name) for name in names
+                                    if os.path.isfile(os.path.join(directory, name)))
+    return sorted(dependencies)
+
+
 _CODE: dict = {}
 
 
@@ -95,7 +142,7 @@ def code_identity() -> dict:
 
 def inputs(design, pdk, config=None, provenance: dict | None = None) -> dict:
     """The run's description: {design, files, pdk, tools, config, digest}."""
-    files = [f for f in (*design.input_files(), *_include_files(getattr(design, "rtl_includes", ()))) if f]
+    files = [f for f in (*design.input_files(), *_rtl_include_files(design)) if f]
     file_hashes = {os.path.abspath(f): file_hash(f) for f in dict.fromkeys(files)}
     prov = {k: v for k, v in (provenance or {}).items() if k not in VOLATILE}
     import sys
