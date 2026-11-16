@@ -66,3 +66,14 @@ Found by running it:
   `RetryWith` and a fresh attempt runs without post-route timing repair
   (`rounds: 0`); its outputs say why (`skipped_because`, the attempt's
   `retry_reason`) and signoff judges the timing.
+
+### Dangling signal nets during global-route repair
+
+The digital routing selection includes single-terminal signal nets. They do
+not need routed wires, but OpenROAD's `repair_design` still visits their
+drivers. Excluding them from `grt::add_net_to_route` leaves no corresponding
+router entry; the pinned LibreLane OpenROAD build can then segfault in
+`GlobalRouter::getPinGridPositions` during global-route-based buffering.
+Supply, special and analog nets remain excluded. `LiveDanglingNets` adds a
+public dangling buffer output to dp8 and exercises global routing followed
+by electrical/timing repair and incremental rerouting.

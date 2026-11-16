@@ -39,7 +39,7 @@ jobs:
             classes: >-
               LiveRtl LiveSoftMacro LiveHs LiveResume LiveMcp LiveIhp LiveIhpRing LiveScale OpenRoad
               LiveMacroPlacers LiveAdaptive LiveCancel LiveBudget LiveFork LiveDocs LiveBoundedSearch LiveHardenedParent
-              LiveRouteSearchMacro LiveUart
+              LiveRouteSearchMacro LiveUart LiveDanglingNets
     env:
       SIPATH_LIMITS_IGNORE: max_runtime_s
       PDK_ROOT: /home/runner/pdk
