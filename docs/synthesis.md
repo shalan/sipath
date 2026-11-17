@@ -41,25 +41,38 @@ at the slow corner with the Liberty wire-load model).
    (`abc_target: none|period|<ps>`).
 6. **Checks and proof.** An unmapped cell (e.g. a latch) or an excluded cell
    fails the step. The selected netlist is then checked against the RTL
-   (Yosys miter, cell functions from the Liberty file): equal outputs for
-   every input sequence for `equiv_depth` (10) cycles from reset, within
-   `equiv_timeout` (600 s). It is bounded, not a full proof (induction needs
-   a register correspondence the synthesized names do not give). A successful
-   synth step therefore does not always mean equivalence was shown; the
-   outcome is in the attempt's `equiv` metric and output:
+   (Yosys, cell functions from the Liberty file), in two ways:
+   - **bounded** (`equiv: bounded`, the default): a miter, equal outputs for
+     every input sequence for `equiv_depth` (10) cycles from reset, within
+     `equiv_timeout` (600 s). A counterexample fails the step.
+   - **induction**, when the bounded check times out, or alone with
+     `equiv: induct`: signals of the same name are paired (the netlist names
+     a register bit's output `name[i]`, and the RTL is split to single-bit
+     wires to match), each pair's logic is proven up to the paired signals,
+     the rest by induction with every pair assumed equal a cycle before. A
+     proof has no depth bound: from equal paired registers the outputs stay
+     equal for every input sequence. A pair left unproven (a register
+     synthesis merged, duplicated or retimed has no partner) is not a
+     counterexample, so it is inconclusive, with the pairs listed.
+
+   aes at 10 ns: the bounded check timed out at 600 s; induction proved all
+   562 pairs (434 register bits and the outputs) in 395 s, and the same
+   netlist with one NAND made an AND left exactly that register's pair
+   unproven. The outcome is in the attempt's `equiv` metric and output:
 
    | `equiv` | meaning | the step |
    |---|---|---|
-   | `equivalent for N cycles from reset` | no difference within N cycles | succeeds |
-   | `mismatch` | a counterexample (in the error, and `equiv.log`) | fails |
-   | `inconclusive (timeout)` | the solver ran out of time: nothing shown either way (aes: 600 s) | succeeds (`equiv_on_timeout: fail`: fails) |
+   | `equivalent for N cycles from reset` | bounded: no difference within N cycles | succeeds |
+   | `equivalent by register correspondence (N signal pairs, induction)` | every pair proven (`bounded` in the output when the bounded check timed out first) | succeeds |
+   | `mismatch` | bounded: a counterexample (in the error, and `equiv.log`) | fails |
+   | `inconclusive (N of M signal pairs unproven)` | induction proved some pairs, not all (`unproven` lists them) | succeeds (`equiv_on_timeout: fail`: fails) |
+   | `inconclusive (timeout)` | induction ran out of time too | succeeds (`equiv_on_timeout: fail`: fails) |
    | `skipped` | the design has macros, which are black boxes to the check | succeeds |
    | (none) | `equiv: off` | succeeds |
 
    A run that ends without a result (no verdict and no timeout in the log)
-   fails the step. Raise `equiv_timeout` or lower `equiv_depth` to turn an
-   inconclusive result into a verdict. `equiv_on_timeout` decides what a
-   timeout does: `warn` (the default: the step passes, the run's
+   fails the step. `equiv_on_timeout` decides what an inconclusive result
+   does: `warn` (the default: the step passes, the run's
    [verdict](signoff.md#the-runs-verdict) is inconclusive), `fail` (the step
    fails) or `pass` (accepted: the verdict counts it as passed and says so in
    a note).

@@ -1624,32 +1624,67 @@ class RtlEquivalence(unittest.TestCase):
         self.assertIsNone(synth.find_reset(["clk", "en"]))
 
 
-    def test_timeout_policy(self):
-        """equiv_on_timeout: warn reports inconclusive, pass records it as accepted, fail fails the step."""
+    INDUCT_PROVEN = ("Found 3 $equiv cells in equiv:\n  Of those cells 3 are proven and 0 are unproven.\n"
+                     "Equivalence successfully proven!\n")
+    INDUCT_UNPROVEN = ("Found 3 $equiv cells in equiv:\n  Of those cells 1 are proven and 2 are unproven.\n"
+                       "  Unproven $equiv $auto$equiv_make.cc:295:find_same_wires$9: \\q[2]_gold \\q[2]_gate\n"
+                       "  Unproven $equiv $auto$equiv_make.cc:258:find_same_wires$7: \\y_gold [1] \\y_gate [1]\n"
+                       "ERROR: Found 2 unproven $equiv cells in 'equiv_status -assert'.\n")
+
+    def _equivalence(self, params, induct_log, induct_fails):
+        """synth.equivalence with Yosys faked: the bounded SAT run hits its limit, the induction writes
+        ``induct_log`` (and exits non-zero when ``induct_fails``). Returns (result, scripts run)."""
         from types import SimpleNamespace
         from unittest import mock
         from sipath import synth
-        with tempfile.TemporaryDirectory() as td:
-            net = os.path.join(td, "t.v")
-            with open(net, "w") as fh:
-                fh.write("module t(input clk, input rst_n, output y); endmodule\n")
+        td = tempfile.mkdtemp()
+        net = os.path.join(td, "t.v")
+        with open(net, "w") as fh:
+            fh.write("module t(input clk, input rst_n, output y); endmodule\n")
+        ran = []
 
-            def fake_yosys(ctx, script, log, out):  # what Yosys writes when the SAT run hits its limit
-                with open(log, "w") as fh:
+        def fake_yosys(ctx, script, log, out, timeout=None):
+            ran.append(os.path.basename(script))
+            with open(log, "w") as fh:
+                if script.endswith("equiv_induct.ys"):
+                    fh.write(induct_log)
+                else:  # what Yosys writes when the SAT run hits its limit
                     fh.write("Solving problem with 1234 variables...\nSAT solving timeout reached.\n")
-            for policy, want in (("warn", "warn"), ("pass", "pass")):
-                ctx = SimpleNamespace(design=Design("t", "t", None, "s.sdc", "macro", rtl=["/r/t.v"]), pdk=None,
-                                      params={"equiv_on_timeout": policy, "equiv_timeout": 5}, outputs={},
-                                      path=lambda n: os.path.join(td, n))
-                with mock.patch.object(synth.yosys, "script", fake_yosys), \
-                        mock.patch.object(synth, "equiv_script", lambda *a, **k: ""):
-                    r = synth.equivalence(ctx, net)
-                self.assertEqual((r["result"], r["on_timeout"]), ("inconclusive (timeout)", want))
-            ctx.params = {"equiv_on_timeout": "fail", "equiv_timeout": 5}
-            with mock.patch.object(synth.yosys, "script", fake_yosys), \
-                    mock.patch.object(synth, "equiv_script", lambda *a, **k: ""):
-                with self.assertRaisesRegex(RuntimeError, "timed out after 5 s"):
-                    synth.equivalence(ctx, net)
+            if script.endswith("equiv_induct.ys") and induct_fails:
+                raise RuntimeError(induct_fails if isinstance(induct_fails, str) else "yosys exited 1")
+        ctx = SimpleNamespace(design=Design("t", "t", None, "s.sdc", "macro", rtl=["/r/t.v"]), pdk=None,
+                              params=params, outputs={}, path=lambda n: os.path.join(td, n))
+        with mock.patch.object(synth.yosys, "script", fake_yosys), \
+                mock.patch.object(synth, "equiv_script", lambda *a, **k: ""), \
+                mock.patch.object(synth, "induct_script", lambda *a, **k: ""):
+            return synth.equivalence(ctx, net), ran
+
+    def test_bounded_timeout_falls_back_to_induction(self):
+        r, ran = self._equivalence({"equiv_timeout": 5}, self.INDUCT_PROVEN, False)
+        self.assertEqual(ran, ["equiv.ys", "equiv_induct.ys"])
+        self.assertEqual(r["result"], "equivalent by register correspondence (3 signal pairs, induction)")
+        self.assertEqual(r["bounded"]["result"], "inconclusive (timeout)")
+        self.assertNotIn("on_timeout", r)
+
+    def test_induct_alone(self):
+        r, ran = self._equivalence({"equiv": "induct"}, self.INDUCT_PROVEN, False)
+        self.assertEqual(ran, ["equiv_induct.ys"])
+        self.assertNotIn("bounded", r)
+
+    def test_unproven_pairs_follow_the_policy(self):
+        """Unproven pairs are inconclusive, never a mismatch: warn reports, pass accepts, fail fails the step."""
+        for policy in ("warn", "pass"):
+            r, _ = self._equivalence({"equiv_on_timeout": policy, "equiv_timeout": 5}, self.INDUCT_UNPROVEN, True)
+            self.assertEqual((r["result"], r["on_timeout"], r["unproven"]),
+                             ("inconclusive (2 of 3 signal pairs unproven)", policy, ["q[2]", "y[1]"]))
+        with self.assertRaisesRegex(RuntimeError, r"inconclusive \(2 of 3 signal pairs unproven\).*fail"):
+            self._equivalence({"equiv_on_timeout": "fail", "equiv_timeout": 5}, self.INDUCT_UNPROVEN, True)
+
+    def test_induction_timeout_is_inconclusive(self):
+        r, _ = self._equivalence({"equiv": "induct"}, "", "yosys timed out after 5 s and was stopped")
+        self.assertEqual((r["result"], r["on_timeout"]), ("inconclusive (timeout)", "warn"))
+        with self.assertRaisesRegex(RuntimeError, "did not run to a result"):  # no status, no timeout
+            self._equivalence({"equiv": "induct"}, "", "yosys exited 1")
 
 
 class BlackboxModels(unittest.TestCase):

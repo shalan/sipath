@@ -87,17 +87,23 @@ def _equivalence(a: dict, checks: dict, notes: list, omitted: list):
             omitted.append("equivalence (equiv: off)")
         return
     r = str(eq.get("result", ""))
-    if r.startswith("equivalent"):
+    if r.startswith("equivalent by register correspondence"):  # induction: no depth bound
+        how = " after the bounded check timed out" if eq.get("bounded") else ""
+        checks["equivalence"] = {"status": "passed", "required": True, "attempt": a["id"],
+                                 "detail": f"{r}{how} (equal from equal paired registers, every input sequence)"}
+    elif r.startswith("equivalent"):
         checks["equivalence"] = {"status": "passed", "required": True, "attempt": a["id"],
                                  "detail": f"{r} (bounded, not a full proof)"}
     elif r == "mismatch":
         checks["equivalence"] = {"status": "failed", "required": True, "attempt": a["id"], "detail": r}
     elif r.startswith("inconclusive"):
         accepted = eq.get("on_timeout") == "pass"
+        detail = (f"{r} by induction" + (" after the bounded check timed out" if eq.get("bounded") else "")
+                  if eq.get("method") == "induction" else f"{r} after {eq.get('depth')} cycles' worth of search")
         checks["equivalence"] = {"status": "passed" if accepted else "inconclusive", "required": True,
-                                 "attempt": a["id"], "detail": f"{r} after {eq.get('depth')} cycles' worth of search"}
+                                 "attempt": a["id"], "detail": detail}
         if accepted:
-            notes.append("equivalence: a timeout was accepted as a pass (equiv_on_timeout: pass)")
+            notes.append(f"equivalence: {r} was accepted as a pass (equiv_on_timeout: pass)")
     elif r == "skipped":
         checks["equivalence"] = {"status": "skipped", "required": True, "attempt": a["id"],
                                  "detail": eq.get("reason", "")}

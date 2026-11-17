@@ -155,14 +155,17 @@ STEP_PARAMS: dict[str, list[Param]] = {
               "nets, combinational loops are errors)"),
         Param("lint_strict", "bool", False, "fail on any lint warning (Yosys or Verilator)"),
         Param("equiv", "str", "bounded", "check the netlist against the RTL: bounded (equal outputs for "
-              "equiv_depth cycles from reset, every input sequence) or off", choices=("bounded", "off")),
+              "equiv_depth cycles from reset, every input sequence; on a timeout, induction), induct (registers "
+              "paired by name, every pair proven by induction: no depth bound) or off",
+              choices=("bounded", "induct", "off")),
         Param("equiv_depth", "int", 10, "cycles from reset the equivalence covers", min=1),
         Param("equiv_reset", "str", None, "reset port and active level, e.g. rst_n:0 (default: found, in any case, "
               "among rst_n, resetn, reset_n, rstn, nrst, rst_ni, presetn, hresetn, aresetn, arst_n (active 0), "
               "rst, reset, arst (active 1))"),
-        Param("equiv_timeout", "int", 600, "SAT time limit; reached: inconclusive (reported, not passed)",
-              unit="s", min=1),
-        Param("equiv_on_timeout", "str", "warn", "when the equivalence check times out: warn (the step passes, the "
+        Param("equiv_timeout", "int", 600, "time limit of each method (bounded SAT, induction); reached: "
+              "inconclusive (reported, not passed)", unit="s", min=1),
+        Param("equiv_on_timeout", "str", "warn", "when the equivalence check is inconclusive (timed out, or "
+              "signal pairs induction left unproven): warn (the step passes, the "
               "run's verification verdict is inconclusive), fail (the step fails), or pass (accepted: the verdict "
               "counts the check as passed and notes the timeout)", choices=("warn", "fail", "pass")),
         Param("port_buffers", "bool", True, "buffer assignments between ports (off: a port-to-port assignment "

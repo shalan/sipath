@@ -324,9 +324,71 @@ def equiv_script(pdk, d, netlist: str, depth: int, reset: tuple[str, int] | None
         f"-timeout {timeout} miter", ""])
 
 
+def induct_script(pdk, d, netlist: str, fe: str = "yosys") -> str:
+    """Yosys script: the RTL against the gate-level netlist by register correspondence. Signals of the same
+    name are paired (``equiv_make``; the RTL split to single-bit wires first, as the netlist names a register
+    bit's output ``name[i]``), each pair's cone proven up to the paired signals (``equiv_simple``), the rest by
+    induction, every pair assumed equal in the previous cycle (``equiv_induct``). Proven: from equal paired
+    registers the outputs and registers stay equal in every cycle, for every input sequence; no depth bound.
+    A pair left unproven (a register synthesis merged, duplicated or retimed has no partner) is not a
+    counterexample: ``equiv_status -assert`` lists it."""
+    std, _ = _libs(pdk, d)
+    return "\n".join([
+        *_read_rtl(d, True, fe), f"hierarchy -check -top {d.top}", "proc", "memory", "flatten", "opt_clean",
+        "splitnets", f"rename {d.top} gold", "design -stash gold",
+        f"read_liberty -ignore_miss_func {std}", f"read_verilog {netlist}", f"hierarchy -check -top {d.top}",
+        "proc", "flatten", "opt_clean", f"rename {d.top} gate", "design -stash gate",
+        "design -copy-from gold -as gold gold", "design -copy-from gate -as gate gate",
+        "equiv_make gold gate equiv", "hierarchy -top equiv", "async2sync",
+        "equiv_simple -seq 2", "equiv_induct -seq 2", "equiv_status -assert", ""])
+
+
+def induct_result(text: str) -> dict:
+    """{proven, total, unproven: [gold signal]} from an induct_script log (None when it has no final status)."""
+    totals = re.findall(r"Found (\d+) \$equiv cells in equiv:", text)
+    if not totals:
+        return {}
+    last = text[text.rfind("Found " + totals[-1] + " $equiv cells in equiv:"):]
+    # "Unproven $equiv <cell>: \sa00_sr[2]_gold \sa00_sr[2]_gate" or "...: \text_out_gold [27] \text_out_gate [27]"
+    unproven = re.findall(r"Unproven \$equiv \S+: \\?(\S+?)_gold(?: (\[\d+\]))?", last)
+    names = [n + (b or "") for n, b in unproven]
+    return {"total": int(totals[-1]), "proven": int(totals[-1]) - len(names), "unproven": names}
+
+
+def _induct(ctx, netlist: str, timeout: int) -> dict:
+    d, pdk = ctx.design, ctx.pdk
+    script, log = ctx.path("equiv_induct.ys"), ctx.path("equiv_induct.log")
+    with open(script, "w") as f:
+        f.write(induct_script(pdk, d, netlist, ctx.outputs.get("frontend", "yosys")))
+    ok, timed_out = True, False
+    try:
+        yosys.script(ctx, script, log, ctx.path("equiv_induct.out"), timeout=timeout)
+    except Exception as e:  # unproven pairs fail equiv_status -assert; the log tells which
+        ok, timed_out = False, "timed out" in str(e)
+    text = ""
+    if os.path.isfile(log):
+        with open(log, errors="replace") as fh:
+            text = fh.read()
+    r = induct_result(text)
+    res = {"method": "induction", "log": log, **{k: r[k] for k in ("total", "proven") if k in r}}
+    if ok and r and not r["unproven"]:
+        res["result"] = f"equivalent by register correspondence ({r['total']} signal pairs, induction)"
+    elif timed_out:
+        res["result"] = "inconclusive (timeout)"
+    elif r and r["unproven"]:
+        res["result"] = f"inconclusive ({len(r['unproven'])} of {r['total']} signal pairs unproven)"
+        res["unproven"] = r["unproven"][:50]
+    else:
+        raise RuntimeError(f"synth: the induction equivalence check did not run to a result (log {log})")
+    return res
+
+
 def equivalence(ctx, netlist: str) -> dict:
-    """The synthesized netlist against the RTL (bounded from reset); a
-    mismatch fails the step, a timeout is inconclusive (reported)."""
+    """The synthesized netlist against the RTL. ``equiv: bounded`` (default): a miter from reset for
+    ``equiv_depth`` cycles; a counterexample fails the step, a timeout falls back to register correspondence
+    by induction (``induct_script``; aes at 10 ns: the bounded check timed out at 600 s, induction proved 562
+    pairs in 395 s, and a netlist with one NAND made an AND left exactly one pair unproven). ``equiv: induct``:
+    induction only. Inconclusive (timeout, unproven pairs): reported, ``equiv_on_timeout`` decides."""
     d, pdk, p = ctx.design, ctx.pdk, ctx.params
     if d.macros:
         return {"result": "skipped", "reason": "macros are black boxes to the check"}
@@ -341,6 +403,8 @@ def equivalence(ctx, netlist: str) -> dict:
     else:
         reset = find_reset(ports)
     depth, timeout = int(p.get("equiv_depth", 10)), int(p.get("equiv_timeout", 600))
+    if p.get("equiv") == "induct":
+        return _on_inconclusive(_induct(ctx, netlist, timeout), p, timeout)
     script = ctx.path("equiv.ys")
     with open(script, "w") as f:
         f.write(equiv_script(pdk, d, netlist, depth, reset, timeout, ctx.outputs.get("frontend", "yosys")))
@@ -364,14 +428,23 @@ def equivalence(ctx, netlist: str) -> dict:
         raise RuntimeError(f"synth: the netlist differs from the RTL within {depth} cycles from reset{hint} "
                            f"(log {log}):\n{tail}")
     elif "timeout" in text.lower() or "Interrupted" in text:
-        res["result"] = "inconclusive (timeout)"
-        policy = p.get("equiv_on_timeout", "warn")
-        if policy == "fail":
-            raise RuntimeError(f"synth: the equivalence check timed out after {timeout} s within {depth} cycles "
-                               f"(equiv_on_timeout: fail; raise equiv_timeout or lower equiv_depth; log {log})")
-        res["on_timeout"] = policy
+        ind = _induct(ctx, netlist, timeout)  # no counterexample within the time: prove it another way
+        res = {**ind, "bounded": {"result": "inconclusive (timeout)", "depth": depth, "log": log}, "depth": depth,
+               "reset": res["reset"]}
+        return _on_inconclusive(res, p, timeout)
     else:
         raise RuntimeError(f"synth: equivalence check did not run to a result (log {log})")
+    return res
+
+
+def _on_inconclusive(res: dict, p: dict, timeout: int) -> dict:
+    if not res["result"].startswith("inconclusive"):
+        return res
+    policy = p.get("equiv_on_timeout", "warn")
+    if policy == "fail":
+        raise RuntimeError(f"synth: the equivalence check is {res['result']} (timeout {timeout} s; "
+                           f"equiv_on_timeout: fail; log {res.get('log')})")
+    res["on_timeout"] = policy
     return res
 
 

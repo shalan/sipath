@@ -105,7 +105,7 @@ Other commands:
 | area | what SiPath does |
 |---|---|
 | **Inputs** | Design files checked against a schema before anything runs; typed step parameters (variant > design > PDK > default); PDKs as data; images locked by digest and the open_pdks release by commit; plugins, and steps named by import path ([design files](docs/design-files.md)) |
-| **Synthesis** | Verilog or SystemVerilog (slang), linted by Yosys and Verilator; ABC with 20 measured recipes at the slow corner, the netlist picked by least area meeting timing; Booth and prefix-adder variants; bounded RTL-to-netlist equivalence ([synthesis](docs/synthesis.md)) |
+| **Synthesis** | Verilog or SystemVerilog (slang), linted by Yosys and Verilator; ABC with 20 measured recipes at the slow corner, the netlist picked by least area meeting timing; Booth and prefix-adder variants; RTL-to-netlist equivalence, bounded then by induction ([synthesis](docs/synthesis.md)) |
 | **Floorplan and chip** | Soft macro (from a DEF, a die box or a utilization) or full die with a pad ring generated from rules; the OpenFrame harness with the wrapper checked pin by pin, assembled into the frame's chip (optional seal ring); Caravel's wrapper checks only (experimental: no chip assembly, its power stripes not verified) |
 | **Hard macros** | Fixed, or placed by a random search with orientation search, OpenROAD's mpl, or the CD-LNS placer from the Macro Placement Challenge 2026; halo, channel, pin-clearance and analog-guard rules; scored by a quick place and route |
 | **Power** | Power grid (rings, straps scaled to the design), straps to supply pins the grid cannot reach, 3.3 V analog supplies routed with a wide rule; grid and IR checks |
@@ -148,7 +148,7 @@ digest); `python3 -m sipath toolchain --check` compares what is installed.
 | tool | version | what SiPath uses it for | from |
 |---|---|---|---|
 | [OpenROAD](https://github.com/The-OpenROAD-Project/OpenROAD) (OpenSTA, OpenRCX, PDNSim, RePlAce, TritonCTS, FastRoute, TritonRoute, Resizer, ICeWall) | 26Q3-1867-g84e3ff1eb2 | floorplan to extraction in live sessions; timing at synthesis and nine-corner signoff STA; antenna checks; heatmaps; layout pictures | ORFS image, or `install-tools` |
-| [Yosys](https://github.com/YosysHQ/yosys) with ABC and slang | 0.68 | synthesis and the ABC recipe sweep, SystemVerilog through slang, lint, bounded equivalence | ORFS image |
+| [Yosys](https://github.com/YosysHQ/yosys) with ABC and slang | 0.68 | synthesis and the ABC recipe sweep, SystemVerilog through slang, lint, equivalence (bounded, induction) | ORFS image |
 | [Verilator](https://github.com/verilator/verilator) | not locked | RTL lint (`--lint-only -Wall`), when it is found | host, optional |
 | [KLayout](https://github.com/KLayout/klayout) | 0.30.7 | GDS stream-out, DRC, density, standard-cell and full-device LVS, XOR, seal ring, chip check | ORFS image |
 | [Magic](https://github.com/RTimothyEdwards/magic) | 8.3.685 | chip assembly into a frame (`integrate`); optional Magic DRC and XOR | Magic image (`docker/magic`) |
@@ -196,8 +196,9 @@ the last column). The table is written from the records in `bench/results/`
 
 ## Known limits
 
-- RTL-to-netlist equivalence is bounded (10 cycles from reset), not a full
-  proof, and times out on large designs.
+- RTL-to-netlist equivalence is bounded (10 cycles from reset) or, when that
+  times out, by register correspondence: a design whose synthesis merges,
+  duplicates or retimes registers can stay inconclusive.
 - Full-device LVS with the PDK's deck runs but matches neither dp8 nor the
   ChipFoundry ADC yet; the standard-cell LVS is the gating check.
 - No second voltage domain: 3.3 V analog supplies reach macro pins from

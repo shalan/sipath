@@ -254,11 +254,11 @@ Set per attempt in `variants` (design file `flow:` or MCP `run_step`), or as def
 | `timing_corner` | str | – |  | corner of the estimate (default: the worst-setup corner of the PDK's optimize_corners, e.g. ss_max) |
 | `lint` | bool | true |  | lint the RTL first (implicit nets, hierarchy, undriven / multiply driven nets, combinational loops are errors) |
 | `lint_strict` | bool | false |  | fail on any lint warning (Yosys or Verilator) |
-| `equiv` | str | bounded | bounded, off | check the netlist against the RTL: bounded (equal outputs for equiv_depth cycles from reset, every input sequence) or off |
+| `equiv` | str | bounded | bounded, induct, off | check the netlist against the RTL: bounded (equal outputs for equiv_depth cycles from reset, every input sequence; on a timeout, induction), induct (registers paired by name, every pair proven by induction: no depth bound) or off |
 | `equiv_depth` | int | 10 | 1.. | cycles from reset the equivalence covers |
 | `equiv_reset` | str | – |  | reset port and active level, e.g. rst_n:0 (default: found, in any case, among rst_n, resetn, reset_n, rstn, nrst, rst_ni, presetn, hresetn, aresetn, arst_n (active 0), rst, reset, arst (active 1)) |
-| `equiv_timeout` | int | 600 | 1.. | SAT time limit; reached: inconclusive (reported, not passed) [s] |
-| `equiv_on_timeout` | str | warn | warn, fail, pass | when the equivalence check times out: warn (the step passes, the run's verification verdict is inconclusive), fail (the step fails), or pass (accepted: the verdict counts the check as passed and notes the timeout) |
+| `equiv_timeout` | int | 600 | 1.. | time limit of each method (bounded SAT, induction); reached: inconclusive (reported, not passed) [s] |
+| `equiv_on_timeout` | str | warn | warn, fail, pass | when the equivalence check is inconclusive (timed out, or signal pairs induction left unproven): warn (the step passes, the run's verification verdict is inconclusive), fail (the step fails), or pass (accepted: the verdict counts the check as passed and notes the timeout) |
 | `port_buffers` | bool | true |  | buffer assignments between ports (off: a port-to-port assignment stays one net with two pins, e.g. a wrapper output tied to a frame loopback input) |
 
 ### floorplan
