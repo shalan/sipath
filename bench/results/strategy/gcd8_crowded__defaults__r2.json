@@ -1,6 +1,14 @@
 {
  "backfilled": false,
  "design": "gcd8_crowded",
+ "exported": {
+  "at": "2026-11-17 09:25",
+  "by": {
+   "code_digest": "dec6d2db23158d3f",
+   "commit": "b09acddd8662",
+   "version": "0.1.0"
+  }
+ },
  "flow": "defaults",
  "inputs": {
   "sipath/examples/rtl/gcd8.sdc": "9632479ac45b94ab",
@@ -16,11 +24,11 @@
   "os": "Darwin 25.6.0",
   "python": "3.14.7"
  },
- "measured": "2026-10-22",
+ "measured": "2026-11-17",
  "metrics": {
   "cell_area_um2": 1671.6,
   "cells": 204,
-  "core_seconds": 718.7,
+  "core_seconds": 726.2,
   "drc_klayout": 0,
   "drv_slew": 0,
   "exit": 0,
@@ -30,16 +38,13 @@
   "synth_area_um2": 1435.1264,
   "synth_recipe": "area_map",
   "tns_tt_ns": 0.0,
-  "tool_seconds": 9.0,
-  "wall_s": 69.3,
+  "tool_seconds": 9.4,
+  "wall_s": 70.4,
   "wns_ss_max_ns": 4.213399970401453,
   "wns_tt_ns": 6.981,
   "wns_worst_ns": 4.213
  },
- "notes_export": [
-  "core_seconds and tool_seconds recomputed at export from the run graph (one formula for every record: per-attempt threads, else the step's allocation)",
-  "final_def_sha256 computed at export from the run's own final DEF"
- ],
+ "outcome": "completed",
  "overrides": {
   "place": [
    {
@@ -82,25 +87,37 @@
    }
   ]
  },
+ "place_densities": {
+  "alike": [],
+  "used": {
+   "place.0": 0.87
+  }
+ },
  "repeat": 2,
  "seeds": null,
  "sipath": {
-  "commit": "dd0899a45a78-dirty",
+  "code_digest": "dec6d2db23158d3f",
+  "commit": "b09acddd8662",
   "version": "0.1.0"
  },
  "source": "runs/bench_strategy/gcd8_crowded/defaults_r2/run",
+ "source_snapshot": {
+  "code_digest": "dec6d2db23158d3f",
+  "commit": "b09acddd8662",
+  "version": "0.1.0"
+ },
  "steps": {
   "cts": 10.2,
-  "extract": 2.1,
-  "fill": 1.6,
+  "extract": 2.2,
+  "fill": 1.7,
   "floorplan": 1.7,
   "physical": 1.7,
   "place": 2.5,
   "route_analog": 1.6,
   "route_digital": 19.8,
-  "route_repair": 2.2,
-  "signoff": 16.5,
-  "synth": 9.0
+  "route_repair": 2.4,
+  "signoff": 16.7,
+  "synth": 9.4
  },
  "toolchain": {
   "orfs": "openroad/orfs@sha256:751a77afcade9882b51427e6d9d079b8e270e7a8f4aa66df2d0659457d1c29fd",

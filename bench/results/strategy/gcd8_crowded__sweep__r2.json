@@ -1,6 +1,14 @@
 {
  "backfilled": false,
  "design": "gcd8_crowded",
+ "exported": {
+  "at": "2026-11-17 09:26",
+  "by": {
+   "code_digest": "dec6d2db23158d3f",
+   "commit": "b09acddd8662",
+   "version": "0.1.0"
+  }
+ },
  "flow": "sweep",
  "inputs": {
   "sipath/examples/rtl/gcd8.sdc": "9632479ac45b94ab",
@@ -16,30 +24,27 @@
   "os": "Darwin 25.6.0",
   "python": "3.14.7"
  },
- "measured": "2026-10-22",
+ "measured": "2026-11-17",
  "metrics": {
-  "cell_area_um2": 1671.6,
-  "cells": 204,
-  "core_seconds": 725.7,
+  "cell_area_um2": 1646.6,
+  "cells": 200,
+  "core_seconds": 887.1,
   "drc_klayout": 0,
   "drv_slew": 0,
   "exit": 0,
-  "final_def_sha256": "57e78e9df5b4830b",
-  "instances": 337.0,
-  "routed_wirelength_um": 3438,
+  "final_def_sha256": "f21a17d80f34e758",
+  "instances": 341.0,
+  "routed_wirelength_um": 3423,
   "synth_area_um2": 1435.1264,
   "synth_recipe": "area_map",
   "tns_tt_ns": 0.0,
-  "tool_seconds": 9.2,
-  "wall_s": 70.3,
-  "wns_ss_max_ns": 4.213399970401453,
-  "wns_tt_ns": 6.981,
-  "wns_worst_ns": 4.213
+  "tool_seconds": 9.6,
+  "wall_s": 84.1,
+  "wns_ss_max_ns": 4.132319936530768,
+  "wns_tt_ns": 6.946,
+  "wns_worst_ns": 4.132
  },
- "notes_export": [
-  "core_seconds and tool_seconds recomputed at export from the run graph (one formula for every record: per-attempt threads, else the step's allocation)",
-  "final_def_sha256 computed at export from the run's own final DEF"
- ],
+ "outcome": "completed",
  "overrides": {
   "place": [
    {
@@ -58,10 +63,10 @@
     "variants": [
      {},
      {
-      "density": 0.65
+      "density": 0.9
      },
      {
-      "density": 0.7
+      "density": 0.95
      }
     ]
    },
@@ -93,25 +98,39 @@
    }
   ]
  },
+ "place_densities": {
+  "alike": [],
+  "used": {
+   "place.0": 0.87,
+   "place.1": 0.9,
+   "place.2": 0.95
+  }
+ },
  "repeat": 2,
  "seeds": null,
  "sipath": {
-  "commit": "dd0899a45a78-dirty",
+  "code_digest": "dec6d2db23158d3f",
+  "commit": "b09acddd8662",
   "version": "0.1.0"
  },
  "source": "runs/bench_strategy/gcd8_crowded/sweep_r2/run",
+ "source_snapshot": {
+  "code_digest": "dec6d2db23158d3f",
+  "commit": "b09acddd8662",
+  "version": "0.1.0"
+ },
  "steps": {
-  "cts": 10.3,
-  "extract": 2.1,
-  "fill": 1.6,
+  "cts": 10.2,
+  "extract": 2.2,
+  "fill": 1.7,
   "floorplan": 1.7,
   "physical": 1.7,
-  "place": 8.2,
+  "place": 8.4,
   "route_analog": 1.6,
-  "route_digital": 19.8,
-  "route_repair": 2.2,
-  "signoff": 16.7,
-  "synth": 9.2
+  "route_digital": 32.1,
+  "route_repair": 2.6,
+  "signoff": 17.3,
+  "synth": 9.6
  },
  "toolchain": {
   "orfs": "openroad/orfs@sha256:751a77afcade9882b51427e6d9d079b8e270e7a8f4aa66df2d0659457d1c29fd",

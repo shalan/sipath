@@ -304,11 +304,11 @@ other code.
 <!-- table:strategies -->
 | design | strategy | runs | verification | WNS tt (ns) | WNS worst corner (ns) | cell area (µm²) | wirelength (µm) | DRC | slew viol. | wall (s) | core-s | core-s × defaults | SiPath code |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| gcd8_crowded | defaults | 2 | passed 2/2 | 6.981 | 4.213 | 1,672 | 3,438 | 0 | 0 | 70 | 722 | 1.00 | dd0899a* |
-| gcd8_crowded | sweep | 2 | passed 2/2 | 6.981 | 4.213 | 1,672 | 3,438 | 0 | 0 | 71 | 734 | 1.02 | dd0899a* |
-| gcd8_crowded | adaptive | 2 | failed 2/2: drv | 6.780 | 3.812 | 1,657 | 3,696 | 0 | 11 | 93 | 982 | 1.36 | dd0899a* |
-| gcd8_crowded | search | 2 | passed 2/2 | 6.981 | 4.213 | 1,672 | 3,438 | 0 | 0 | 110 | 1,192 | 1.65 | dd0899a* |
-| gcd8_crowded | adaptive_search | 2 | passed 2/2 | 6.981 | 4.213 | 1,672 | 3,438 | 0 | 0 | 170 | 1,910 | 2.65 | dd0899a* |
+| gcd8_crowded | defaults | 2 | passed 2/2 | 6.981 | 4.213 | 1,672 | 3,438 | 0 | 0 | 70 | 725 | 1.00 | b09acdd |
+| gcd8_crowded | sweep | 2 | passed 2/2 | 6.946 | 4.132 | 1,647 | 3,423 | 0 | 0 | 83 | 880 | 1.21 | b09acdd |
+| gcd8_crowded | adaptive | 2 | failed 2/2: drv | 6.780 | 3.812 | 1,657 | 3,696 | 0 | 11 | 92 | 977 | 1.35 | b09acdd |
+| gcd8_crowded | search | 2 | passed 2/2 | 6.981 | 4.213 | 1,672 | 3,438 | 0 | 0 | 121 | 1,330 | 1.83 | b09acdd |
+| gcd8_crowded | adaptive_search | 2 | passed 2/2 | 6.981 | 4.213 | 1,672 | 3,438 | 0 | 0 | 169 | 1,896 | 2.61 | b09acdd |
 | dp8 | defaults | 2 | passed 2/2 | 5.812 | 0.831 | 1,790 | 7,230 | 0 | 0 | 66 | 789 | 1.00 | dd0899a* |
 | dp8 | sweep | 2 | passed 2/2 | 5.812 | 0.831 | 1,790 | 7,230 | 0 | 0 | 66 | 783 | 0.99 | dd0899a* |
 | dp8 | adaptive | 2 | passed 2/2 | 5.812 | 0.831 | 1,790 | 7,230 | 0 | 0 | 70 | 839 | 1.06 | dd0899a* |
@@ -325,9 +325,12 @@ other code.
   (`final_def_sha256` in each record), the variation in wall time only (two
   runs that the machine's sleep stretched were run again).
 - **No strategy beat the defaults on gcd8_crowded or dp8.** On gcd8_crowded
-  the sweep's placement score picked the default placement and both searches
-  ended with the defaults' final DEF; on dp8 every strategy ended with the
-  same final DEF.
+  the sweep's placement score picked density 0.9 (4.634 ns placement slack
+  against the default's 4.614), which ended behind the defaults at signoff:
+  0.035 ns less slack at the typical corner and 0.08 ns at the worst one,
+  for 1.5% less cell area. Both searches, decided after extraction, ended
+  with the defaults' final DEF; on dp8 every strategy ended with the same
+  final DEF.
 - **Adaptive rounds alone made gcd8_crowded worse at the end:** 0.2 ns less
   slack at the typical corner, 0.4 ns at the worst one, 11 slew violations
   against none, for a placement that looked better by its heatmaps; both

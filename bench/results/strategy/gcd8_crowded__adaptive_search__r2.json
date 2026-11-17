@@ -1,6 +1,14 @@
 {
  "backfilled": false,
  "design": "gcd8_crowded",
+ "exported": {
+  "at": "2026-11-17 09:33",
+  "by": {
+   "code_digest": "dec6d2db23158d3f",
+   "commit": "b09acddd8662",
+   "version": "0.1.0"
+  }
+ },
  "flow": "adaptive_search",
  "inputs": {
   "sipath/examples/rtl/gcd8.sdc": "9632479ac45b94ab",
@@ -16,30 +24,27 @@
   "os": "Darwin 25.6.0",
   "python": "3.14.7"
  },
- "measured": "2026-10-22",
+ "measured": "2026-11-17",
  "metrics": {
   "cell_area_um2": 1671.6,
   "cells": 204,
-  "core_seconds": 1893.0,
+  "core_seconds": 1903.3,
   "drc_klayout": 0,
   "drv_slew": 0,
   "exit": 0,
   "final_def_sha256": "57e78e9df5b4830b",
-  "instances": 344.0,
+  "instances": 337.0,
   "routed_wirelength_um": 3438,
   "synth_area_um2": 1435.1264,
   "synth_recipe": "area_map",
   "tns_tt_ns": 0.0,
-  "tool_seconds": 9.5,
-  "wall_s": 168.0,
+  "tool_seconds": 10.0,
+  "wall_s": 169.6,
   "wns_ss_max_ns": 4.213399970401453,
   "wns_tt_ns": 6.981,
   "wns_worst_ns": 4.213
  },
- "notes_export": [
-  "core_seconds and tool_seconds recomputed at export from the run graph (one formula for every record: per-attempt threads, else the step's allocation)",
-  "final_def_sha256 computed at export from the run's own final DEF"
- ],
+ "outcome": "completed",
  "overrides": {
   "place": [
    {
@@ -87,37 +92,51 @@
    }
   ]
  },
+ "place_densities": {
+  "alike": [],
+  "used": {
+   "place.0": 0.87,
+   "place.1": 0.93,
+   "place.2": 0.97
+  }
+ },
  "repeat": 2,
  "seeds": null,
  "sipath": {
-  "commit": "dd0899a45a78-dirty",
+  "code_digest": "dec6d2db23158d3f",
+  "commit": "b09acddd8662",
   "version": "0.1.0"
  },
  "source": "runs/bench_strategy/gcd8_crowded/adaptive_search_r2/run",
+ "source_snapshot": {
+  "code_digest": "dec6d2db23158d3f",
+  "commit": "b09acddd8662",
+  "version": "0.1.0"
+ },
  "steps": {
-  "cts": 10.4,
-  "cts@place.0": 10.2,
+  "cts": 10.1,
+  "cts@place.0": 10.1,
   "cts@place.2": 10.2,
-  "extract": 2.1,
-  "extract@place.0": 2.1,
-  "extract@place.2": 2.1,
+  "extract": 2.2,
+  "extract@place.0": 2.2,
+  "extract@place.2": 2.2,
   "fill": 1.6,
-  "fill@place.0": 1.6,
-  "fill@place.2": 1.6,
+  "fill@place.0": 1.7,
+  "fill@place.2": 1.7,
   "floorplan": 1.7,
-  "physical": 1.6,
-  "place": 7.5,
+  "physical": 1.7,
+  "place": 7.6,
   "route_analog": 1.6,
   "route_analog@place.0": 1.6,
   "route_analog@place.2": 1.6,
-  "route_digital": 35.5,
-  "route_digital@place.0": 19.7,
-  "route_digital@place.2": 21.5,
-  "route_repair": 2.2,
-  "route_repair@place.0": 2.2,
-  "route_repair@place.2": 2.2,
-  "signoff": 16.6,
-  "synth": 9.5
+  "route_digital": 35.2,
+  "route_digital@place.0": 19.8,
+  "route_digital@place.2": 21.4,
+  "route_repair": 2.4,
+  "route_repair@place.0": 2.3,
+  "route_repair@place.2": 2.3,
+  "signoff": 17.3,
+  "synth": 10.0
  },
  "toolchain": {
   "orfs": "openroad/orfs@sha256:751a77afcade9882b51427e6d9d079b8e270e7a8f4aa66df2d0659457d1c29fd",
