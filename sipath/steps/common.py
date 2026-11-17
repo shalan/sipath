@@ -356,14 +356,28 @@ def ppa_summary(ctx, parasitics: str) -> dict:
 
 def antenna_loop(ctx, max_rounds: int = 3, tag: str = "antenna") -> int:
     """Repair antennas on the detailed routes and re-route, until clean or
-    ``max_rounds``. Updates metrics (drc, antenna_violations, antenna_diodes)."""
+    ``max_rounds``. Updates metrics (drc, antenna_violations, antenna_diodes).
+
+    ``repair_antennas`` deletes the wires of the nets it changes (aes on a sparse die: 185 violating nets,
+    261 diodes, 392 nets without wires) and the detailed router routes them again from their guides. Each
+    round goes into outputs ``<tag>_log`` (kept when the attempt fails): the violations, the diodes,
+    the nets the repair left without wires and those of them without guides, and after the re-route the
+    nets still without wires, by name with their guide count (#35: 23 nets the re-route never routed)."""
     s, p = ctx.session, ctx.params
     rounds = 0
+    log_rounds = ctx.outputs.setdefault(f"{tag}_log", [])
     while ctx.pdk.diode_cell and ctx.metrics["antenna_violations"] and rounds < max_rounds:
         rounds += 1
+        entry = {"round": rounds, "violations": ctx.metrics["antenna_violations"]}
+        log_rounds.append(entry)
         r = route_ops.repair_antennas(s, ctx.pdk.diode_cell, 1)
         m = re.findall(r"Inserted (\d+) diodes", r.output)
-        ctx.metrics["antenna_diodes"] = ctx.metrics.get("antenna_diodes", 0) + (int(m[-1]) if m else 0)
+        entry["diodes"] = int(m[-1]) if m else 0
+        ctx.metrics["antenna_diodes"] = ctx.metrics.get("antenna_diodes", 0) + entry["diodes"]
+        cut = db.unwired_nets(s)
+        entry["unwired_after_repair"] = len(cut)
+        bare = [n for n, g in cut if not g]
+        entry["unwired_without_guides"], entry["unwired_without_guides_count"] = bare[:200], len(bare)
         check_placement(ctx)
         from .. import wires
         wires.normalize(s, ctx.path(f"{tag}{rounds}.def"))
@@ -376,7 +390,13 @@ def antenna_loop(ctx, max_rounds: int = 3, tag: str = "antenna") -> int:
         ctx.metrics.update(nums)
         if nums["drc"] > p.get("max_drc", 0):
             raise RuntimeError(f"{nums['drc']} DRC violations after antenna re-route")
-        _check_unrouted(ctx)
+        left = db.unwired_nets(s)
+        entry["unwired_after_route"] = [[n, g] for n, g in left][:200]
+        ctx.metrics["unrouted_nets"] = len(left)
+        if left:
+            raise RuntimeError(f"{len(left)} nets left unrouted after antenna re-route round {rounds} "
+                               f"(net, guides): {left[:8]}; {entry['unwired_after_repair']} were without wires "
+                               f"after the repair, {entry['unwired_without_guides_count']} of them without guides")
         ctx.metrics["antenna_violations"] = check_antennas(ctx)
     return rounds
 

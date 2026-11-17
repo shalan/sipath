@@ -6475,3 +6475,49 @@ class CrashBundles(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'stop'):
                 route_digital(ctx)
             bundle.assert_not_called()
+
+
+class AntennaRerouteLog(unittest.TestCase):
+    """#35: each post-route antenna round records the nets the repair left without wires (and those of them
+    without guides) and, when the re-route leaves any, names them in the failure and in the kept outputs."""
+
+    def _ctx(self, wd):
+        from types import SimpleNamespace
+        return SimpleNamespace(session=FakeSession(wd), params={"iters": 4}, pdk=SimpleNamespace(diode_cell="d"),
+                               metrics={"antenna_violations": 5}, outputs={},
+                               path=lambda n: os.path.join(wd, n))
+
+    def _run(self, wd, unwired):
+        from unittest import mock
+        from sipath.steps import common
+        from sipath.tools.openroad.session import Result
+        ctx = self._ctx(wd)
+        with mock.patch.object(common.db, "unwired_nets", side_effect=unwired), \
+             mock.patch.object(common.route_ops, "detailed_route_all_digital",
+                               return_value=Result(0, "", "[INFO DRT-0199]   Number of violations = 0.")), \
+             mock.patch.object(common, "check_antennas", return_value=0), \
+             mock.patch.object(common, "_drt_numbers", return_value={"drc": 0}), \
+             mock.patch("sipath.wires.normalize"):
+            try:
+                return ctx, common.antenna_loop(ctx, 3), None
+            except RuntimeError as e:
+                return ctx, None, e
+
+    def test_clean_round_is_recorded(self):
+        wd = tempfile.mkdtemp()
+        ctx, rounds, err = self._run(wd, [[("a", 3), ("b", 0)], []])
+        self.assertIsNone(err)
+        self.assertEqual(rounds, 1)
+        e = ctx.outputs["antenna_log"][0]
+        self.assertEqual((e["violations"], e["unwired_after_repair"], e["unwired_without_guides"],
+                          e["unwired_after_route"]), (5, 2, ["b"], []))
+        self.assertEqual(ctx.metrics["unrouted_nets"], 0)
+
+    def test_nets_left_unrouted_are_named(self):
+        wd = tempfile.mkdtemp()
+        ctx, _, err = self._run(wd, [[("a", 3), ("b", 0)], [("b", 0)]])
+        self.assertIn("1 nets left unrouted after antenna re-route round 1", str(err))
+        self.assertIn("('b', 0)", str(err))
+        self.assertIn("1 of them without guides", str(err))
+        self.assertEqual(ctx.outputs["antenna_log"][0]["unwired_after_route"], [["b", 0]])
+        self.assertEqual(ctx.metrics["unrouted_nets"], 1)

@@ -193,6 +193,14 @@ capabilities in `graph.json`.
 - `route_digital`: global route; repair on global-route parasitics in
   incremental mode; `repair_antennas`; detailed route; `check_antennas` and up
   to three antenna repair rounds; RCX to rank the variants (`drc_then_slack`).
+  Each round's repair deletes the wires of the nets it changes and the
+  detailed router routes them again from their guides (aes on a sparse die:
+  185 violating nets, 261 diodes, 392 nets without wires, all routed again).
+  Outputs `antenna_log` (`repair_antenna_log` in `route_repair`) keeps, per
+  round and also when the attempt fails, the violations, the diodes, the nets
+  the repair left without wires and those of them without guides, and the
+  nets still without wires after the re-route, by name with their guide
+  count; such nets fail the attempt (#35).
   Before the post-global-route repair, `crash_bundle: true` (off by default:
   an aes attempt's database alone is 12-30 MB, a route search has dozens of
   attempts) saves `debug/pre-grt-repair/` inside the attempt directory. This contains an ODB,

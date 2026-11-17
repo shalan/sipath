@@ -77,6 +77,19 @@ def inst_master_types(s, insts) -> dict[str, str]:
     return dict(zip(flat[0::2], flat[1::2]))
 
 
+def unwired_nets(s) -> list[tuple[str, int]]:
+    """(name, global-route guides) of the signal nets with two or more terminals and no wire."""
+    w = tcl_words(s.value("""
+set o {}
+foreach net [[ord::get_db_block] getNets] {
+  if {[$net isSpecial] || [$net getSigType] in {POWER GROUND}} continue
+  if {[llength [$net getITerms]] + [llength [$net getBTerms]] < 2} continue
+  if {[$net getWire] eq "NULL"} { lappend o [$net getName] [llength [$net getGuides]] }
+}
+set o"""))
+    return [(w[i], int(w[i + 1])) for i in range(0, len(w), 2)]
+
+
 def unrouted_net_count(s) -> int:
     """Signal nets with two or more terminals and no wire."""
     return int(s.value("""
