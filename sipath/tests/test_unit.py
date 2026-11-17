@@ -3253,7 +3253,10 @@ class BenchmarkRecords(unittest.TestCase):
             elif r["flow"] != "orfs":  # no graph of its own (a directory resumed later): said so
                 self.assertTrue(r["metrics"].get("note"), r["_file"])
             if r["metrics"].get("exit"):  # a run that failed says why
-                self.assertTrue(r.get("failure"), r["_file"])
+                if r.get("outcome") == "completed":  # completed, verification failed (exit 1): the checks say why
+                    self.assertTrue((r.get("verification") or {}).get("failed"), r["_file"])
+                else:
+                    self.assertTrue(r.get("failure"), r["_file"])
             gaps = r.get("provenance_gaps") or []
             if r["flow"] != "orfs" and not (r.get("sipath") or {}).get("commit"):  # an unknown commit is said
                 self.assertTrue(any(g.startswith("sipath.commit") for g in gaps), r["_file"])
