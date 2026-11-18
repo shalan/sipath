@@ -26,7 +26,8 @@ YAML or JSON; relative paths are relative to the file. Keys not listed are error
 | `rtl_verilog` | list[path] |  | RTL read by Yosys's own Verilog reader before slang (functional, not black boxes) |
 | `rtl_blackboxes` | list[path] |  | interface-only Verilog (e.g. macros with their power pins), read before the RTL |
 | `rtl_keep_hierarchy` | bool |  | slang keeps the hierarchy (hierarchical inout ports); synthesis still flattens |
-| `sdc` | path | yes | timing constraints |
+| `sdc` | path | yes | timing constraints (implementation: synthesis, repair, CTS; also signoff without signoff_sdc) |
+| `signoff_sdc` | path |  | independent signoff constraints for the signoff / timing STA (its port clocks must match sdc's); unset: sdc |
 | `floorplan_def` | path |  | macro mode: die, rows and pins (else die or core_utilization, pins placed by the flow) |
 | `die` | box |  | die area (um); die mode, or macro mode without floorplan_def |
 | `core_margin` | number |  | core inset from the die (um) |
@@ -419,6 +420,8 @@ Set per attempt in `variants` (design file `flow:` or MCP `run_step`), or as def
 | `require` | list[str] | drc, density, lvs, antenna, setup, hold, drv, annotation, harness, magic_drc, xor, lvs_full | drc, density, lvs, antenna, setup, hold, drv, annotation, unconstrained, harness, magic_drc, xor, lvs_full | checks whose failure fails signoff (of those run) |
 | `fail_on_violation` | bool | true |  | fail the attempt when a required check fails (signoff.json is written either way) |
 | `drc_split` | bool | true |  | run the PDK's DRC rule groups (signoff.drc_groups) as concurrent processes and merge their reports |
+| `drv_scope` | str | core | core, all | pins the drv check counts: core (standard cells, the PDK's limits; IO-ring cells, hard macros and top-level ports reported apart in drv_excluded) or all (every violator fails, macro and port pins against their Liberty and SDC limits) |
+| `library_slew` | bool | false |  | judge slew by the Liberty limits: the PDK's max_transition is not applied and a set_max_transition left in the SDC fails the check (give signoff a signoff_sdc without one) |
 | `threads` | int | – | 1.. | OpenROAD threads for this step's attempts (set_thread_count; signoff: also KLayout DRC); unset: the run's threads, shared among the attempts running at once |
 
 ### eco
@@ -478,6 +481,8 @@ Set per attempt in `variants` (design file `flow:` or MCP `run_step`), or as def
 |---|---|---|---|---|
 | `require` | list[str] | setup, hold, drv, annotation | setup, hold, drv, annotation, unconstrained | of these checks, those whose failure fails the step |
 | `fail_on_violation` | bool | true |  | fail the attempt when a required check fails (signoff.json is written either way) |
+| `drv_scope` | str | core | core, all | pins the drv check counts: core (standard cells, the PDK's limits; IO-ring cells, hard macros and top-level ports reported apart in drv_excluded) or all (every violator fails, macro and port pins against their Liberty and SDC limits) |
+| `library_slew` | bool | false |  | judge slew by the Liberty limits: the PDK's max_transition is not applied and a set_max_transition left in the SDC fails the check (give signoff a signoff_sdc without one) |
 | `threads` | int | – | 1.. | OpenROAD threads for this step's attempts (set_thread_count; signoff: also KLayout DRC); unset: the run's threads, shared among the attempts running at once |
 
 ### magic_drc

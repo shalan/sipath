@@ -177,6 +177,7 @@ class Design:
     # macro mode without floorplan_def: die (with core_margin) or core_utilization; pins placed by the flow
     core_utilization: float | None = None  # target core utilization (0..1) after synthesis
     aspect_ratio: float = 1.0  # core height / width with core_utilization
+    signoff_sdc: str | None = None  # independent signoff constraints (signoff / timing STA); unset: sdc
 
     def resolve(self, pdk) -> "Design":
         """Fill every field left unset from the PDK's defaults (idempotent)."""
@@ -226,6 +227,8 @@ class Design:
 
     def input_files(self) -> list[str]:
         files = [self.sdc, *self.extra_lefs, *self.extra_libs, *self.rtl, *self.rtl_verilog, *self.rtl_blackboxes]
+        if self.signoff_sdc:
+            files.append(self.signoff_sdc)
         if self.netlist or not self.rtl:
             files.append(self.netlist)
         if self.mode == "macro" and self.floorplan_def:
@@ -312,5 +315,11 @@ class Design:
             missing += [f for f in pdk.files() if local(f) and not os.path.isfile(f)]
         if missing:
             problems.append("missing input files:\n  " + "\n  ".join(str(m) for m in missing))
+        elif self.signoff_sdc and local(self.signoff_sdc) and local(self.sdc):
+            from .sdc import clock_ports  # signoff judges the clocks the design was built for
+            impl, sign = clock_ports(self.sdc), clock_ports(self.signoff_sdc)
+            if sorted(impl) != sorted(sign):
+                problems.append(f"signoff_sdc clocks the ports {sign}, sdc {impl}: the signoff constraints must "
+                                "define the implementation's port clocks")
         if problems:
             raise MissingInput("; ".join(problems))

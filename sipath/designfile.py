@@ -29,7 +29,7 @@ from .scheduler import BudgetExceeded, StepCancelled, StepFailed, chain_problems
 
 log = logging.getLogger("sipath")
 
-PATH_FIELDS = ("netlist", "sdc", "floorplan_def")
+PATH_FIELDS = ("netlist", "sdc", "signoff_sdc", "floorplan_def")
 SIMPLE = ("name", "top", "mode", "die", "core_margin", "analog_nets", "analog_ndr", "analog_row_blocked_layers",
           "is_core", "min_route_layer", "max_route_layer", "clock_ports", "clock_nets", "keepouts", "pad_supplies",
           "pad_kinds", "analog_supplies", "analog_supply_layers", "analog_supply_ndr", "macro_channel",

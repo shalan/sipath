@@ -189,14 +189,12 @@ def _strap(p, d, ly, up, net, special, obs, ibox, die, max_len, margin, min_widt
     horizontal = d in ("W", "E")
     # candidate targets: same net, higher layer, whose span overlaps the pin's
     # span across the strap direction by at least min_width (the strap is that overlap)
-    best = None
+    best, narrow = None, None
     for n, tl, t in special:
         if n != net or tl not in up:
             continue
         lo = max(p[1], t[1]) if horizontal else max(p[0], t[0])
         hi = min(p[3], t[3]) if horizontal else min(p[2], t[2])
-        if hi - lo < min_width:
-            continue
         if horizontal:
             if d == "W" and t[2] <= p[0]:
                 dist = p[0] - t[2]
@@ -211,11 +209,21 @@ def _strap(p, d, ly, up, net, special, obs, ibox, die, max_len, margin, min_widt
                 dist = t[1] - p[3]
             else:
                 continue
-        if dist <= max_len and (best is None or dist < best[0]):
+        if dist > max_len:
+            continue
+        if hi - lo < min_width:  # in reach, but the strap (the overlap) would be too narrow
+            if hi > lo and (narrow is None or dist < narrow[0]):
+                narrow = (dist, tl, hi - lo)
+            continue
+        if best is None or dist < best[0]:
             best = (dist, tl, t, lo, hi)
     why = why if why is not None else []
     if best is None:
-        why.append("no same-net target on a higher layer within reach")
+        if narrow:
+            why.append(f"narrow: the {net} target on {narrow[1]} {narrow[0]} DBU away overlaps the pin across the "
+                       f"strap by {narrow[2]} DBU, under the strap minimum of {min_width}")
+        else:
+            why.append("no same-net target on a higher layer within reach")
         return None
     dist, tl, t, lo, hi = best
     x0, y0, x1, y1 = (p[0], lo, p[2], hi) if horizontal else (lo, p[1], hi, p[3])

@@ -173,7 +173,10 @@ DESIGN = {
     "rtl_verilog": F("list[path]", "RTL read by Yosys's own Verilog reader before slang (functional, not black boxes)"),
     "rtl_blackboxes": F("list[path]", "interface-only Verilog (e.g. macros with their power pins), read before the RTL"),
     "rtl_keep_hierarchy": F("bool", "slang keeps the hierarchy (hierarchical inout ports); synthesis still flattens"),
-    "sdc": F("path", "timing constraints", required=True),
+    "sdc": F("path", "timing constraints (implementation: synthesis, repair, CTS; also signoff without "
+                     "signoff_sdc)", required=True),
+    "signoff_sdc": F("path", "independent signoff constraints for the signoff / timing STA (its port clocks must "
+                             "match sdc's); unset: sdc"),
     "floorplan_def": F("path", "macro mode: die, rows and pins (else die or core_utilization, pins placed "
                                 "by the flow)"),
     "die": F("box", "die area (um); die mode, or macro mode without floorplan_def"),

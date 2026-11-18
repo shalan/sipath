@@ -85,9 +85,13 @@ def connect_supplies(ctx):
     ctx.outputs["power_connections"] = done
     ctx.metrics["power_straps"] = sum(1 for r in done if r["ok"])
     failed = [f"{r['inst']}/{r['pin']}" for r in done if not r["ok"]]
-    if failed:
-        ctx.outputs["power_connections_failed"] = failed
     _no_supply_shorts(ctx, layers)
+    if failed:  # a required supply tab left off the grid is not a connected design
+        ctx.outputs["power_connections_failed"] = failed
+        ctx.metrics["power_connections_failed"] = len(failed)
+        raise RuntimeError(f"{len(failed)} supply pin(s) reach no grid shape of their net: "
+                           + "; ".join(f"{r['inst']}/{r['pin']} ({r['net']}): {r.get('why', [])[:3]}"
+                                       for r in done if not r["ok"])[:2000])
 
 def _no_supply_shorts(ctx, layers):
     """Fail on special wiring of two nets that overlaps or touches (a short
@@ -188,7 +192,9 @@ def reports(ctx, tag: str) -> dict:
         ctx.metrics.update({"drv_slew": None, "drv_cap": None, "drv_fanout": None, "drv_excluded": None,
                             "drv_clean": None})
     else:
-        ctx.metrics.update(design_rule_counts(ctx, files["design_rules"]))
+        drv = design_rule_counts(ctx, files["design_rules"])
+        ctx.metrics.update({k: v for k, v in drv.items() if k not in ("drv_scope", "drv_excluded_by_type",
+                                                                    "drv_excluded_pins")})
     ctx.metrics.update(power_metrics(files["power"]))
     return files
 
@@ -218,12 +224,16 @@ def power_metrics(report: str) -> dict:
     out.update({f"power_total_w_{c}": v[3] for c, v in found.items() if c})
     return out
 
-def design_rule_counts(ctx, report: str) -> dict:
+def design_rule_counts(ctx, report: str, scope: str = "core") -> dict:
     """Slew / capacitance / fanout violators from ``report_check_types
-    -violators``. The PDK limits are standard-cell rules: violators on
-    standard-cell pins are counted (``drv_*``); those on IO-ring cells, hard
-    macros and top-level ports (bond pads, analog buses) are counted apart in
-    ``drv_excluded`` and never dropped silently."""
+    -violators``. The PDK limits are standard-cell rules, so by default
+    (``scope`` "core") violators on standard-cell pins are counted
+    (``drv_*``) and those on IO-ring cells, hard macros and top-level ports
+    (bond pads, analog buses) apart in ``drv_excluded``, by master type in
+    ``drv_excluded_by_type`` and by pin in ``drv_excluded_pins`` (the first
+    50): never dropped silently. ``scope`` "all" counts every violator."""
+    if scope not in ("core", "all"):
+        raise ValueError(f"drv scope {scope!r}: core or all")
     kinds = {"max slew": "slew", "max capacitance": "cap", "max fanout": "fanout"}
     viol, kind = [], None
     with open(report) as fh:
@@ -237,17 +247,20 @@ def design_rule_counts(ctx, report: str) -> dict:
     types = {}
     if insts:
         types = db.inst_master_types(ctx.session, insts)
-    out = {"drv_slew": 0, "drv_cap": 0, "drv_fanout": 0, "drv_excluded": 0}
-    excluded = {}
+    out = {"drv_slew": 0, "drv_cap": 0, "drv_fanout": 0, "drv_excluded": 0, "drv_scope": scope}
+    excluded, pins = {}, []
     for k, p in viol:
         t_ = types.get(p.rsplit("/", 1)[0], "PORT") if "/" in p else "PORT"
-        if t_.startswith("CORE"):
+        if scope == "all" or t_.startswith("CORE"):
             out[f"drv_{k}"] += 1
         else:
             out["drv_excluded"] += 1
             excluded[t_] = excluded.get(t_, 0) + 1
+            pins.append({"pin": p, "kind": k, "type": t_})
     out["drv_clean"] = not (out["drv_slew"] or out["drv_cap"] or out["drv_fanout"])
     if excluded:
+        out["drv_excluded_by_type"] = excluded
+        out["drv_excluded_pins"] = pins[:50]
         ctx.outputs["drv_excluded_by_type"] = excluded
     return out
 

@@ -109,7 +109,10 @@ capabilities in `graph.json`.
   (under the cells' own upper-metal obstructions): the power pads' core-side
   tabs to the core ring, the analog macros' 1.8 V tabs to the grid. Each strap
   avoids other nets and obstructions and gets a via stack; a short between
-  special nets fails the step.
+  special nets fails the step. So does a grid-net tab left with no strap
+  (`power_connections_failed` lists them with each direction's reason; a tab
+  whose overlap with a reachable target is under the 1 µm strap minimum says
+  `narrow` rather than out of reach).
 - 3.3 V analog supplies (VDDA/VSSA) are routed from a launch point at the pad
   tab to the macro tabs on met3–met5 with a 2 µm rule, frozen as special nets
   and strapped to the pad.

@@ -26,6 +26,20 @@ check can also run as a step of its own.
   Liberty, SDC and per-corner SPEF: setup and hold on all nine corners,
   slew/cap/fanout on standard cells, parasitic annotation (a loaded net
   without parasitics fails), unconstrained endpoints.
+  - **Constraints.** The design's `sdc` by default; `signoff_sdc` gives
+    signoff its own (fingerprinted with the inputs; its port clocks must match
+    `sdc`'s). The constraints as applied, PDK rules then the SDC, are written
+    to `sta/applied.sdc`, and `timing.sdc` records the file, its role, its
+    digest and the applied copy. `library_slew: true` judges slew by the
+    Liberty limits: the PDK's `max_transition` is not applied and any
+    `set_max_transition` left in the SDC fails the check. Capacitance and
+    fanout limits stay.
+  - **Electrical scope.** `drv_scope: core` (default) counts standard-cell
+    pins, the pins the PDK limits are written for; IO-ring cells, hard macros
+    and top-level ports are reported apart (`drv_excluded`, by master type and
+    the first 50 pins). `drv_scope: all` counts every violator, macro and port
+    pins against their Liberty and SDC limits. On dp8, the two analog ports
+    at exactly the 0.75 ns PDK limit pass in core scope and fail in all.
   The timing reader already converts nonfinite STA values to missing results,
   which fail the required setup/hold checks. The judgment function also rejects
   nonfinite values defensively in reports supplied outside that reader.

@@ -716,9 +716,24 @@ def timing(ctx, verilog: str, spef_corners: dict) -> dict:
         out = [*tcl._define_corners(pdk, every)]
         out += [f"read_lef {q(f)}" for f in [pdk.tech_lef, *pdk.cell_lefs, *d.extra_lefs, *[m.lef for m in d.macros]]]
         out += tcl._read_libs(pdk, d, every)
-        out += [f"read_verilog {q(verilog)}", f"link_design {d.top}", tcl._timing_setup(pdk, d, every),
+        from .fingerprint import file_hash
+        sdc = d.signoff_sdc or d.sdc
+        library_slew = bool((ctx.params or {}).get("library_slew"))
+        out += [f"read_verilog {q(verilog)}", f"link_design {d.top}",
+                tcl._timing_setup(pdk, d, every, sdc=sdc, library_slew=library_slew),
                 "set_propagated_clock [all_clocks]"]
         s.run("\n".join(out))
+        # the constraints as applied (PDK rules, then the SDC), kept for audit
+        applied = os.path.join(wd, "applied.sdc")
+        s.run(f"write_sdc -no_timestamp {q(applied)}")
+        res["sdc"] = {"file": sdc, "role": "signoff" if d.signoff_sdc else "implementation",
+                      "digest": file_hash(sdc), "applied": applied, "library_slew": library_slew}
+        if library_slew:  # the Liberty limits judge slew: no transition limit may remain from the SDC
+            with open(applied) as fh:
+                left = [ln.strip() for ln in fh if re.match(r"\s*set_max_transition\b", ln)]
+            if left:
+                raise ValueError(f"library_slew: the SDC ({sdc}) sets transition limits {left[:3]}; remove them or "
+                                 "give signoff its own signoff_sdc")
         multi = len(corners) > 1
         for c, f in spef_corners.items():
             s.run(f"read_spef {'-corner ' + c + ' ' if multi else ''}{q(f)}")
@@ -741,7 +756,8 @@ def timing(ctx, verilog: str, spef_corners: dict) -> dict:
                   "if {$::__rc} { error $::__m }")
             files[name] = f
         res["reports"] = files
-        res.update(design_rule_counts(_View(ctx, s), files["design_rules"]))
+        res.update(design_rule_counts(_View(ctx, s), files["design_rules"],
+                                      (ctx.params or {}).get("drv_scope", "core")))
         # unconstrained endpoints and clock/loop issues
         with open(files["checks"]) as fh:
             checks = fh.read()
@@ -795,7 +811,8 @@ def sta_failures(st: dict, checks, expected=None) -> list[str]:
         if vals and min(vals.values()) < 0:
             out.append(f"{kind}: worst {min(vals.values()):.3f} ns ({[c for c, v in vals.items() if v < 0]})")
     if "drv" in checks and not st["drv_clean"]:
-        out.append(f"drv: slew {st['drv_slew']}, cap {st['drv_cap']}, fanout {st['drv_fanout']} on standard cells")
+        where = "on every pin" if st.get("drv_scope") == "all" else "on standard cells"
+        out.append(f"drv: slew {st['drv_slew']}, cap {st['drv_cap']}, fanout {st['drv_fanout']} {where}")
     if "annotation" in checks and st["unannotated_loaded"]:
         out.append(f"annotation: loaded nets without parasitics at {st['unannotated_loaded'][:8]}")
     if "unconstrained" in checks and st["unconstrained"]:
@@ -1086,6 +1103,7 @@ def run(ctx) -> dict:
         for c, v in st["corners"].items():
             m[f"sta_wns_{c}"], m[f"sta_whs_{c}"] = v["wns"], v["whs"]
         m["sta_drv_clean"] = st["drv_clean"]
+        m["sta_drv_excluded"] = st.get("drv_excluded")
         m["unannotated_loaded"] = len(st["unannotated_loaded"])
         m["unannotated_io_ring"] = len(st["unannotated_io_ring"])
         m["partially_annotated"] = len(st["partially_annotated"])

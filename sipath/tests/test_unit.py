@@ -4459,6 +4459,112 @@ class ToolStartup(unittest.TestCase):
         self.assertIn("does not start", err.getvalue())
 
 
+class DrvScope(unittest.TestCase):
+    """#9: the electrical gate counts standard cells by default and every pin with drv_scope all."""
+    REPORT = ("max slew\n\nPin   Limit   Slew   Slack\n----\n"
+              "u_sram/clk0   0.75   1.20   -0.45 (VIOLATED)\n"
+              "_12_/A   0.75   0.90   -0.15 (VIOLATED)\n\n"
+              "max capacitance\n\nPin   Limit   Cap   Slack\n----\n"
+              "dout[3]   0.20   0.31   -0.11 (VIOLATED)\n"
+              "u_sram/dout0[1]   0.20   0.25   -0.05 (VIOLATED)\n\n"
+              "max fanout\n\nPin   Limit   Fanout   Slack\n----\n")
+
+    def _counts(self, scope):
+        from unittest import mock
+        from sipath.steps import common
+        ctx = types.SimpleNamespace(session=None, outputs={})
+        with tempfile.TemporaryDirectory() as t:
+            f = os.path.join(t, "drv.rpt")
+            with open(f, "w") as fh:
+                fh.write(self.REPORT)
+            with mock.patch.object(common.db, "inst_master_types",
+                                   return_value={"u_sram": "BLOCK", "_12_": "CORE"}):
+                return common.design_rule_counts(ctx, f, scope), ctx
+
+    def test_core_scope_reports_macro_and_port_violators_apart(self):
+        out, ctx = self._counts("core")
+        self.assertEqual((out["drv_slew"], out["drv_cap"], out["drv_excluded"]), (1, 0, 3))
+        self.assertFalse(out["drv_clean"])
+        self.assertEqual(out["drv_excluded_by_type"], {"BLOCK": 2, "PORT": 1})
+        self.assertEqual(ctx.outputs["drv_excluded_by_type"], {"BLOCK": 2, "PORT": 1})
+        self.assertIn({"pin": "dout[3]", "kind": "cap", "type": "PORT"}, out["drv_excluded_pins"])
+
+    def test_all_scope_fails_on_macro_and_port_pins(self):
+        out, _ = self._counts("all")
+        self.assertEqual((out["drv_slew"], out["drv_cap"], out["drv_excluded"], out["drv_scope"]),
+                         (2, 2, 0, "all"))
+        from sipath.signoff import sta_failures
+        st = {"corners": {}, "expected_corners": [], **out}
+        self.assertEqual(sta_failures(st, ["drv"]), ["drv: slew 2, cap 2, fanout 0 on every pin"])
+        # a standard-cell-clean design with only macro/port violators: clean in core scope, failing in all
+        self.REPORT = self.REPORT.replace("_12_/A   0.75   0.90   -0.15 (VIOLATED)\n", "")
+        self.assertTrue(self._counts("core")[0]["drv_clean"])
+        self.assertFalse(self._counts("all")[0]["drv_clean"])
+
+    def test_scope_is_validated(self):
+        from sipath import params
+        with self.assertRaises(ValueError):
+            self._counts("macros")
+        for step in ("signoff", "timing"):
+            params.check(step, {"drv_scope": "all"})
+            with self.assertRaises(ValueError):
+                params.check(step, {"drv_scope": "every"})
+
+
+class SignoffConstraints(unittest.TestCase):
+    """#6: signoff can read its own SDC, and judge slew by the Liberty limits."""
+
+    def _files(self, td, impl="create_clock -period 10 [get_ports clk]\n",
+               sign="create_clock -period 12 [get_ports clk]\n"):
+        paths = []
+        for name, text in (("a.v", "module x; endmodule\n"), ("impl.sdc", impl), ("sign.sdc", sign)):
+            paths.append(os.path.join(td, name))
+            with open(paths[-1], "w") as fh:
+                fh.write(text)
+        return paths
+
+    def test_signoff_sdc_is_an_input_and_its_clocks_must_match(self):
+        with tempfile.TemporaryDirectory() as td:
+            v, impl, sign = self._files(td)
+            d = Design("x", "x", v, impl, "macro", floorplan_def=v, signoff_sdc=sign)
+            self.assertIn(sign, d.input_files())  # mounted and fingerprinted with the other inputs
+            d.validate(check_pdk_files=False)
+            with open(sign, "w") as fh:
+                fh.write("create_clock -period 12 [get_ports clk2]\n")
+            with self.assertRaisesRegex(MissingInput, r"signoff_sdc clocks the ports \['clk2'\], sdc \['clk'\]"):
+                d.validate(check_pdk_files=False)
+            os.remove(sign)
+            with self.assertRaisesRegex(MissingInput, "missing input files"):
+                d.validate(check_pdk_files=False)
+
+    def test_design_file_resolves_it_relative_to_the_file(self):
+        with tempfile.TemporaryDirectory() as td:
+            v, impl, sign = self._files(td)
+            yml = os.path.join(td, "x.yaml")
+            with open(yml, "w") as fh:
+                fh.write("name: x\ntop: x\nmode: macro\npdk: sky130A\nnetlist: a.v\nsdc: impl.sdc\n"
+                         "signoff_sdc: sign.sdc\nfloorplan_def: a.v\n")
+            from sipath import designfile
+            d, _ = designfile.load(yml)
+            self.assertEqual(os.path.realpath(d.signoff_sdc), os.path.realpath(sign))
+
+    def test_timing_setup_reads_the_given_sdc_and_library_slew_drops_the_pdk_limit(self):
+        from sipath.tools.openroad import tcl
+        pdk = load_pdk("sky130A", platforms="/p")
+        d = Design("x", "x", "/d/a.v", "/d/impl.sdc", "macro", floorplan_def="/d/a.def", signoff_sdc="/d/s.sdc")
+        default = tcl._timing_setup(pdk, d)
+        self.assertIn("read_sdc /d/impl.sdc", default)
+        self.assertIn("set_max_transition 0.75 [current_design]", default)
+        lib = tcl._timing_setup(pdk, d, sdc="/d/s.sdc", library_slew=True)
+        self.assertIn("read_sdc /d/s.sdc", lib)
+        self.assertNotIn("set_max_transition", lib)
+        self.assertIn("set_max_capacitance 0.2 [current_design]", lib)  # capacitance and fanout stay
+        self.assertIn("set_max_fanout 10 [current_design]", lib)
+        from sipath import params
+        for step in ("signoff", "timing"):
+            params.check(step, {"library_slew": True})
+
+
 class SignoffJudgment(unittest.TestCase):
     """Project review, batch 1: a check with nothing to judge is not a pass."""
 
@@ -5127,6 +5233,37 @@ class PowerStrap(unittest.TestCase):
         r, why = self.strap([("VDD", "met4", (80000, 0, 81600, 200000))], obs=[("met3", (85000, 0, 86000, 99999))])
         self.assertIsNone(r)
         self.assertIn("obstruction", why[0])
+
+    def test_narrow_pin_is_named_not_out_of_reach(self):
+        # #30's reproducer: a 900x300 met2 tab beside a same-net higher target overlapping it by 300 DBU
+        from sipath.powerconnect import _strap
+        pin, why = (0, 0, 900, 300), []
+        self.assertIsNone(_strap(pin, "W", "met2", ["met3", "met4"], "VDD", [("VDD", "met3", (-3000, -1000, -1000, 1000))],
+                                 [], pin, (-10**6, -10**6, 10**6, 10**6), 60000, 400, 1000, why))
+        self.assertEqual(why, ["narrow: the VDD target on met3 1000 DBU away overlaps the pin across the strap by "
+                               "300 DBU, under the strap minimum of 1000"])
+        why = []  # beyond reach it stays out of reach
+        self.assertIsNone(_strap(pin, "W", "met2", ["met3"], "VDD", [("VDD", "met3", (-90000, -1000, -80000, 1000))],
+                                 [], pin, (-10**6, -10**6, 10**6, 10**6), 60000, 400, 1000, why))
+        self.assertEqual(why, ["no same-net target on a higher layer within reach"])
+
+    def test_unconnected_supply_pin_fails_the_step(self):
+        from unittest import mock
+        from sipath.steps import common
+        d = types.SimpleNamespace(mode="macro", macros=[types.SimpleNamespace(inst="u_ram")], pdn=None)
+        ctx = types.SimpleNamespace(design=d, session=None, outputs={}, metrics={},
+                                    pdk=types.SimpleNamespace(layers=["met1", "met2", "met3"]))
+        rec = {"pin": "vccd1", "net": "VDD", "ok": False, "why": ["met2 W: narrow: ..."]}
+        with mock.patch.object(common.db, "die_box", return_value=(0, 0, 1, 1)), \
+                mock.patch.object(common, "_via_array", return_value={}), \
+                mock.patch.object(common, "macro_supply_pins", return_value={"unconnected": ["vccd1->VDD"]}), \
+                mock.patch.object(common, "grid_nets", return_value={"VDD", "VSS"}), \
+                mock.patch.object(common, "_no_supply_shorts"), \
+                mock.patch("sipath.powerconnect.connect", return_value=[rec]):
+            with self.assertRaisesRegex(RuntimeError, r"1 supply pin\(s\) reach no grid shape.*u_ram/vccd1 \(VDD\).*narrow"):
+                common.connect_supplies(ctx)
+        self.assertEqual(ctx.outputs["power_connections_failed"], ["u_ram/vccd1"])
+        self.assertEqual((ctx.metrics["power_straps"], ctx.metrics["power_connections_failed"]), (0, 1))
 
     def test_odd_box_made_even(self):
         from sipath.powerconnect import _even

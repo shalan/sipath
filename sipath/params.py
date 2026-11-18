@@ -339,6 +339,15 @@ for _name, _checks in CHECK_STEPS.items():
     if "drc" in _checks:
         STEP_PARAMS[_name].append(Param("drc_split", "bool", True, "run the PDK's DRC rule groups as concurrent "
                                         "processes and merge their reports"))
+# the electrical (drv) gate's scope wherever the independent STA runs
+_DRV_SCOPE = Param("drv_scope", "str", "core", "pins the drv check counts: core (standard cells, the PDK's limits; "
+                   "IO-ring cells, hard macros and top-level ports reported apart in drv_excluded) or all (every "
+                   "violator fails, macro and port pins against their Liberty and SDC limits)", choices=("core", "all"))
+_LIBRARY_SLEW = Param("library_slew", "bool", False, "judge slew by the Liberty limits: the PDK's max_transition is "
+                      "not applied and a set_max_transition left in the SDC fails the check (give signoff a "
+                      "signoff_sdc without one)")
+for _step in ("signoff", "timing"):
+    STEP_PARAMS[_step] += [_DRV_SCOPE, _LIBRARY_SLEW]
 # every OpenROAD step (not the tool steps synth and integrate) takes these
 COMMON = (Param("threads", "int", None, "OpenROAD threads for this step's attempts (set_thread_count; signoff: "
                 "also KLayout DRC); unset: the run's threads, shared among the attempts running at once", min=1),)
