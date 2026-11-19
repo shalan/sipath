@@ -4550,7 +4550,8 @@ class SignoffConstraints(unittest.TestCase):
 
     def test_timing_setup_reads_the_given_sdc_and_library_slew_drops_the_pdk_limit(self):
         from sipath.tools.openroad import tcl
-        pdk = load_pdk("sky130A", platforms="/p")
+        pdk = sky130hd("/p")  # needs no PDK tree; sky130A's limits
+        pdk.constraints = {"max_transition": 0.75, "max_fanout": 10, "max_capacitance": 0.2}
         d = Design("x", "x", "/d/a.v", "/d/impl.sdc", "macro", floorplan_def="/d/a.def", signoff_sdc="/d/s.sdc")
         default = tcl._timing_setup(pdk, d)
         self.assertIn("read_sdc /d/impl.sdc", default)
